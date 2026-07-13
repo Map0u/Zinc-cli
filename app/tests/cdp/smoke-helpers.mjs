@@ -196,9 +196,25 @@ export async function createTestTab(page) {
  * command being edited, so waiting for a literal embedded in the source can
  * succeed before PowerShell has executed anything.
  */
+/**
+ * Emits `text` as UTF-8 no matter what code page the console happens to run at.
+ *
+ * Base64 only keeps the *command source* ASCII (so PSReadLine's echo can never
+ * fake a pass). It does not decide how `Console.Out` encodes the line: that
+ * follows `[Console]::OutputEncoding`, which is the OEM code page of the host —
+ * 936 on a zh-CN machine, 437 on an en-US CI runner. CP437 cannot represent CJK,
+ * so `Console.Out` would substitute `?` before the bytes ever reach ConPTY, and
+ * no terminal downstream could recover them. Pinning UTF-8 around the write (and
+ * restoring it afterwards) makes the producer deterministic across locales.
+ */
 export function powerShellUtf8WriteLine(text) {
   const encoded = Buffer.from(text, 'utf8').toString('base64')
-  return `[Console]::WriteLine([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')))`
+  return (
+    `& { $zincPrevEncoding = [Console]::OutputEncoding; try { ` +
+    `[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); ` +
+    `[Console]::WriteLine([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))) ` +
+    `} finally { [Console]::OutputEncoding = $zincPrevEncoding } }`
+  )
 }
 
 export async function runPowerShellCommand(page, tabId, command, marker, timeout = DEFAULT_TIMEOUT_MS) {
