@@ -40,14 +40,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # Without this, checkout recreates the triggering tag locally from its commit SHA, so a
-          # genuinely annotated tag arrives on the runner as a lightweight one and the annotated-tag
-          # assertion below fails on a correct tag. Fetching the tag objects keeps that gate honest.
-          fetch-tags: true
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # actions/checkout recreates the triggering tag on the runner from its commit SHA, so a
+      # genuinely annotated tag arrives here as a lightweight one and the annotated-tag assertion
+      # below would fail on a correct tag (fetch-tags: true does not change this). Re-fetch the real
+      # tag object — forced, so it replaces checkout's flattened ref. The credential is passed for
+      # this one command only; it is never written into .git/config.
+      - name: Restore the annotated tag object
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=Authorization: Basic ${header}" \
+            fetch --force --no-tags origin \
+            "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          echo "refs/tags/${GITHUB_REF_NAME} is a $(git cat-file -t "refs/tags/${GITHUB_REF_NAME}") object"
       # Also runs on every PR/main push, but the tag path must not depend on that having happened:
       # these fixtures are what keep the publish job least-privilege and non-clobbering.
       - name: Test release governance gates
