@@ -40,6 +40,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Without this, checkout recreates the triggering tag locally from its commit SHA, so a
+          # genuinely annotated tag arrives on the runner as a lightweight one and the annotated-tag
+          # assertion below fails on a correct tag. Fetching the tag objects keeps that gate honest.
+          fetch-tags: true
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
