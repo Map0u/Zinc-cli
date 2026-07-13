@@ -1,0 +1,25 @@
+{
+  "$schema": "https://aka.ms/terminal-profiles-schema",
+  "copyFormatting": "none",
+  "copyOnSelect": false,
+  "defaultProfile": "{00000000-0000-0000-0000-000000000001}",
+  "profiles": {
+    "defaults": {
+      "font": {
+        "face": "Cascadia Mono",
+        "size": 12
+      },
+      "opacity": 90,
+      "useAcrylic": true
+    },
+    "list": [
+      {
+        "commandline": "%ProgramFiles%\\PowerShell\\7\\pwsh.exe",
+        "guid": "{00000000-0000-0000-0000-000000000001}",
+        "hidden": false,
+        "name": "PowerShell"
+      }
+    ]
+  },
+  "schemes": []
+}

@@ -1,0 +1,51 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.nupkg
+TestResults/
+settings/*.local.json
+settings/windows-terminal-settings.snapshot.json
+.playwright-mcp/
+
+
+# Electron
+node_modules/
+out/
+dist/
+*.tsbuildinfo
+*.local
+npm-debug.log*
+*.log
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Generated installer inputs and artwork
+app/installer/payload/
+app/installer/assets/
+app/build/
+
+# Private/debug captures are never source assets
+docs/acceptance-shots/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Agent tooling worktrees
+.worktrees/
+
+# Debug screenshots dropped in repo root
+/*.png
+
+# Claude Code project settings/state
+.claude/

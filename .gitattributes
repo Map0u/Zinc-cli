@@ -1,0 +1,4 @@
+/THIRD_PARTY_NOTICES.md text eol=lf
+/app/resources/legal/LICENSE text eol=lf
+/app/resources/legal/*.md text eol=lf
+/app/resources/legal/*.json text eol=lf

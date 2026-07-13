@@ -1,0 +1,79 @@
+{
+  "name": "zinc-installer",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Verified Windows installer wrapper for Zinc",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Map0u/Zinc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Map0u/Zinc/issues"
+  },
+  "homepage": "https://github.com/Map0u/Zinc#readme",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "main": "main.js",
+  "build": {
+    "appId": "space.457workshop.zinc.installer",
+    "productName": "Zinc Installer",
+    "electronVersion": "43.0.0",
+    "asar": true,
+    "directories": {
+      "output": "../dist/custom-installer"
+    },
+    "files": [
+      "main.js",
+      "lib/**/*",
+      "preload.js",
+      "renderer/**/*",
+      "assets/icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../resources/legal",
+        "to": "legal",
+        "filter": [
+          "LICENSE",
+          "THIRD_PARTY_NOTICES.md",
+          "THIRD_PARTY_NOTICES-*.md",
+          "ASSET_PROVENANCE.md",
+          "*.cdx.json"
+        ]
+      },
+      {
+        "from": "payload",
+        "to": "payload",
+        "filter": [
+          "Zinc-Setup.exe",
+          "payload-manifest.json"
+        ]
+      },
+      {
+        "from": "../resources/icon.ico",
+        "to": "branding/icon.ico"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../resources/icon.ico",
+      "artifactName": "Zinc-${version}-Installer.${ext}"
+    },
+    "portable": {
+      "artifactName": "Zinc-${version}-Installer.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.0.0"
+  }
+}

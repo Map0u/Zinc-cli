@@ -1,0 +1,32 @@
+name: Feature Request
+description: Propose a focused Zinc improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user workflow needs improvement?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful solution.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope and privacy
+      options:
+        - label: This proposal keeps Zinc focused as a small terminal.
+          required: true
+        - label: This report contains no secrets or personal information.
+          required: true

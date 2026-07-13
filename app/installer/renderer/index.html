@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zinc Installer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="rail">
+        <div class="rail-titlebar">
+          <img src="../assets/icon.png" alt="" draggable="false" />
+          <span>Zinc</span>
+        </div>
+
+        <ol class="rail-list" aria-label="安装步骤">
+          <li class="rail-item is-active" data-step="welcome">
+            <span class="active-pill"></span>
+            <span class="step-icon">1</span>
+            <span data-i18n="stepWelcome">欢迎</span>
+          </li>
+          <li class="rail-item" data-step="install">
+            <span class="active-pill"></span>
+            <span class="step-icon">2</span>
+            <span data-i18n="stepInstall">安装</span>
+          </li>
+          <li class="rail-item" data-step="finish">
+            <span class="active-pill"></span>
+            <span class="step-icon">3</span>
+            <span data-i18n="stepFinish">完成</span>
+          </li>
+        </ol>
+      </aside>
+
+      <section class="content">
+        <div class="drag-strip"></div>
+
+        <section class="panel">
+          <h1 id="headline">安装 Zinc</h1>
+          <p class="subhead" id="subhead">为当前用户安装 Zinc 终端。</p>
+
+          <div class="cards">
+            <div class="setting-card">
+              <div>
+                <div class="card-title" id="locationTitle">安装位置</div>
+                <div class="card-desc path-text" id="installLocation">正在检查...</div>
+              </div>
+            </div>
+
+            <div class="setting-card" id="desktopRow">
+              <div>
+                <div class="card-title" data-i18n="desktopTitle">桌面快捷方式</div>
+                <div class="card-desc" data-i18n="desktopDesc">安装后在桌面创建 Zinc 快捷方式。</div>
+              </div>
+              <span class="meta-value" data-i18n="enabled">已启用</span>
+            </div>
+
+            <div class="setting-card" id="payloadRow">
+              <div>
+                <div class="card-title" data-i18n="payloadTitle">载荷版本</div>
+                <div class="card-desc" id="payloadDesc">正在检查...</div>
+              </div>
+            </div>
+
+            <div class="setting-card" id="warningRow" role="alert" hidden>
+              <div>
+                <div class="card-title" id="warningTitle"></div>
+                <div class="card-desc" id="warningDesc"></div>
+              </div>
+            </div>
+
+            <div class="setting-card" id="startMenuRow">
+              <div>
+                <div class="card-title" data-i18n="startMenuTitle">开始菜单</div>
+                <div class="card-desc" data-i18n="startMenuDesc">安装后添加到开始菜单。</div>
+              </div>
+              <span class="meta-value" data-i18n="enabled">已启用</span>
+            </div>
+          </div>
+
+          <div class="progress" aria-hidden="true">
+            <div id="progressBar"></div>
+          </div>
+          <p class="status" id="statusLine">正在检查安装状态...</p>
+        </section>
+
+        <footer class="actions">
+          <button class="button secondary" id="launchButton" type="button" hidden>启动 Zinc</button>
+          <div class="spacer"></div>
+          <button class="button secondary" id="backButton" type="button" hidden>返回</button>
+          <button class="button secondary" id="uninstallButton" type="button" hidden>卸载</button>
+          <button class="button secondary" id="overwriteButton" type="button" hidden>覆盖安装</button>
+          <button class="button primary" id="primaryButton" type="button" disabled>安装</button>
+        </footer>
+      </section>
+    </main>
+
+    <script src="./installer.js"></script>
+  </body>
+</html>

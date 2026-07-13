@@ -1,0 +1,43 @@
+<Window x:Class="WpfFallback.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="WPF fallback: windowed WebView2 transparency outside WinUI3"
+        Width="900" Height="650"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent">
+
+    <Grid>
+        <!-- Stand-in "backdrop": a loud gradient so it is unmistakable, by
+             eye, whether the WebView2 above it is really letting it bleed
+             through or is silently painting itself opaque. This is not
+             Mica (no DirectComposition/MicaController wiring here — see
+             FEASIBILITY.md for why that part was not rebuilt in this spike),
+             just a proxy for "is there anything behind this WebView2 at
+             all". -->
+        <Rectangle>
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#FFFF00FF" Offset="0.0" />
+                    <GradientStop Color="#FF00FFFF" Offset="0.5" />
+                    <GradientStop Color="#FFFFFF00" Offset="1.0" />
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
+
+        <Grid Margin="24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal">
+                <TextBlock Text="WPF + windowed WebView2, DefaultBackgroundColor = Transparent (drag anywhere to move, Esc to close)"
+                           Foreground="Black" FontWeight="Bold" FontSize="14" Background="#AAFFFFFF" Padding="6" />
+            </StackPanel>
+
+            <wv2:WebView2 x:Name="WebView" Grid.Row="1" Margin="0,12,0,0" />
+        </Grid>
+    </Grid>
+</Window>

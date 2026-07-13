@@ -1,0 +1,64 @@
+name: Bug Report
+description: Report a reproducible Zinc problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not post vulnerabilities or secrets here. Use SECURITY.md. Redact
+        usernames, paths, commands, tokens, hostnames, IPs, and terminal content.
+  - type: input
+    id: version
+    attributes:
+      label: Zinc version
+      description: Shown in Settings > About.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - NSIS setup
+        - Custom installer
+        - Development build
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a minimal test without private data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks already attempted
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed secrets and personal information from this report and attachments.
+          required: true

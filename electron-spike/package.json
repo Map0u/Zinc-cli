@@ -1,0 +1,29 @@
+{
+  "name": "zinc-electron-spike",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Feasibility spike: Zinc terminal reshelled in Electron with Mica/acrylic backdrop + node-pty + xterm.js",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:debug": "electron-vite dev -- --remote-debugging-port=9336",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "rebuild": "electron-rebuild -w node-pty"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "koffi": "^2.9.0",
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.1.0",
+    "@types/node": "^22.10.2",
+    "electron": "^43.0.0",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}

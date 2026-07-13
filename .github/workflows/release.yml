@@ -1,0 +1,332 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Rehearsal. A tag is not recoverable — a published release can be downloaded by users and by
+  # the auto-updater the moment it exists, and RELEASE.md forbids moving a published tag. So the
+  # whole pipeline (build, packaged legal check, installer acceptance matrix, exact nine-asset set,
+  # checksums) must be runnable without publishing anything: dispatch this from main, then tag.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Reviewed baseline for the upgrade acceptance path. Empty for 0.5.0: it is the first release of
+  # this repository, so there is no published version to upgrade from and the matrix says so out
+  # loud rather than reporting a silently skipped leg. From 0.5.1 on, pin the previous release here
+  # (tag, setup name, version, and the SHA-256 reviewed at that release) to restore upgrade coverage.
+  #
+  # The hash is pinned in the workflow on purpose: a release's own SHA256SUMS.txt lives in the same
+  # mutable place as the setup it vouches for, so checking one against the other only proves they
+  # agree — not that either is still the artifact we reviewed.
+  ZINC_PREVIOUS_RELEASE_TAG: ""
+  ZINC_PREVIOUS_SETUP_NAME: ""
+  ZINC_PREVIOUS_VERSION: ""
+  ZINC_PREVIOUS_SETUP_SHA256: ""
+
+jobs:
+  public-tree:
+    name: Public tree and privacy gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Also runs on every PR/main push, but the tag path must not depend on that having happened:
+      # these fixtures are what keep the publish job least-privilege and non-clobbering.
+      - name: Test release governance gates
+        run: node --test app/tests/release/release-gates.test.mjs
+      # A rehearsal that quietly ran on some other branch would produce a green run for a commit we
+      # are not about to tag — the most useful thing it could do is lie. Bind it to the main tip.
+      - name: Verify rehearsal runs on the current main tip
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Rehearse from main, not $GITHUB_REF: a tag can only be cut from the main tip." >&2
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse refs/remotes/origin/main)" ]; then
+            echo "HEAD is not the current origin/main tip; the rehearsal would prove a commit that cannot be tagged." >&2
+            exit 1
+          fi
+
+      - name: Verify annotated tag is the approved main tip
+        if: github.event_name == 'push'
+        run: node app/scripts/verify-release-source.mjs --release-ref refs/remotes/origin/main
+      - run: node scripts/verify-public-tree.mjs
+
+  windows:
+    needs: public-tree
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    defaults:
+      run:
+        working-directory: app
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Read package version
+        id: package
+        run: |
+          $pkg = Get-Content package.json | ConvertFrom-Json
+          "version=$($pkg.version)" >> $env:GITHUB_OUTPUT
+
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run legal:release
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Run CDP regression smoke
+        run: pwsh -NoProfile -File ./scripts/run-cdp-smoke.ps1
+      - run: npm run artwork
+
+      - name: Build update artifacts
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Verify packaged application legal materials
+        run: node ./scripts/verify-legal-artifacts.mjs --package-resources ./dist/win-unpacked/resources
+
+      - name: Build custom installer
+        run: |
+          npm run installer:prepare
+          npx electron-builder --projectDir installer --win portable --publish never
+
+      - name: Verify packaged installer legal materials
+        run: node ./scripts/verify-legal-artifacts.mjs --package-resources ./dist/custom-installer/win-unpacked/resources
+
+      - name: Download and verify reviewed previous setup
+        if: env.ZINC_PREVIOUS_RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $previousDirectory = Join-Path $PWD 'dist/previous'
+          New-Item -ItemType Directory -Path $previousDirectory -Force | Out-Null
+          gh release download $env:ZINC_PREVIOUS_RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --dir $previousDirectory `
+            --pattern $env:ZINC_PREVIOUS_SETUP_NAME `
+            --pattern SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not download reviewed baseline $env:ZINC_PREVIOUS_RELEASE_TAG."
+          }
+
+          $setupPath = Join-Path $previousDirectory $env:ZINC_PREVIOUS_SETUP_NAME
+          $checksumPath = Join-Path $previousDirectory 'SHA256SUMS.txt'
+          $matchingLines = @(Get-Content -LiteralPath $checksumPath | Where-Object {
+            $_ -match "^[a-fA-F0-9]{64}\s+(?:.*[\\/])?$([regex]::Escape($env:ZINC_PREVIOUS_SETUP_NAME))$"
+          })
+          if ($matchingLines.Count -ne 1) {
+            throw "Expected one checksum for $env:ZINC_PREVIOUS_SETUP_NAME; found $($matchingLines.Count)."
+          }
+          $expectedHash = ($matchingLines[0] -split '\s+')[0].ToLowerInvariant()
+          $actualHash = (Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) {
+            throw "Reviewed previous setup checksum mismatch."
+          }
+          if ($actualHash -ne $env:ZINC_PREVIOUS_SETUP_SHA256.ToLowerInvariant()) {
+            throw "Previous setup does not match the hash reviewed in this workflow; the release asset changed."
+          }
+
+      - name: Run installer acceptance matrix
+        timeout-minutes: 45
+        run: |
+          $pkg = Get-Content package.json | ConvertFrom-Json
+          $installer = Get-ChildItem -LiteralPath dist/custom-installer -File -Filter "Zinc-$($pkg.version)-Installer.exe"
+          if ($installer.Count -ne 1) {
+            throw "Expected exactly one custom installer; found $($installer.Count)."
+          }
+          $matrixArgs = @(
+            '-InstallerPath', $installer[0].FullName,
+            '-ExpectedVersion', $pkg.version
+          )
+          if ($env:ZINC_PREVIOUS_RELEASE_TAG) {
+            $matrixArgs += @(
+              '-PreviousSetupPath', (Join-Path $PWD "dist/previous/$env:ZINC_PREVIOUS_SETUP_NAME"),
+              '-PreviousExpectedVersion', $env:ZINC_PREVIOUS_VERSION
+            )
+          } else {
+            Write-Host "::warning::No reviewed baseline is pinned, so the upgrade leg of the installer matrix is NOT covered by this run. Expected for the first release of this repository; pin the previous release from 0.5.1 on."
+          }
+          pwsh -NoProfile -File ./scripts/verify-installer-matrix.ps1 @matrixArgs
+
+      - name: Generate checksums
+        run: |
+          function Get-SingleArtifact {
+            param(
+              [string]$Directory,
+              [string]$Filter,
+              [string]$Label
+            )
+
+            if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
+              throw "Expected artifact directory is missing for ${Label}: $Directory"
+            }
+            $matches = @(Get-ChildItem -LiteralPath $Directory -File -Filter $Filter)
+            if ($matches.Count -ne 1) {
+              throw "Expected exactly one ${Label} matching '$Filter' in '$Directory'; found $($matches.Count)."
+            }
+            return $matches[0]
+          }
+
+          $pkg = Get-Content package.json | ConvertFrom-Json
+          Copy-Item -LiteralPath ../LICENSE -Destination dist/LICENSE
+          Copy-Item -LiteralPath ../THIRD_PARTY_NOTICES.md -Destination "dist/THIRD_PARTY_NOTICES-$($pkg.version).md"
+          Copy-Item -LiteralPath ../ASSET_PROVENANCE.md -Destination dist/ASSET_PROVENANCE.md
+          Copy-Item -LiteralPath "resources/legal/zinc-$($pkg.version).cdx.json" -Destination dist
+          $files = @(
+            Get-SingleArtifact -Directory dist -Filter "Zinc-$($pkg.version)-Setup.exe" -Label 'setup executable'
+            Get-SingleArtifact -Directory dist -Filter "Zinc-$($pkg.version)-Setup.exe.blockmap" -Label 'setup blockmap'
+            Get-SingleArtifact -Directory dist -Filter 'latest.yml' -Label 'update metadata'
+            Get-SingleArtifact -Directory dist/custom-installer -Filter "Zinc-$($pkg.version)-Installer.exe" -Label 'custom installer'
+            Get-SingleArtifact -Directory dist -Filter 'LICENSE' -Label 'Zinc license'
+            Get-SingleArtifact -Directory dist -Filter "THIRD_PARTY_NOTICES-$($pkg.version).md" -Label 'third-party notices'
+            Get-SingleArtifact -Directory dist -Filter 'ASSET_PROVENANCE.md' -Label 'asset provenance'
+            Get-SingleArtifact -Directory dist -Filter "zinc-$($pkg.version).cdx.json" -Label 'CycloneDX SBOM'
+          )
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Encoding utf8NoBOM dist/SHA256SUMS.txt
+
+          $releaseDirectory = Join-Path $PWD 'dist/release-assets'
+          New-Item -ItemType Directory -Path $releaseDirectory | Out-Null
+          foreach ($file in $files) {
+            Copy-Item -LiteralPath $file.FullName -Destination $releaseDirectory
+          }
+          Copy-Item -LiteralPath dist/SHA256SUMS.txt -Destination $releaseDirectory
+
+      - name: Transfer reviewed release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: zinc-release-assets-${{ github.sha }}
+          path: app/dist/release-assets/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  review-assets:
+    name: Review staged release assets
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ZINC_RELEASE_VERSION: ${{ needs.windows.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download staged release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: zinc-release-assets-${{ github.sha }}
+          path: release-assets
+
+      - name: Verify exact asset set and checksums
+        shell: bash
+        run: bash scripts/verify-release-assets.sh release-assets "$ZINC_RELEASE_VERSION"
+
+      - name: Verify reviewed release notes exist for this version
+        if: github.event_name == 'push'
+        shell: bash
+        run: test -f "docs/RELEASE_NOTES/${GITHUB_REF_NAME}.md"
+
+  publish:
+    name: Publish immutable release
+    needs: [windows, review-assets]
+    # A dispatched rehearsal stops here: it has proved the assets, and it holds no write permission
+    # or release command with which to publish them.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ZINC_RELEASE_VERSION: ${{ needs.windows.outputs.version }}
+
+    steps:
+      # Only for the reviewed release notes below; the assets themselves come from the artifact.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download reviewed release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: zinc-release-assets-${{ github.sha }}
+          path: release-assets
+
+      - name: Verify exact asset set and publish once
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-release-assets.sh release-assets "$ZINC_RELEASE_VERSION"
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to replace published assets." >&2
+            exit 1
+          fi
+
+          # Reviewed, human-written notes. Auto-generated notes would put the internal commit
+          # history — including features that were removed again before release — on the page a
+          # first-time user reads before deciding to trust an unsigned binary.
+          notes="docs/RELEASE_NOTES/${GITHUB_REF_NAME}.md"
+          if [[ ! -f "$notes" ]]; then
+            echo "Reviewed release notes are missing: $notes" >&2
+            exit 1
+          fi
+
+          files=()
+          for name in \
+            "Zinc-${ZINC_RELEASE_VERSION}-Setup.exe" \
+            "Zinc-${ZINC_RELEASE_VERSION}-Setup.exe.blockmap" \
+            "latest.yml" \
+            "Zinc-${ZINC_RELEASE_VERSION}-Installer.exe" \
+            "LICENSE" \
+            "THIRD_PARTY_NOTICES-${ZINC_RELEASE_VERSION}.md" \
+            "ASSET_PROVENANCE.md" \
+            "zinc-${ZINC_RELEASE_VERSION}.cdx.json" \
+            "SHA256SUMS.txt"; do
+            files+=("release-assets/$name")
+          done
+
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$ZINC_RELEASE_VERSION" \
+            --notes-file "$notes" \
+            --verify-tag \
+            --draft
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --latest

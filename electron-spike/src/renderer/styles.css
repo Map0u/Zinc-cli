@@ -1,0 +1,54 @@
+@import url('../../node_modules/@xterm/xterm/css/xterm.css');
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  /* No opaque background here: this is what lets the OS backdrop material
+     (Mica/acrylic) painted behind the window show through wherever the
+     renderer itself doesn't paint something opaque. */
+  background: transparent;
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+#titlebar {
+  -webkit-app-region: drag;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  background: transparent;
+}
+
+#terminal-container {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 12px 12px;
+}
+
+#terminal {
+  width: 100%;
+  height: 100%;
+  /* No CSS background here on purpose: xterm's own theme.background
+     (set in main.ts) supplies the translucent rgba(12,12,12,0.6) fill so
+     there is exactly one alpha layer between the glyphs and the Mica/
+     acrylic backdrop behind the window, not a stacked double-alpha. */
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+}

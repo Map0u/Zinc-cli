@@ -1,0 +1,343 @@
+@import "tailwindcss";
+
+/* Zinc chrome tokens use the dark Fluent framework color constants, expressed
+   as CSS rgba() values:
+     CardBackgroundFillColorDefaultBrush = #0DFFFFFF -> rgba(255,255,255,.051)
+     CardStrokeColorDefaultBrush         = #19000000 -> rgba(0,0,0,.098)
+     TextFillColorSecondaryBrush         = #C5FFFFFF -> rgba(255,255,255,.773)
+     TextFillColorTertiaryBrush          = #87FFFFFF -> rgba(255,255,255,.529)
+     SubtleFillColorSecondaryBrush       = #0FFFFFFF -> rgba(255,255,255,.059)  (selected row)
+     SubtleFillColorTertiaryBrush        = #0AFFFFFF -> rgba(255,255,255,.039)  (hover row)
+   `--color-accent` mirrors AccentFillColorDefaultBrush (dark theme = the OS
+   accent's "Light2" shade, not the raw accent) — this fallback is overwritten
+   at runtime in App.tsx from the live registry value via `window.zinc.window.getAccentColor()`,
+   so the app tracks whatever accent color the user has set in Windows, same
+   as the old app did automatically.
+
+   Second dump pass for the interactive controls inside the cards (Toggle,
+   TextBox/NumberBox, ComboBox), same instrumentation method:
+     ToggleSwitchFillOff       = #19000000 -> rgba(0,0,0,.098)
+     ToggleSwitchStrokeOff     = #8BFFFFFF -> rgba(255,255,255,.545)
+     ToggleSwitchKnobFillOff   = #C5FFFFFF -> same value as --color-text-secondary, reused
+     ToggleSwitchFillOn/StrokeOn resolve to the accent brush -> reuses --color-accent
+     ToggleSwitchKnobFillOn    = #FF000000 -> solid black
+     TextControlBackground / ComboBoxBackground = #0FFFFFFF -> rgba(255,255,255,.059)
+     TextControlBackgroundFocused               = #B31E1E1E -> rgba(30,30,30,.702)
+     TextControlPlaceholderForeground = #C5FFFFFF -> same value as --color-text-secondary, reused
+   TextControlBorderBrush/ComboBoxBorderBrush are LinearGradientBrush (a
+   subtle two-stop edge highlight), which a flat CSS border can't reproduce;
+   flattened to ControlStrokeColorDefaultBrush (#12FFFFFF), the solid brush
+   the same control template falls back to for its non-gradient edges. */
+@theme {
+  --color-accent: #3f7fbf;
+  --color-card-bg: rgba(255, 255, 255, 0.051);
+  --color-card-border: rgba(0, 0, 0, 0.098);
+  --color-text-secondary: rgba(255, 255, 255, 0.773);
+  --color-text-tertiary: rgba(255, 255, 255, 0.529);
+  --color-row-selected: rgba(255, 255, 255, 0.059);
+  --color-row-hover: rgba(255, 255, 255, 0.039);
+  --color-toggle-off-bg: rgba(0, 0, 0, 0.098);
+  --color-toggle-off-border: rgba(255, 255, 255, 0.545);
+  --color-control-bg: rgba(255, 255, 255, 0.059);
+  --color-control-bg-focused: rgba(30, 30, 30, 0.702);
+  --color-control-border: rgba(255, 255, 255, 0.071);
+  --color-control-border-hover: rgba(255, 255, 255, 0.16);
+  --color-popup-bg: #1f1f1f;
+  --color-popup-border: rgba(255, 255, 255, 0.1);
+  --color-fg-primary: #ffffff;
+  --color-fg-secondary: rgba(255, 255, 255, 0.6);
+  --color-fg-tertiary: rgba(255, 255, 255, 0.4);
+  --color-icon-hover-bg: rgba(255, 255, 255, 0.08);
+  --color-icon-hover-fg: #ffffff;
+  --color-scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+}
+
+/* Full-chrome light mode (§ appearance overhaul): driven by `data-theme` on
+   <html>, set from App.tsx's already-resolved `themeMode` (system signal +
+   the user's explicit ThemePreference override folded together by
+   `resolveThemeMode`) — the same value the terminal's own ANSI/surface
+   palette uses. A plain `prefers-color-scheme` media query can't see that
+   override (it only reflects the OS), which is exactly the bug this
+   replaced: picking an explicit Light/Dark preference recolored the
+   terminal but left every chrome token on whatever the OS happened to be,
+   producing near-white-on-white settings text. Every token above gets an
+   inverted counterpart; nothing here is scoped to the terminal, this is
+   chrome-only (rail/settings/status bar). */
+:root[data-theme='light'] {
+    --color-card-bg: rgba(0, 0, 0, 0.035);
+    --color-card-border: rgba(0, 0, 0, 0.12);
+    --color-text-secondary: rgba(0, 0, 0, 0.72);
+    --color-text-tertiary: rgba(0, 0, 0, 0.48);
+    --color-row-selected: rgba(0, 0, 0, 0.07);
+    --color-row-hover: rgba(0, 0, 0, 0.045);
+    --color-toggle-off-bg: rgba(0, 0, 0, 0.07);
+    --color-toggle-off-border: rgba(0, 0, 0, 0.35);
+    --color-control-bg: rgba(0, 0, 0, 0.035);
+    --color-control-bg-focused: rgba(255, 255, 255, 0.9);
+    --color-control-border: rgba(0, 0, 0, 0.12);
+    --color-control-border-hover: rgba(0, 0, 0, 0.22);
+    --color-popup-bg: #fbfbfb;
+    --color-popup-border: rgba(0, 0, 0, 0.1);
+    --color-fg-primary: #17181c;
+    --color-fg-secondary: rgba(0, 0, 0, 0.65);
+    --color-fg-tertiary: rgba(0, 0, 0, 0.45);
+  --color-icon-hover-bg: rgba(0, 0, 0, 0.06);
+  --color-icon-hover-fg: #000000;
+  --color-scrollbar-thumb: rgba(0, 0, 0, 0.16);
+  --color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+}
+
+:root[data-aod='1'] {
+  --color-accent: #d69a3c;
+  --color-card-bg: transparent;
+  --color-card-border: #2a2a2a;
+  --color-text-secondary: #666666;
+  --color-text-tertiary: #555555;
+  --color-row-selected: rgba(214, 154, 60, 0.1);
+  --color-row-hover: rgba(255, 255, 255, 0.035);
+  --color-toggle-off-bg: transparent;
+  --color-toggle-off-border: #2a2a2a;
+  --color-control-bg: transparent;
+  --color-control-bg-focused: #050505;
+  --color-control-border: #2a2a2a;
+  --color-control-border-hover: #343434;
+  --color-popup-bg: #050505;
+  --color-popup-border: #2a2a2a;
+  --color-fg-primary: #888888;
+  --color-fg-secondary: #666666;
+  --color-fg-tertiary: #555555;
+  --color-icon-hover-bg: rgba(214, 154, 60, 0.1);
+  --color-icon-hover-fg: #888888;
+  --color-scrollbar-thumb: #2a2a2a;
+  --color-scrollbar-thumb-hover: #3a3a3a;
+}
+
+html[data-aod='1'],
+html[data-aod='1'] body {
+  background: #000000;
+}
+
+html[data-aod='1'][data-aod-blackout='1'] #root {
+  opacity: 0;
+}
+
+.aod-burn-in-frame {
+  --aod-offset-x: 0px;
+  --aod-offset-y: 0px;
+  will-change: transform;
+}
+
+/* Dropdown popup open transition (settings controls redesign) — a quick
+   scale+fade from the trigger's corner, not just an instant pop-in. */
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes zinc-splash-breathe {
+  0% {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  34% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  72% {
+    transform: scale(1.055);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.zinc-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 32%),
+    rgba(7, 8, 10, 0.68);
+  backdrop-filter: blur(28px) saturate(140%);
+  opacity: 1;
+  transition: opacity 240ms ease, backdrop-filter 240ms ease;
+}
+
+.zinc-splash-leaving {
+  opacity: 0;
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+.zinc-splash-mark {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 22px 70px rgba(0, 0, 0, 0.46);
+  animation: zinc-splash-breathe 1000ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.zinc-splash-mark img {
+  width: 56px;
+  height: 56px;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zinc-splash,
+  .zinc-splash-mark {
+    animation: none;
+    transition-duration: 1ms;
+  }
+}
+
+/* Segoe Fluent Icons is supplied by Windows and is not bundled. Falls back to
+   Segoe MDL2 Assets, the pre-Win11 name for the same glyph set, for older
+   Windows installs that never got the Fluent Icons font update. */
+.icon-font {
+  font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1;
+}
+
+/* M8: let the Acrylic backdrop (set on the BrowserWindow itself) show
+   through the Chromium surface — any opaque ancestor here paints over it. */
+html,
+body,
+#root {
+  background: transparent;
+}
+
+/* This is a fixed-viewport native app shell (old app is a Win32 window, not
+   a scrollable document) - there is no concept of "the whole page scrolls".
+   At fractional display scaling (e.g. 150%), flex layout sub-pixel rounding
+   can tip the root content 1px past the viewport; the UA then shows a real
+   document scrollbar regardless of overflow:visible (the root/viewport is
+   always scrollable by spec), which itself eats scrollbar-width of space
+   and can cascade into the other axis too. Clip it outright: every internal
+   panel already manages its own overflow-y-auto explicitly. */
+html,
+body {
+  overflow: hidden;
+}
+
+/* xterm.js's own CSS sets `.xterm-viewport { overflow-y: scroll }` with no
+   overflow-x — which the UA then computes as `auto` (the "visible paired
+   with a scrolling value becomes auto" rule), so any 1px rounding between
+   the fit addon's column count and the actual canvas width pops a native
+   horizontal scrollbar. The terminal should only ever reflow columns to
+   fit its container width (FitAddon's job), never scroll sideways. */
+.xterm .xterm-viewport {
+  overflow-x: hidden;
+}
+
+/* Terminal scrollbar: the old app's terminal.html sets `scrollbar-color:
+   #3A424C transparent` (standard CSS Scrollbars Level 1 - WebView2's
+   Chromium honors it too), but that property alone can't draw a pill
+   shape, just a thin bar in that color. Redone here with webkit-scrollbar
+   pseudo-elements for full control (width, rounded thumb, floating inset)
+   while keeping the same sourced #3A424C base tone. */
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: #3a424c;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  min-height: 32px;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: #4a5568;
+}
+
+/* Chrome scroll containers (settings content, category rail, tab rail) - same
+   rounded-pill thumb shape as the terminal scrollbar above, but toned with the
+   chrome's own fg-alpha tokens instead of the terminal's sourced #3a424c,
+   which belongs only to the terminal surface. */
+.chrome-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.chrome-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chrome-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar-thumb);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  min-height: 32px;
+}
+.chrome-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-thumb-hover);
+}
+
+/* Opacity slider (RailOpacity/TerminalOpacity): native <input type="range">
+   ignores `accent-color` on its track fill in Chromium — only the thumb
+   picks it up, and even that render as a plain OS-blue disc regardless, so
+   the control never actually tracked the app's accent. Rebuilt with
+   -webkit-appearance: none and a JS-driven two-tone gradient (see
+   OpacitySlider's inline `background`) for the fill, plus a small bar-shaped
+   thumb instead of a round disc — consistent with the rest of the hand-
+   drawn controls (Toggle/Dropdown) rather than an OS-chrome knob. */
+.opacity-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+.opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 6px;
+  height: 16px;
+  border-radius: 3px;
+  background: var(--color-accent);
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+/* Chrome (window frame, tab rail, settings) font stack — a compact
+   system-UI face closer to Segoe UI Variable on Windows. Scoped
+   to #root, not html/body, so it never touches the terminal, which sets its
+   own font via xterm's FontFamily setting independently. Source Han Sans
+   listed before the generic sans-serif fallback so CJK glyphs (which Segoe
+   UI Variable/Segoe UI don't cover) render in it instead of whatever CJK
+   face Windows would otherwise substitute — several installed-name variants
+   listed since which one a given machine has depends on which release/vendor
+   build was installed. */
+#root {
+  font-family:
+    'Segoe UI Variable',
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    'Source Han Sans SC',
+    'Source Han Sans CN',
+    'Noto Sans CJK SC',
+    'Noto Sans SC',
+    '思源黑体',
+    sans-serif;
+}

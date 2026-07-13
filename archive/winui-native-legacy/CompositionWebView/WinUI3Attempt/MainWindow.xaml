@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="WinUI3Attempt.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:WinUI3Attempt"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="WinUI3 CompositionController Attempt"
+    mc:Ignorable="d">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="BaseAlt" />
+    </Window.SystemBackdrop>
+
+    <Grid Padding="16" RequestedTheme="Dark">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="CoreWebView2CompositionController in WinUI3 XAML tree — feasibility attempt"
+                       FontSize="16" FontWeight="SemiBold" />
+            <TextBlock x:Name="StatusText" Text="Running..." TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" />
+        </StackPanel>
+
+        <!-- HostGrid: the element whose composition Visual we try to hand to
+             CoreWebView2CompositionController.RootVisualTarget. A magenta
+             background lets us see, by elimination, whether anything the
+             WebView2 draws is actually reaching this element vs. the
+             attempt failing before any content is produced. -->
+        <Grid x:Name="HostGrid" Grid.Row="1" Background="#FFFF00FF" Margin="0,12,0,0" />
+    </Grid>
+</Window>

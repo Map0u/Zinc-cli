@@ -1,0 +1,139 @@
+{
+  "name": "zinc",
+  "version": "0.5.0",
+  "private": true,
+  "description": "A focused Windows terminal built with Electron, xterm.js, and PowerShell 7",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Map0u/Zinc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Map0u/Zinc/issues"
+  },
+  "homepage": "https://github.com/Map0u/Zinc#readme",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "main": "./out/main/index.js",
+  "scripts": {
+    "postinstall": "node ./scripts/ensure-electron-binary.mjs",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "artwork": "pwsh ./scripts/generate-installer-artwork.ps1",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run artwork && npm run build && electron-builder --win nsis",
+    "installer:prepare": "node ./scripts/prepare-custom-installer.mjs",
+    "installer:dist": "npm run dist && npm run installer:prepare && electron-builder --projectDir installer --win portable",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
+    "test:unit": "node ./scripts/run-unit-tests.mjs",
+    "legal:generate": "node ./scripts/generate-legal-artifacts.mjs --write",
+    "legal:check": "node ./scripts/verify-legal-artifacts.mjs",
+    "legal:release": "node ./scripts/verify-legal-artifacts.mjs --release",
+    "verify:public": "node ../scripts/verify-public-tree.mjs",
+    "verify:cdp:m1": "node ./zinc-m1-verify.mjs",
+    "verify:cdp:m2": "node ./zinc-m2-verify.mjs",
+    "verify:cdp:m3": "node ./zinc-m3-verify.mjs",
+    "verify:cdp:shells": "node ./zinc-multishell-verify.mjs",
+    "verify:cdp": "npm run verify:cdp:m1 && npm run verify:cdp:m3 && npm run verify:cdp:shells && npm run verify:cdp:m2"
+  },
+  "build": {
+    "appId": "space.457workshop.zinc",
+    "productName": "Zinc",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/node-pty/prebuilds/**/*",
+      "node_modules/koffi/build/koffi/win32_x64/**/*"
+    ],
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "from": "resources/legal",
+        "to": "legal",
+        "filter": [
+          "LICENSE",
+          "THIRD_PARTY_NOTICES.md",
+          "THIRD_PARTY_NOTICES-*.md",
+          "ASSET_PROVENANCE.md",
+          "*.cdx.json"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Map0u",
+        "repo": "Zinc",
+        "releaseType": "release"
+      }
+    ],
+    "files": [
+      "out/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "Zinc-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Zinc",
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerSidebar": "build/installer-sidebar.bmp",
+      "installerHeader": "build/installer-header.bmp",
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-unicode11": "^0.8.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "5.5.0",
+    "electron-updater": "^6.8.9",
+    "koffi": "^2.16.2",
+    "node-pty": "1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "5.0.0",
+    "playwright-core": "^1.61.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2",
+    "vite": "6.4.3"
+  },
+  "allowScripts": {
+    "electron@43.0.0": true,
+    "node-pty@1.1.0": true,
+    "koffi@2.16.2": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.21.5": true,
+    "electron-winstaller@5.4.0": true
+  }
+}

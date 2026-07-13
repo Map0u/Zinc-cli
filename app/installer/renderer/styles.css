@@ -1,0 +1,331 @@
+:root {
+  /* Zinc's installer intentionally uses the same restrained, neutral accent
+     register as the app chrome instead of a separate saturated purple brand. */
+  --color-accent: #b8b8bd;
+  --color-accent-hover: #cacacf;
+  --color-accent-contrast: #101012;
+  --color-card-bg: rgba(255, 255, 255, 0.051);
+  --color-card-border: rgba(0, 0, 0, 0.098);
+  --color-text-secondary: rgba(255, 255, 255, 0.773);
+  --color-text-tertiary: rgba(255, 255, 255, 0.529);
+  --color-row-selected: rgba(255, 255, 255, 0.059);
+  --color-row-hover: rgba(255, 255, 255, 0.039);
+  --color-control-bg: rgba(255, 255, 255, 0.059);
+  --color-control-border: rgba(255, 255, 255, 0.071);
+  --color-control-border-hover: rgba(255, 255, 255, 0.16);
+  --color-fg-primary: #f4f4f5;
+  --color-fg-secondary: rgba(255, 255, 255, 0.6);
+  --color-fg-tertiary: rgba(255, 255, 255, 0.4);
+  --color-warning-bg: rgba(180, 83, 9, 0.16);
+  --color-warning-border: rgba(251, 191, 36, 0.55);
+  --color-warning-title: #fde68a;
+  --color-warning-text: rgba(254, 243, 199, 0.82);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.shell {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: rgba(38, 38, 41, 0.9);
+  -webkit-app-region: drag;
+}
+
+.rail {
+  display: flex;
+  width: 220px;
+  min-width: 220px;
+  flex-direction: column;
+  background: rgba(39, 39, 42, 0.8);
+}
+
+.rail-titlebar {
+  display: flex;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  color: var(--color-fg-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  -webkit-app-region: drag;
+}
+
+.rail-titlebar img {
+  width: 16px;
+  height: 16px;
+}
+
+.rail-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+}
+
+.rail-item {
+  position: relative;
+  display: flex;
+  height: 40px;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  color: var(--color-fg-primary);
+  font-size: 13px;
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+
+.rail-item.is-navigable {
+  cursor: pointer;
+}
+
+.rail-item.is-navigable:hover {
+  background: var(--color-row-hover);
+}
+
+.rail-item.is-navigable:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--color-control-border-hover);
+}
+
+.rail-item.is-active {
+  background: var(--color-row-selected);
+}
+
+.rail-item.is-disabled {
+  cursor: default;
+}
+
+.rail-item.is-complete {
+  color: var(--color-text-secondary);
+}
+
+.active-pill {
+  display: block;
+  width: 10px;
+  height: 100%;
+}
+
+.rail-item.is-active .active-pill::before {
+  display: block;
+  width: 3px;
+  height: 16px;
+  margin: 12px auto;
+  border-radius: 999px;
+  background: var(--color-accent);
+  content: "";
+}
+
+.step-icon {
+  width: 22px;
+  color: var(--color-fg-tertiary);
+  font-size: 12px;
+}
+
+.content {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(18, 18, 20, 0.96);
+  border-radius: 8px 0 0 8px;
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.055), -10px 0 24px -10px rgba(0, 0, 0, 0.46);
+}
+
+.drag-strip {
+  height: 48px;
+  flex: 0 0 48px;
+  -webkit-app-region: drag;
+}
+
+.panel {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 32px 0;
+}
+
+h1 {
+  margin: 0 0 4px;
+  color: var(--color-fg-primary);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.subhead {
+  margin: 0 0 18px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setting-card {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.046);
+}
+
+#warningRow {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-bg);
+  box-shadow: inset 3px 0 0 rgba(251, 191, 36, 0.72);
+}
+
+#warningRow .card-title {
+  color: var(--color-warning-title);
+  font-weight: 600;
+}
+
+#warningRow .card-desc {
+  color: var(--color-warning-text);
+}
+
+.card-title {
+  color: var(--color-fg-primary);
+  font-size: 13px;
+}
+
+.card-desc {
+  margin-top: 3px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.path-text {
+  overflow: hidden;
+  max-width: 390px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-value {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.progress {
+  height: 3px;
+  margin-top: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-control-bg);
+}
+
+#progressBar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width 220ms ease;
+}
+
+.status {
+  min-height: 18px;
+  margin: 10px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  height: 72px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 32px 24px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.button {
+  min-width: 88px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 4px;
+  color: var(--color-fg-primary);
+  background: var(--color-control-bg);
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--color-control-border-hover);
+  background: var(--color-row-hover);
+}
+
+.button.primary {
+  border-color: transparent;
+  color: var(--color-accent-contrast);
+  background: var(--color-accent);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.45;
+}
+
+.button[hidden] {
+  display: none;
+}
+
+body.is-busy .button {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+  }
+}
