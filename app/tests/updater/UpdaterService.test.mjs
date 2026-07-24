@@ -7,7 +7,7 @@ import { build } from 'esbuild'
 class FakeUpdater extends EventEmitter {
   reset() {
     this.removeAllListeners()
-    this.autoDownload = true
+    this.autoDownload = false
     this.autoInstallOnAppQuit = true
     this.checkCalls = 0
     this.downloadCalls = 0
@@ -40,29 +40,46 @@ test.beforeEach(() => {
   fakeUpdater.reset()
 })
 
-test('tracks the complete available, download, and install lifecycle', async () => {
+test('enables autoDownload and keeps install on quit off', () => {
+  const service = new UpdaterService(() => {})
+  assert.equal(fakeUpdater.autoDownload, true)
+  assert.equal(fakeUpdater.autoInstallOnAppQuit, false)
+  assert.equal(service.getState().status, 'idle')
+  assert.equal(service.getState().releaseNotes, null)
+})
+
+test('tracks the complete available, download, and install lifecycle with notes', async () => {
   const pushed = []
   const service = new UpdaterService((state) => pushed.push(state))
 
-  assert.equal(fakeUpdater.autoDownload, false)
-  assert.equal(fakeUpdater.autoInstallOnAppQuit, false)
-  assert.equal(service.getState().status, 'idle')
-
   await service.check()
   assert.equal(fakeUpdater.checkCalls, 1)
-  fakeUpdater.emit('update-available', { version: '0.5.1' })
+  fakeUpdater.emit('update-available', {
+    version: '0.5.1',
+    releaseNotes: '  Fixed updater UX.  '
+  })
   assert.equal(service.getState().status, 'available')
   assert.equal(service.getState().availableVersion, '0.5.1')
+  assert.equal(service.getState().releaseNotes, 'Fixed updater UX.')
 
+  // autoDownload is on; manual download remains for retries.
   await service.download()
   assert.equal(fakeUpdater.downloadCalls, 1)
   fakeUpdater.emit('download-progress', { percent: 48.5, bytesPerSecond: 2048 })
   assert.deepEqual(
-    { status: service.getState().status, percent: service.getState().percent, bytesPerSecond: service.getState().bytesPerSecond },
+    {
+      status: service.getState().status,
+      percent: service.getState().percent,
+      bytesPerSecond: service.getState().bytesPerSecond
+    },
     { status: 'downloading', percent: 48.5, bytesPerSecond: 2048 }
   )
-  fakeUpdater.emit('update-downloaded', { version: '0.5.1' })
+  fakeUpdater.emit('update-downloaded', {
+    version: '0.5.1',
+    releaseNotes: [{ note: 'Fixed updater UX.' }]
+  })
   assert.equal(service.getState().downloadedVersion, '0.5.1')
+  assert.equal(service.getState().releaseNotes, 'Fixed updater UX.')
 
   const sent = []
   service.install({ isDestroyed: () => false, webContents: { send: (...args) => sent.push(args) } })
@@ -71,13 +88,28 @@ test('tracks the complete available, download, and install lifecycle', async () 
   assert.ok(pushed.length >= 4)
 })
 
+test('background check runs once on packaged builds', async () => {
+  const service = new UpdaterService(() => {})
+  service.startBackgroundCheck()
+  service.startBackgroundCheck()
+  // first check is in-flight; second start is ignored; allow the promise to settle
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(fakeUpdater.checkCalls, 1)
+})
+
 test('reports no-update and error states without stale progress', () => {
   const service = new UpdaterService(() => {})
   fakeUpdater.emit('download-progress', { percent: 12, bytesPerSecond: 128 })
   fakeUpdater.emit('update-not-available', { version: '0.5.0' })
   assert.deepEqual(
-    { status: service.getState().status, percent: service.getState().percent, bytesPerSecond: service.getState().bytesPerSecond },
-    { status: 'not-available', percent: null, bytesPerSecond: null }
+    {
+      status: service.getState().status,
+      percent: service.getState().percent,
+      bytesPerSecond: service.getState().bytesPerSecond,
+      releaseNotes: service.getState().releaseNotes
+    },
+    { status: 'not-available', percent: null, bytesPerSecond: null, releaseNotes: null }
   )
 
   fakeUpdater.emit('error', new Error('network unavailable'))
@@ -90,6 +122,7 @@ test('keeps every updater action disabled in unpackaged builds', async () => {
   const service = new UpdaterService(() => {})
   assert.equal(service.getState().status, 'disabled')
 
+  service.startBackgroundCheck()
   await service.check()
   await service.download()
   service.install(null)

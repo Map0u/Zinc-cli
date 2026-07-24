@@ -34,9 +34,12 @@ recorded.
 ## Network Activity
 
 Zinc does not include analytics, advertising telemetry, or a user account
-service. A packaged build contacts GitHub Releases only when the user checks for
-or downloads an update. Web links are opened in the system browser after scheme
-validation.
+service. A packaged Windows build contacts GitHub Releases once shortly after
+startup to look for a newer version (so the update badge can appear without
+opening Settings), and again when the user checks for or downloads an update
+from Settings → About or the update dialog. Updates download automatically when
+found; installing still requires an explicit restart action. Web links are
+opened in the system browser after scheme validation.
 
 Terminal commands, shells, developer tools, and child processes run by the user
 are separate programs and may access the network according to their own
@@ -68,7 +71,8 @@ ignored by Git and must never be committed.
   Claude/Codex resume commands is unwanted.
 - Delete pasted images and Zinc's local user-data directory when they are no
   longer needed; do not rely on startup cleanup for urgent deletion.
-- Do not check for updates if you do not want Zinc to contact GitHub Releases.
+- Prefer a development (unpackaged) build if you do not want Zinc to contact
+  GitHub Releases on startup; packaged builds perform one quiet update check.
 - Review child-process privacy settings independently of Zinc.
 
 Privacy-sensitive defects should be reported privately using

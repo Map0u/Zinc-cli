@@ -17,4 +17,11 @@ export interface UpdateState {
   bytesPerSecond: number | null
   error: string | null
   lastCheckedAt: string | null
+  /** Normalized release notes from the update feed (GitHub release body), if any. */
+  releaseNotes: string | null
+}
+
+/** Statuses that mean a newer build is known and the rail badge should show. */
+export function isUpdateBadgeVisible(status: UpdateStatus): boolean {
+  return status === 'available' || status === 'downloading' || status === 'downloaded'
 }

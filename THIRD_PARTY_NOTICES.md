@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This notice is generated for Zinc 0.6.1 from `app/package-lock.json` and installed package metadata. Zinc itself is licensed under AGPL-3.0-only; see `LICENSE`. Third-party components remain under their own terms.
+This notice is generated for Zinc 0.6.2 from `app/package-lock.json` and installed package metadata. Zinc itself is licensed under AGPL-3.0-only; see `LICENSE`. Third-party components remain under their own terms.
 
 ## Runtime component inventory
 

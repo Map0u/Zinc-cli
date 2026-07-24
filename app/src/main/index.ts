@@ -340,6 +340,11 @@ function createWindow(): BrowserWindow {
     } else {
       win.show();
     }
+    // Packaged builds: one quiet GitHub Releases check so the rail badge can
+    // appear without opening Settings. CDP/silent test profiles skip network.
+    if (!isTestSilent) {
+      updaterService.startBackgroundCheck();
+    }
   });
 
   // Renderer's terminal bridge subscribes to `terminal:options` at module-eval

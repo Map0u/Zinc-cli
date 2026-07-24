@@ -46,8 +46,12 @@ multi-writer stores.
 ## Updater
 
 `UpdaterService` wraps `electron-updater`. Updates are disabled in unpackaged
-development builds. Packaged Windows builds consume GitHub Releases metadata,
-and the renderer receives only state and explicit check/download/install actions.
+development builds. Packaged Windows builds consume GitHub Releases metadata:
+`autoDownload` is on, `autoInstallOnAppQuit` stays off, and a single quiet
+check runs after the window is ready so the rail update badge can appear.
+The renderer subscribes to update state, shows a badge + centered dialog, and
+exposes About as a single check / restart path. Install still requires an
+explicit user action (`quitAndInstall`).
 
 ## Historical Code
 

@@ -6,6 +6,30 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-25
+
+### Added
+
+- Quiet packaged startup update check against GitHub Releases so an update badge
+  can appear beside Settings without opening About.
+- Rail update badge and a centered update dialog with version, progress, and
+  release notes.
+- Shared local changelog entries for About and the update dialog fallback.
+
+### Changed
+
+- Updater enables `autoDownload` while keeping install explicit (`autoInstallOnAppQuit` off).
+- Settings → About collapses update actions to a single check / restart control.
+- Privacy and architecture docs document the startup check and auto-download path.
+- Version source is `app/package.json` at 0.6.2.
+- Release workflow pins the previous public setup to reviewed `v0.6.1` for the
+  installer upgrade acceptance path.
+
+### Fixed
+
+- OSC 8 / CLI hyperlinks open in the system browser immediately instead of
+  xterm's confirm + blocked `window.open` path.
+
 ## [0.6.1] - 2026-07-24
 
 ### Added

@@ -27,6 +27,8 @@ import {
   tabDragShiftY,
   tabDropLineTop
 } from './tabs/tabDragOrder'
+import { useUpdate } from './update/UpdateContext'
+import { UpdateDialog } from './update/UpdateDialog'
 
 /** Bounds mirrored from the settings page's font-size NumberField (SettingsPage.tsx). */
 const FONT_SIZE_MIN = 8
@@ -146,6 +148,7 @@ export default function App() {
   const [category, setCategory] = useState<Category>('appearance')
   const { settings, updateDebounced, updateImmediate } = useSettings()
   const { t } = useI18n()
+  const { showBadge, openDialog, state: updateState } = useUpdate()
   const themeMode = useResolvedThemeMode(settings?.ThemePreference ?? 'auto')
   const [windowState, setWindowState] = useState(window.zinc.window.getStateSync())
   const tabContextMenuRef = useRef<HTMLDivElement | null>(null)
@@ -1321,7 +1324,7 @@ export default function App() {
 
               <div className="min-h-2 min-w-0 flex-1" aria-hidden />
 
-              <div className="mx-3 mb-2 flex shrink-0 items-center px-0.5">
+              <div className="mx-3 mb-2 flex shrink-0 items-center gap-0.5 px-0.5">
                 <button
                   type="button"
                   aria-label={t('SettingsTooltip')}
@@ -1331,6 +1334,30 @@ export default function App() {
                 >
                   {SegoeIcon.Settings}
                 </button>
+                {showBadge ? (
+                  <button
+                    type="button"
+                    data-testid="update-badge"
+                    aria-label={
+                      updateState?.availableVersion
+                        ? `${t('UpdateBadgeLabel')} ${updateState.availableVersion}`
+                        : t('UpdateBadgeLabel')
+                    }
+                    title={
+                      updateState?.availableVersion
+                        ? `${t('UpdateBadgeLabel')} ${updateState.availableVersion}`
+                        : t('UpdateBadgeLabel')
+                    }
+                    className="icon-font relative flex h-7 w-7 items-center justify-center rounded text-[12px] text-accent hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    onClick={openDialog}
+                  >
+                    {SegoeIcon.Update}
+                    <span
+                      className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent"
+                      aria-hidden
+                    />
+                  </button>
+                ) : null}
               </div>
             </div>
           </>
@@ -1579,6 +1606,7 @@ export default function App() {
             )}
       </div>
     )}
+    <UpdateDialog />
     </>
   )
 }

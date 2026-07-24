@@ -30,5 +30,7 @@ export const SegoeIcon = {
   /** Settings category: Shortcuts (E765, KeyboardClassic) — new 0.2.0 category, no old-app equivalent to copy from. */
   Shortcuts: "",
   /** Settings category: About (E946, Info) — new 0.2.0 category, no old-app equivalent to copy from. */
-  About: ""
+  About: "",
+  /** Update available badge (E895, Download) — rail indicator when a newer release is known. */
+  Update: "\uE895"
 } as const
