@@ -5,7 +5,8 @@ if (requireIsolatedTestProfile()) {
     await page.locator('[data-testid="open-settings"]').click()
     await page.locator('[data-testid="settings-back"]').waitFor({ state: 'visible' })
 
-    await page.locator('[data-cat="appearance"]').click()
+    // Font size lives under Terminal (settings IA split Appearance / Terminal).
+    await page.locator('[data-cat="terminal"]').click()
     const fontSize = baseline.settings.FontSize === 18 ? 19 : 18
     await page.locator('[data-testid="setting-fontSize"]').fill(String(fontSize))
     await waitFor(
@@ -19,7 +20,8 @@ if (requireIsolatedTestProfile()) {
       'font size control reflects the applied value'
     )
 
-    await page.locator('[data-cat="session"]').click()
+    // Restore / resume toggles live under Startup (formerly "session").
+    await page.locator('[data-cat="startup"]').click()
     const restoreTarget = !baseline.settings.RestoreSessionsOnStartup
     await page.locator('[data-testid="setting-restoreSessions"]').click()
     await waitFor(

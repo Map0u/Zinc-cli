@@ -102,6 +102,24 @@ function Get-ZincUninstallCommand {
   return $null
 }
 
+function Get-ZincUninstallEntriesCount {
+  $roots = @(
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+  )
+  $count = 0
+  foreach ($root in $roots) {
+    if (-not (Test-Path $root)) { continue }
+    foreach ($key in Get-ChildItem $root) {
+      $item = Get-ItemProperty $key.PSPath
+      if ($item.DisplayName -match "^$([regex]::Escape($ProductName))(\s|$)") {
+        $count += 1
+      }
+    }
+  }
+  return $count
+}
+
 function Invoke-NsisUninstall {
   param([switch]$AllowMissing)
 
@@ -145,23 +163,76 @@ function Invoke-NsisUninstall {
   }
 
   Stop-ZincProcesses
+  # Let file locks from force-killed Electron drop before NSIS rewrites the tree.
+  Start-Sleep -Milliseconds 500
   $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
   Wait-InstallerProcess -Process $process -Path $exe -Arguments $arguments
   if ($process.ExitCode -ne 0) {
     throw "NSIS uninstall failed with exit code $($process.ExitCode): $exe $($arguments -join ' ')"
   }
+
+  # Registry and shortcuts can lag a beat after the uninstaller process exits.
+  $deadline = [DateTime]::UtcNow.AddSeconds(20)
+  do {
+    if ((Get-ZincUninstallEntriesCount) -eq 0) { return }
+    Start-Sleep -Milliseconds 250
+  } while ([DateTime]::UtcNow -lt $deadline)
+
+  # One more silent attempt if the key is still present (partial first pass).
+  $retryQuiet = Get-ZincUninstallCommand
+  if ($retryQuiet -and $retryQuiet -match '^\s*"(?<exe>[^"]+)"\s*(?<args>.*)$') {
+    Stop-ZincProcesses
+    Start-Sleep -Milliseconds 500
+    $retryArgs = @()
+    if ($Matches.args.Trim()) {
+      $retryArgs = [System.Management.Automation.Language.Parser]::ParseInput(
+        "dummy $($Matches.args.Trim())",
+        [ref]$null,
+        [ref]$null
+      ).EndBlock.Statements[0].PipelineElements[0].CommandElements |
+        Select-Object -Skip 1 |
+        ForEach-Object { $_.SafeGetValue() }
+    }
+    if ($retryArgs -notcontains "/S" -and $retryArgs -notcontains "/s") { $retryArgs += "/S" }
+    if (Test-Path -LiteralPath $Matches.exe -PathType Leaf) {
+      $retry = Start-Process -FilePath $Matches.exe -ArgumentList $retryArgs -PassThru
+      Wait-InstallerProcess -Process $retry -Path $Matches.exe -Arguments $retryArgs
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+      if ((Get-ZincUninstallEntriesCount) -eq 0) { return }
+      Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+  }
+
+  if (-not $AllowMissing -and (Get-ZincUninstallEntriesCount) -gt 0) {
+    throw "Zinc uninstall registry entry remained after quiet uninstall."
+  }
 }
 
 function Stop-ZincProcesses {
-  $processNames = @("Zinc")
+  # Zinc.exe plus common Electron helper names that can hold install files open.
+  $processNames = @("Zinc", "electron")
   foreach ($processName in $processNames) {
-    Get-Process $processName -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process $processName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  }
+  # Also kill anything still running from a typical per-user install path.
+  $localPrograms = Join-Path $env:LOCALAPPDATA "Programs\Zinc"
+  if (Test-Path $localPrograms) {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($localPrograms, [System.StringComparison]::OrdinalIgnoreCase) } |
+      ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+      }
   }
 
-  $deadline = [DateTime]::UtcNow.AddSeconds(10)
+  $deadline = [DateTime]::UtcNow.AddSeconds(15)
   do {
     $remaining = @($processNames | ForEach-Object { Get-Process $_ -ErrorAction SilentlyContinue })
-    if ($remaining.Count -eq 0) { return }
+    if ($remaining.Count -eq 0) {
+      Start-Sleep -Milliseconds 200
+      return
+    }
     Start-Sleep -Milliseconds 100
   } while ([DateTime]::UtcNow -lt $deadline)
 
