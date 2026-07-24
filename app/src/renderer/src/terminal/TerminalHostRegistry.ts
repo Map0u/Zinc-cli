@@ -141,6 +141,14 @@ export class TerminalHostRegistry {
   createHost(id: string, container: HTMLElement, spawnOptions: PtySpawnOptions): void {
     if (this.hosts.has(id)) return
 
+    // OSC 8 hyperlinks (Grok/Claude CLI etc.) use xterm's built-in OscLinkProvider.
+    // Without linkHandler it shows a confirm() then window.open(), which Zinc's
+    // setWindowOpenHandler denies — so even "OK" never opens a browser. Route
+    // both OSC 8 and plain-text WebLinksAddon clicks through shell.openExternal.
+    const openExternalLink = (_event: MouseEvent, uri: string): void => {
+      void window.zinc.shell.openExternal(uri)
+    }
+
     const term = new Terminal({
       fontFamily: this.fontFamilyString(),
       fontSize: this.currentOptions.fontSize ?? DEFAULT_OPTIONS.fontSize,
@@ -154,7 +162,10 @@ export class TerminalHostRegistry {
       // background (App.tsx's `terminalSurfaceBg`, see chromeBackground.ts)
       // sitting behind the canvas.
       allowTransparency: true,
-      theme: this.themeFor()
+      theme: this.themeFor(),
+      linkHandler: {
+        activate: openExternalLink
+      }
     })
     term.onTitleChange((title) => {
       for (const handler of this.titleHandlers) handler(id, title)
@@ -206,9 +217,7 @@ export class TerminalHostRegistry {
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.loadAddon(new Unicode11Addon())
-    term.loadAddon(new WebLinksAddon((_event, uri) => {
-      void window.zinc.shell.openExternal(uri)
-    }))
+    term.loadAddon(new WebLinksAddon(openExternalLink))
     term.unicode.activeVersion = '11'
 
     const entry: HostEntry = {
