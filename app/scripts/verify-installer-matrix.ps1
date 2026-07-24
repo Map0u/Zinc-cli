@@ -1,15 +1,15 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$InstallerPath,
+  [string]$SetupPath,
 
   [Parameter(Mandatory = $true)]
   [string]$ExpectedVersion,
   [string]$PreviousSetupPath = "",
-  # Paired with PreviousSetupPath: the upgrade leg asserted "some older build is installed"
-  # without checking which one, so a wrong or swapped baseline still reported "0.3.7 -> 0.5.0 verified".
+  # Paired with PreviousSetupPath: the upgrade leg asserts the installed version
+  # before and after running the new setup.
   [string]$PreviousExpectedVersion = "",
-  # No installer call may block forever: a stuck NSIS dialog, a UAC prompt nobody answers or an
-  # AV-locked payload used to hang the whole job until the platform killed it with no diagnosis.
+  # No installer call may block forever: a stuck NSIS dialog, a UAC prompt nobody
+  # answers, or an AV-locked setup used to hang the whole job with no diagnosis.
   [int]$InstallerTimeoutSeconds = 300,
   [string]$ProductName = "Zinc"
 )
@@ -32,10 +32,12 @@ if ($InstallerTimeoutSeconds -lt 30 -or $InstallerTimeoutSeconds -gt 3600) {
   throw "InstallerTimeoutSeconds must be between 30 and 3600."
 }
 
-$InstallerPath = (Resolve-Path $InstallerPath).Path
+$SetupPath = (Resolve-Path $SetupPath).Path
 if ($PreviousSetupPath) {
   $PreviousSetupPath = (Resolve-Path $PreviousSetupPath).Path
 }
+
+$script:InstallerTimeoutMs = $InstallerTimeoutSeconds * 1000
 
 function Wait-InstallerProcess {
   param(
@@ -48,9 +50,6 @@ function Wait-InstallerProcess {
     return
   }
 
-  # A native command's non-zero exit is not a terminating error even under $ErrorActionPreference =
-  # 'Stop', so a failed taskkill would never reach a catch block: check $LASTEXITCODE, and then
-  # confirm the tree is actually gone rather than trusting the kill.
   & taskkill.exe /PID $Process.Id /T /F 2>&1 | Out-Null
   $killExit = $LASTEXITCODE
   $exited = $Process.WaitForExit(10000)
@@ -63,72 +62,98 @@ function Wait-InstallerProcess {
   throw $detail
 }
 
-$script:InstallerTimeoutMs = $InstallerTimeoutSeconds * 1000
-
-function Invoke-Installer {
+function Invoke-NsisSetup {
   param(
     [string]$Path,
-    [string[]]$Arguments,
-    [switch]$ExpectCliResult
+    [string[]]$Arguments = @("/S")
   )
 
   if (-not (Test-Path $Path)) {
-    throw "Installer was not found: $Path"
+    throw "Setup was not found: $Path"
   }
 
-  if (-not $ExpectCliResult) {
-    $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
-    Wait-InstallerProcess -Process $process -Path $Path -Arguments $Arguments
-    if ($process.ExitCode -ne 0) {
-      throw "Installer command failed with exit code $($process.ExitCode): $Path $($Arguments -join ' ')"
-    }
-    return
-  }
+  # NSIS rewrites files while Zinc is running will fail or leave a half-updated
+  # tree. The custom Electron wrapper used to close Zinc first; for NSIS-only
+  # acceptance we force-close before every silent install/uninstall.
+  Stop-ZincProcesses
 
-  New-Item -ItemType Directory -Path $script:MatrixRuntimeRoot -Force | Out-Null
-  $resultFile = Join-Path $script:MatrixRuntimeRoot ("installer-result-{0}.json" -f [guid]::NewGuid().ToString("N"))
-  $previousResultFile = $env:ZINC_INSTALLER_RESULT_FILE
-  try {
-    $env:ZINC_INSTALLER_RESULT_FILE = $resultFile
-    $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
-    Wait-InstallerProcess -Process $process -Path $Path -Arguments $Arguments
-  }
-  finally {
-    if ($null -eq $previousResultFile) {
-      Remove-Item Env:ZINC_INSTALLER_RESULT_FILE -ErrorAction SilentlyContinue
-    } else {
-      $env:ZINC_INSTALLER_RESULT_FILE = $previousResultFile
-    }
-  }
-
-  if (-not (Test-Path $resultFile -PathType Leaf)) {
-    throw "Packaged installer did not report its inner operation result (outer exit code $($process.ExitCode))."
-  }
-  try {
-    $operationResult = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json
-  }
-  finally {
-    Remove-Item -LiteralPath $resultFile -Force -ErrorAction SilentlyContinue
-  }
-  if ($operationResult.ok -ne $true) {
-    throw "Packaged installer reported that operation '$($Arguments -join ' ')' failed."
+  $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
+  Wait-InstallerProcess -Process $process -Path $Path -Arguments $Arguments
+  if ($process.ExitCode -ne 0) {
+    throw "NSIS setup failed with exit code $($process.ExitCode): $Path $($Arguments -join ' ')"
   }
 }
 
-function Invoke-InstallerFixtureTests {
-  $installerTestRoot = Join-Path (Split-Path $PSScriptRoot -Parent) "installer\tests"
-  $fixtureTests = @(Get-ChildItem -LiteralPath $installerTestRoot -Filter "*.test.js" -File | Sort-Object Name)
-  if ($fixtureTests.Count -eq 0) {
-    throw "Installer fixture tests were not found."
+function Get-ZincUninstallCommand {
+  $roots = @(
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+  )
+
+  foreach ($root in $roots) {
+    if (-not (Test-Path $root)) { continue }
+    foreach ($key in Get-ChildItem $root) {
+      $item = Get-ItemProperty $key.PSPath
+      if ($item.DisplayName -match "^$([regex]::Escape($ProductName))(\s|$)") {
+        return [string]$item.QuietUninstallString
+      }
+    }
   }
-  & node --test @($fixtureTests.FullName) | Out-Host
-  if ($LASTEXITCODE -ne 0) {
-    throw "Installer fixture tests failed with exit code $LASTEXITCODE."
+  return $null
+}
+
+function Invoke-NsisUninstall {
+  param([switch]$AllowMissing)
+
+  $quiet = Get-ZincUninstallCommand
+  if (-not $quiet) {
+    if ($AllowMissing) { return }
+    throw "No Zinc uninstall entry was found in the registry."
+  }
+
+  # QuietUninstallString is typically `"C:\...\Uninstall Zinc.exe" /currentuser /S`
+  # Parse a leading quoted executable + remaining args without invoking a shell.
+  if ($quiet -match '^\s*"(?<exe>[^"]+)"\s*(?<args>.*)$') {
+    $exe = $Matches.exe
+    $argLine = $Matches.args.Trim()
+  } elseif ($quiet -match '^\s*(?<exe>\S+)\s*(?<args>.*)$') {
+    $exe = $Matches.exe
+    $argLine = $Matches.args.Trim()
+  } else {
+    throw "Could not parse QuietUninstallString: $quiet"
+  }
+
+  if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+    if ($AllowMissing) { return }
+    throw "Uninstaller executable is missing: $exe"
+  }
+
+  $arguments = @()
+  if ($argLine) {
+    $arguments = [System.Management.Automation.Language.Parser]::ParseInput(
+      "dummy $argLine",
+      [ref]$null,
+      [ref]$null
+    ).EndBlock.Statements[0].PipelineElements[0].CommandElements |
+      Select-Object -Skip 1 |
+      ForEach-Object { $_.SafeGetValue() }
+  }
+
+  # Ensure silent uninstall even if the registry entry omits /S.
+  if ($arguments -notcontains "/S" -and $arguments -notcontains "/s") {
+    $arguments += "/S"
+  }
+
+  Stop-ZincProcesses
+  $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
+  Wait-InstallerProcess -Process $process -Path $exe -Arguments $arguments
+  if ($process.ExitCode -ne 0) {
+    throw "NSIS uninstall failed with exit code $($process.ExitCode): $exe $($arguments -join ' ')"
   }
 }
 
 function Stop-ZincProcesses {
-  $processNames = @("Zinc", "Zinc Installer")
+  $processNames = @("Zinc")
   foreach ($processName in $processNames) {
     Get-Process $processName -ErrorAction SilentlyContinue | Stop-Process -Force
   }
@@ -229,7 +254,7 @@ function Assert-PackagedZincTerminal {
   }
 }
 
-function Start-ZincForInstallerCloseTest {
+function Start-ZincForRunningInstallTest {
   param([string]$ExePath)
 
   Stop-ZincProcesses
@@ -238,7 +263,7 @@ function Start-ZincForInstallerCloseTest {
   Wait-ZincRunning -Process $process
   Start-Sleep -Seconds 2
   if ($process.HasExited) {
-    throw "Packaged Zinc did not stay running for the installer close test."
+    throw "Packaged Zinc did not stay running for the running-install close test."
   }
 }
 
@@ -282,8 +307,6 @@ if (-not (Test-Path $script:PackagedSmokeScript -PathType Leaf)) {
 $script:PackagedSmokePort = 9337
 $script:MatrixRuntimeRoot = Join-Path (Split-Path $PSScriptRoot -Parent) "dist\installer-matrix-runtime"
 $script:CloseTestUserDataRoot = Join-Path $script:MatrixRuntimeRoot "close-test-user-data"
-$previousMatrixUserData = $env:ZINC_INSTALLER_MATRIX_USER_DATA
-$env:ZINC_INSTALLER_MATRIX_USER_DATA = $script:CloseTestUserDataRoot
 
 $script:MarkerPath = Join-Path $env:APPDATA "zinc\installer-matrix-user-data.marker"
 $markerDirectory = Split-Path $script:MarkerPath -Parent
@@ -304,52 +327,55 @@ try {
   New-Item -ItemType Directory -Path $markerDirectory -Force | Out-Null
   [System.IO.File]::WriteAllText($script:MarkerPath, "Zinc installer matrix marker: $([guid]::NewGuid())")
 
-  Invoke-InstallerFixtureTests
-
   Stop-ZincProcesses
   $matrixTouchedInstallation = $true
-  Invoke-Installer -Path $InstallerPath -Arguments @("--uninstall") -ExpectCliResult
+  Invoke-NsisUninstall -AllowMissing
   Assert-ZincUninstalled -ExpectMarker | Out-Null
 
-  Invoke-Installer -Path $InstallerPath -Arguments @("--install") -ExpectCliResult
+  Invoke-NsisSetup -Path $SetupPath
   $installed = Assert-ZincInstall -Version $ExpectedVersion
   $lastInstalledExe = $installed.ExePath
   Assert-PackagedZincTerminal -ExePath $lastInstalledExe -Scenario "clean install"
 
-  Start-ZincForInstallerCloseTest -ExePath $lastInstalledExe
-  Invoke-Installer -Path $InstallerPath -Arguments @("--overwrite") -ExpectCliResult
+  # Overwrite of the same version while the app is running: matrix force-closes
+  # first (NSIS cannot request a graceful second-instance quit the way the old
+  # Electron wrapper did), then re-runs silent setup.
+  Start-ZincForRunningInstallTest -ExePath $lastInstalledExe
+  Invoke-NsisSetup -Path $SetupPath
   $installed = Assert-ZincInstall -Version $ExpectedVersion
   $lastInstalledExe = $installed.ExePath
   Assert-PackagedZincTerminal -ExePath $lastInstalledExe -Scenario "overwrite"
 
-  Start-ZincForInstallerCloseTest -ExePath $lastInstalledExe
-  Invoke-Installer -Path $InstallerPath -Arguments @("--reinstall") -ExpectCliResult
+  # Reinstall: uninstall then install.
+  Start-ZincForRunningInstallTest -ExePath $lastInstalledExe
+  Invoke-NsisUninstall
+  Assert-ZincUninstalled -ExpectedExePath $lastInstalledExe -ExpectMarker | Out-Null
+  Invoke-NsisSetup -Path $SetupPath
   $installed = Assert-ZincInstall -Version $ExpectedVersion
   $lastInstalledExe = $installed.ExePath
   Assert-PackagedZincTerminal -ExePath $lastInstalledExe -Scenario "reinstall"
 
   if ($PreviousSetupPath) {
     Stop-ZincProcesses
-    Invoke-Installer -Path $InstallerPath -Arguments @("--uninstall") -ExpectCliResult
+    Invoke-NsisUninstall
     Assert-ZincUninstalled -ExpectedExePath $lastInstalledExe -ExpectMarker | Out-Null
-    Invoke-Installer -Path $PreviousSetupPath -Arguments @("/S")
+    Invoke-NsisSetup -Path $PreviousSetupPath
     $installed = Assert-ZincInstall -Version $PreviousExpectedVersion
     $lastInstalledExe = $installed.ExePath
-    Start-ZincForInstallerCloseTest -ExePath $lastInstalledExe
-    Invoke-Installer -Path $InstallerPath -Arguments @("--upgrade") -ExpectCliResult
+    Start-ZincForRunningInstallTest -ExePath $lastInstalledExe
+    Invoke-NsisSetup -Path $SetupPath
     $installed = Assert-ZincInstall -Version $ExpectedVersion
     $lastInstalledExe = $installed.ExePath
     Assert-PackagedZincTerminal -ExePath $lastInstalledExe -Scenario "upgrade"
   }
 
-  Start-ZincForInstallerCloseTest -ExePath $lastInstalledExe
-  Invoke-Installer -Path $InstallerPath -Arguments @("--uninstall") -ExpectCliResult
+  Start-ZincForRunningInstallTest -ExePath $lastInstalledExe
+  Invoke-NsisUninstall
   Assert-ZincUninstalled -ExpectedExePath $lastInstalledExe -ExpectMarker | Out-Null
 
   [pscustomobject]@{
     ExpectedVersion = $ExpectedVersion
     PreviousVersion = $(if ($PreviousSetupPath) { $PreviousExpectedVersion } else { "" })
-    PayloadCorruptionFixtures = "ok"
     InitialUninstall = "ok"
     CleanInstall = "ok"
     OverwriteInstall = "ok"
@@ -369,7 +395,7 @@ finally {
   Stop-ZincProcesses
   if ($matrixTouchedInstallation) {
     try {
-      Invoke-Installer -Path $InstallerPath -Arguments @("--uninstall") -ExpectCliResult
+      Invoke-NsisUninstall -AllowMissing
       Assert-ZincUninstalled -ExpectedExePath $lastInstalledExe -ExpectMarker | Out-Null
     } catch {
       Write-Warning "Best-effort final uninstall verification failed: $($_.Exception.Message)"
@@ -392,11 +418,6 @@ finally {
   }
 
   if ($pushedLocation) { Pop-Location }
-  if ($null -eq $previousMatrixUserData) {
-    Remove-Item Env:ZINC_INSTALLER_MATRIX_USER_DATA -ErrorAction SilentlyContinue
-  } else {
-    $env:ZINC_INSTALLER_MATRIX_USER_DATA = $previousMatrixUserData
-  }
   if (Test-Path $script:MatrixRuntimeRoot) {
     Remove-Item $script:MatrixRuntimeRoot -Recurse -Force -ErrorAction SilentlyContinue
   }

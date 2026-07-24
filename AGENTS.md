@@ -2,20 +2,24 @@
 
 ## Scope
 
-Build Zinc as a small Electron-based Windows terminal with a vertical tab rail.
-The active codebase is `app/` (Electron, electron-vite, React, xterm.js, and
-`node-pty`). The archive contains isolated historical feasibility experiments,
-not an alternative product implementation.
+Build Zinc as a lightweight multi-shell Windows terminal launcher with a
+vertical tab rail and a modern, low-overhead UI. The active codebase is `app/`
+(Electron, electron-vite, React, xterm.js, and `node-pty`). The archive contains
+isolated historical feasibility experiments, not an alternative product
+implementation.
 
 ## Product Boundaries
 
-1. Support PowerShell 7 first.
+1. Support PowerShell 7 first; discover and launch other local shells.
 2. Preserve the vertical tab rail, Acrylic-style window, terminal behavior,
-   settings, status bar, and session restore unless a task changes them.
-3. Keep the implementation small. Do not add accounts, sync, a plugin system,
+   core settings, shortcuts, and session restore unless a task changes them.
+3. Do not reintroduce the AI usage status bar or background usage polling.
+4. Do not reintroduce AOD, OLED burn-in protection, or screen-brightness
+   controls — they were removed as kiosk/display leftovers.
+5. Keep the implementation small. Do not add accounts, sync, a plugin system,
    built-in SSH/WSL profile management, pane splitting, or broad automation
    without an explicit product decision.
-4. Never commit real terminal history, local settings snapshots, screenshots,
+6. Never commit real terminal history, local settings snapshots, screenshots,
    user paths, hostnames, IP addresses, tokens, private keys, or signing material.
 
 ## Development Rules
@@ -33,7 +37,8 @@ not an alternative product implementation.
 ## Version and Release Policy
 
 - `app/package.json` is the Electron application version source.
-- Keep app and custom-installer package/lock versions aligned for a release.
+- Ship only the NSIS setup (`npm run dist` → `Zinc-<version>-Setup.exe`); there
+  is no separate custom installer package.
 - Do not bump versions, create tags, publish artifacts, or change repository
   settings without explicit approval.
 - Release tags use `v<semver>` and the annotated tag message

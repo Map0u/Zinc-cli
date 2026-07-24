@@ -2,10 +2,11 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Zinc is a focused Windows terminal built with Electron, React, xterm.js, and
-`node-pty`. It puts PowerShell 7 first and keeps the interface compact: a
-vertical tab rail, an Acrylic-style window, practical terminal settings, and
-session restore that attempts to resume the most recent AI conversation.
+Zinc is a lightweight multi-shell Windows terminal launcher built with
+Electron, React, xterm.js, and `node-pty`. It puts PowerShell 7 first, keeps a
+modern compact UI (vertical tab rail, Acrylic-style window, practical
+settings), and stays low-overhead so you can open the shells already installed
+on your machine.
 
 The active application is in [`app/`](app/). The archive retains only isolated
 historical feasibility experiments; it is not a second product implementation.
@@ -18,13 +19,12 @@ historical feasibility experiments; it is not a second product implementation.
   `node-pty` and xterm.js, with a per-tab shell picker and a configurable
   default.
 - Acrylic-style frameless Windows UI with light/dark and accent-aware settings.
-- Configurable fonts, colors, opacity, shortcuts, status bar, zoom, scrollback,
-  and session restore.
+- Configurable fonts, colors, opacity, shortcuts, zoom, scrollback, and session
+  restore.
 - Clipboard image paste, clickable web links, and new or duplicated tabs that
   try to inherit the current working directory; later shell directory changes
   may not be reflected.
-- Per-user Windows NSIS setup, a verified portable custom installer wrapper,
-  and an optional GitHub Releases update flow.
+- Per-user Windows NSIS setup and an optional GitHub Releases update flow.
 - English and Simplified Chinese interface resources.
 
 Zinc intentionally does not provide cloud sync, accounts, a plugin platform,
@@ -32,7 +32,7 @@ pane splitting, or built-in SSH profile management.
 
 ## Requirements
 
-- Zinc 0.5.0 supports Windows only: Windows 10 or Windows 11, x64. No other
+- Zinc 0.6.0 supports Windows only: Windows 10 or Windows 11, x64. No other
   platform is planned.
 - [PowerShell 7](https://github.com/PowerShell/PowerShell) is the recommended
   default shell. When it is not installed, Zinc automatically falls back to
@@ -45,10 +45,7 @@ pane splitting, or built-in SSH profile management.
 ## Install
 
 Download `Zinc-<version>-Setup.exe` (the NSIS installer) from the repository's
-GitHub Releases page — that is the one to use for a first install. The
-`Zinc-<version>-Installer.exe` in the same release is a repair tool for
-overwrite installs, reinstalls, and uninstalls; it embeds the same Setup, which
-is why it is roughly twice the size. It is not a portable build of Zinc.
+GitHub Releases page. That is the only Windows installer Zinc ships.
 
 Zinc is not code-signed, so Microsoft Defender SmartScreen will block the first
 run. Download `SHA256SUMS.txt` from the same release, run
@@ -68,11 +65,10 @@ npm run build
 npm run dev
 ```
 
-Windows packaging commands are also run from `app/`:
+Windows packaging is also run from `app/`:
 
 ```powershell
 npm run dist
-npm run installer:dist
 ```
 
 See [Contributing](CONTRIBUTING.md), [Architecture](docs/ARCHITECTURE.md), and

@@ -25,7 +25,7 @@ npm run build
 npm run dev
 ```
 
-Do not commit generated `node_modules/`, `out/`, `dist/`, installer payloads,
+Do not commit generated `node_modules/`, `out/`, `dist/`, packaging artifacts,
 local settings snapshots, logs, or debug screenshots.
 
 ## Branches and Commits

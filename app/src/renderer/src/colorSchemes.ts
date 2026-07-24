@@ -29,32 +29,6 @@ export interface ColorScheme {
   light: SchemeVariant
 }
 
-const AOD_VARIANT: SchemeVariant = {
-  surfaceBase: [0, 0, 0],
-  accent: '#D69A3C',
-  ansi: {
-    foreground: '#888888',
-    cursor: '#D69A3C',
-    selectionBackground: '#D69A3C33',
-    black: '#000000',
-    red: '#777777',
-    green: '#777777',
-    yellow: '#D69A3C',
-    blue: '#666666',
-    magenta: '#777777',
-    cyan: '#777777',
-    white: '#888888',
-    brightBlack: '#555555',
-    brightRed: '#888888',
-    brightGreen: '#888888',
-    brightYellow: '#D69A3C',
-    brightBlue: '#777777',
-    brightMagenta: '#888888',
-    brightCyan: '#888888',
-    brightWhite: '#888888'
-  }
-}
-
 /** True black/white/gray — deliberately undyed (the one scheme the user asked to leave plain rather than stylized). */
 const MONOCHROME: ColorScheme = {
   id: 'monochrome',
@@ -412,10 +386,6 @@ export function getColorScheme(id: string | undefined): ColorScheme {
 
 export function resolveVariant(scheme: ColorScheme, mode: ThemeMode): SchemeVariant {
   return mode === 'light' ? scheme.light : scheme.dark
-}
-
-export function getAodVariant(): SchemeVariant {
-  return AOD_VARIANT
 }
 
 /**

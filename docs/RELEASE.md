@@ -5,12 +5,10 @@ match `app/package.json` exactly.
 
 ## Version Sources
 
-For 0.5.0, all four files must report `0.5.0`:
+For 0.6.0, both files must report `0.6.0`:
 
 - `app/package.json`
 - `app/package-lock.json` (root package entry)
-- `app/installer/package.json`
-- `app/installer/package-lock.json` (root package entry)
 
 Update `CHANGELOG.md` in the same release unit. The root `VERSION` file belongs
 to the retired implementation and is not release authority.
@@ -49,24 +47,23 @@ workflow repeats this strict gate.
 ```powershell
 cd app
 npm run dist
-npm run installer:dist
 ```
 
 Expected artifacts:
 
-- `Zinc-0.5.0-Setup.exe`
-- `Zinc-0.5.0-Setup.exe.blockmap`
+- `Zinc-0.6.0-Setup.exe`
+- `Zinc-0.6.0-Setup.exe.blockmap`
 - `latest.yml`
-- `Zinc-0.5.0-Installer.exe`
 - a release `SHA256SUMS.txt`
 - `LICENSE`
-- `THIRD_PARTY_NOTICES-0.5.0.md`
+- `THIRD_PARTY_NOTICES-0.6.0.md`
 - `ASSET_PROVENANCE.md`
-- `zinc-0.5.0.cdx.json` (CycloneDX 1.5 SBOM)
+- `zinc-0.6.0.cdx.json` (CycloneDX 1.5 SBOM)
 
-Run the installer matrix in [`INSTALLER.md`](INSTALLER.md). Test the packaged
-application, not only the development server. The matrix must launch every
-installed state and verify a PowerShell command through the rendered terminal.
+Run the NSIS acceptance matrix in [`INSTALLER.md`](INSTALLER.md). Test the
+packaged application, not only the development server. The matrix must launch
+every installed state and verify a PowerShell command through the rendered
+terminal.
 
 ## Rehearse before tagging
 
@@ -77,31 +74,30 @@ the moment it exists, and a published tag must never be moved. Rehearse first.
    workflow rejects any tagged commit that is not the current `origin/main` tip,
    so `git push origin main` must happen before the tag, not with it.
 2. Run the release workflow manually from `main` (`workflow_dispatch`). It builds
-   Windows artifacts, verifies the packaged legal materials, runs the full
-   installer acceptance matrix against the pinned `v0.3.7` baseline, stages the
-   nine assets and verifies the exact asset set and checksums — and then stops.
-   The `publish` job runs only for a tag push, so a rehearsal cannot create,
-   modify or publish a GitHub Release.
-3. Download the rehearsal artifact and inspect the nine files by hand.
+   Windows artifacts, verifies the packaged legal materials, runs the full NSIS
+   acceptance matrix against the pinned previous-setup baseline (when configured),
+   stages the eight assets and verifies the exact asset set and checksums — and
+   then stops. The `publish` job runs only for a tag push, so a rehearsal cannot
+   create, modify or publish a GitHub Release.
+3. Download the rehearsal artifact and inspect the eight files by hand.
 
 ## Tag and Workflow
 
-After all checks pass and the release commit is approved, create `v0.5.0` from
+After all checks pass and the release commit is approved, create `v0.6.0` from
 the exact `main` commit, as an annotated tag whose message is exactly
-`chore(release): v0.5.0`. Pushing a `v*` tag runs
+`chore(release): v0.6.0`. Pushing a `v*` tag runs
 `.github/workflows/release.yml`. The workflow uses full checkout history and
 rejects a lightweight tag, an unexpected tag message, a tag/version mismatch,
 or any tagged commit other than the exact `origin/main` tip. This prevents
 publishing directly from any non-release feature branch. It then builds Windows
-x64 artifacts with read-only repository permission, verifies the legal files
-inside both unpacked applications, runs clean/overwrite/reinstall/final-uninstall
+x64 NSIS artifacts with read-only repository permission, verifies the legal files
+inside the unpacked application, runs clean/overwrite/reinstall/final-uninstall
 acceptance on the temporary runner, generates SHA-256 checksums, and transfers
-one exact nine-file release set to a separate publication job, which rechecks
-both the filename set and checksum manifest. For 0.5.0, the workflow pins the
-reviewed `v0.3.7` setup, verifies it against that release's `SHA256SUMS.txt`, and
-supplies it to
+one exact eight-file release set to a separate publication job, which rechecks
+both the filename set and checksum manifest. Pin the previous public setup in
+the workflow `env` block and supply it to
 `verify-installer-matrix.ps1 -PreviousSetupPath` so the upgrade path is not
-silently skipped. Update the pinned baseline deliberately for a later release.
+silently skipped. Update the pinned baseline deliberately for each later release.
 
 The release body is the reviewed file `docs/RELEASE_NOTES/v<semver>.md`, not
 auto-generated commit history: the internal history between releases includes
@@ -109,13 +105,11 @@ features that were removed again before shipping, and that page is what a
 first-time user reads before deciding to trust an unsigned binary. The workflow
 fails if the notes file for the tag is missing.
 
-0.5.0 is the first release of this repository, so `ZINC_PREVIOUS_RELEASE_TAG` is
-empty and the upgrade leg of the installer matrix does not run: there is no
-published version to upgrade from. The workflow emits a warning annotation saying
-so, rather than letting a skipped leg read as a passed one. Clean install,
-overwrite, reinstall and uninstall are still covered.
+For 0.6.0, pin the previous public release (`v0.5.0`) in the workflow `env` block
+when running the upgrade leg of the installer matrix. Clean install, overwrite,
+reinstall, and uninstall remain required regardless.
 
-**From 0.5.1 on, pin the previous release** in the workflow `env` block: tag,
+**Always pin the previous release** in the workflow `env` block: tag,
 setup filename, version, and the SHA-256 you reviewed at that release. The
 baseline is then verified twice — against its own release `SHA256SUMS.txt` and
 against `ZINC_PREVIOUS_SETUP_SHA256` in the workflow — because a release manifest
@@ -148,7 +142,7 @@ Install the previous public version, then test:
 2. update available detection after publication;
 3. download progress and failure handling;
 4. install/restart;
-5. Settings > About and the Windows uninstall entry both show `0.5.0`.
+5. Settings > About and the Windows uninstall entry both show `0.6.0`.
 
 ## Repository Publication Checklist
 
@@ -162,7 +156,7 @@ Before changing a private repository to public:
   issue templates, Dependabot, and least-privilege Actions permissions;
 - confirm `README`, license, security, privacy, contribution, support, conduct,
   notices, and changelog pages render correctly on GitHub;
-- publish only reviewed 0.5.0 artifacts and checksums.
+- publish only reviewed 0.6.0 artifacts and checksums.
 
 ### Copyright and asset gate
 

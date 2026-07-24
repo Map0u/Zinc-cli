@@ -1,8 +1,8 @@
 {
   "name": "zinc",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "A focused Windows terminal built with Electron, xterm.js, and PowerShell 7",
+  "description": "A lightweight multi-shell Windows terminal launcher with a modern UI",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -24,8 +24,6 @@
     "artwork": "pwsh ./scripts/generate-installer-artwork.ps1",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run artwork && npm run build && electron-builder --win nsis",
-    "installer:prepare": "node ./scripts/prepare-custom-installer.mjs",
-    "installer:dist": "npm run dist && npm run installer:prepare && electron-builder --projectDir installer --win portable",
     "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
     "test:unit": "node ./scripts/run-unit-tests.mjs",
     "legal:generate": "node ./scripts/generate-legal-artifacts.mjs --write",
@@ -36,7 +34,8 @@
     "verify:cdp:m2": "node ./zinc-m2-verify.mjs",
     "verify:cdp:m3": "node ./zinc-m3-verify.mjs",
     "verify:cdp:shells": "node ./zinc-multishell-verify.mjs",
-    "verify:cdp": "npm run verify:cdp:m1 && npm run verify:cdp:m3 && npm run verify:cdp:shells && npm run verify:cdp:m2"
+    "verify:cdp:shortcuts": "node ./zinc-shortcuts-verify.mjs",
+    "verify:cdp": "npm run verify:cdp:m1 && npm run verify:cdp:m3 && npm run verify:cdp:shells && npm run verify:cdp:shortcuts && npm run verify:cdp:m2"
   },
   "build": {
     "appId": "space.457workshop.zinc",

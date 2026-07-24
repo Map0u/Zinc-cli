@@ -36,4 +36,9 @@ payload 完整性错误。
 仅在 dev renderer URL 有效时，开发版会在 `http://127.0.0.1:9336` 暴露 Electron
 CDP。优先使用项目 Playwright/CDP 与静默测试模式；打包版不得开放该端口。
 
+自动化冒烟（`ZINC_TEST_ISOLATED=1` 和/或 `ZINC_TEST_USER_DATA`）会隔离 shell
+历史：PowerShell 会话将 PSReadLine 设为 `SaveNothing` 并写到测试 profile 下的路径，
+bash 类 shell 使用私有 `HISTFILE`，避免 CDP 标记写入开发者全局 PSReadLine 历史
+（`%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt`）。
+
 仍需帮助时请按 [`../SUPPORT.zh-CN.md`](../SUPPORT.zh-CN.md) 提交信息。

@@ -2,7 +2,6 @@
 // dependency-free like ptyProtocol.ts (no electron/node imports).
 
 import type { Keybindings } from './keybindings'
-import type { StatusBarFieldConfig, StatusBarTool } from './statusBarFields'
 
 /** Persisted app language preference; 'auto' follows the OS/browser locale (parity §1.2/§1.7). */
 export type LanguagePref = 'auto' | 'en' | 'zh'
@@ -28,39 +27,21 @@ export interface ZincSettings {
   TerminalOpacity: number
   /** Electron renderer zoom factor. 1.0 is default; valid range is 0.75-2.0. */
   UiZoom: number
-  /** Linux screen brightness percent. -1 means unmanaged. */
-  ScreenBrightness: number
   /** Selected two-layer palette id (chrome surface tint + terminal ANSI 16) — see renderer/src/colorSchemes.ts. */
   ColorScheme: string
   /** Light/dark preference for both the chrome and the selected ColorScheme's variant. */
   ThemePreference: ThemePreference
   /** Chrome accent color source — see `AccentSource`. */
   AccentSource: AccentSource
-  /** Startup preference: when true, normal launches enter AOD immediately. */
-  AodEnabled: boolean
-  /** OLED protection is only active while runtime AOD mode is active. */
-  BurnInProtectionEnabled: boolean
   /** Stable detected-shell id. Executable locations are resolved on every startup. */
   DefaultShellId: string
   StartingDirectory: string
   Scrollback: number
   RestoreSessionsOnStartup: boolean
+  /** When restoring tabs, auto-run claude/codex/grok resume commands if a tool was detected. */
   ResumeAiConversations: boolean
-  ShowStatusBar: boolean
-  /** Which detected tools the status bar is allowed to display (parity: default is both). */
-  StatusBarEnabledTools: StatusBarTool[]
-  /** Ordered, per-field on/off config for the status bar's content row. */
-  StatusBarFields: StatusBarFieldConfig[]
-  /** Status bar text size in px, independent of the terminal's `FontSize`. */
-  StatusBarFontSize: number
-  /**
-   * WSL `\\wsl.localhost\<distro>\home\<user>\.codex` roots to read Codex usage
-   * from (parity §2.4 hardcoded-path warning — never hardcode distro/user).
-   * Empty until the first auto-probe (`detectWslCodexRoots()`) populates it.
-   */
-  codexSessionRoots: string[]
   Language: LanguagePref
-  /** action -> normalized accelerator string; 0.2.0 configurable shortcut system (parity §1.6). */
+  /** action -> normalized accelerator string; configurable shortcut system. */
   Keybindings: Keybindings
 }
 

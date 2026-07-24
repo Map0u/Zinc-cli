@@ -4,14 +4,10 @@ import { useSettings } from './settings/SettingsContext'
 import { useI18n } from './i18n/I18nContext'
 import { SettingsRailBody, SettingsContentBody, type Category } from './settings/SettingsPage'
 import { shortcutManager } from './shortcuts/ShortcutManager'
-import { StatusBar } from './statusbar/StatusBar'
-import { getStatusBarHeight } from './statusbar/StatusBarRow'
 import { SegoeIcon } from './segoeFluentIcons'
 import { surfaceBackground } from './chromeBackground'
-import { getAodVariant, getColorScheme, harmonizeAccent, resolveVariant } from './colorSchemes'
+import { getColorScheme, harmonizeAccent, resolveVariant } from './colorSchemes'
 import { useResolvedThemeMode } from './themeMode'
-import { createBurnInController, type BurnInController } from './aod/burnInProtection'
-import { getAodState, subscribeAod, subscribeAodWake, wakeAod } from './aod/aodRuntime'
 import zincIcon from './assets/zinc-icon.png'
 import {
   consumeShellFallbackNotice,
@@ -48,7 +44,7 @@ interface Tab {
   shellId?: string
   /** Friendly profile name shown until the shell provides an OSC title. */
   shellLabel?: string
-  /** `claude --continue` / `codex resume --last` for a restored tab whose saved session had a known AI tool (parity §1.4). */
+  /** `claude --continue` / `codex resume --last` / `grok --continue` for a restored tab whose saved session had a known AI tool. */
   startupCommand?: string
 }
 
@@ -84,19 +80,12 @@ export default function App() {
   const { settings, updateDebounced, updateImmediate } = useSettings()
   const { t } = useI18n()
   const themeMode = useResolvedThemeMode(settings?.ThemePreference ?? 'auto')
-  const [aodState, setAodState] = useState(getAodState())
   const [windowState, setWindowState] = useState(window.zinc.window.getStateSync())
-  const aodActive = aodState.active
-  const burnInRootRef = useRef<HTMLDivElement | null>(null)
-  const burnInControllerRef = useRef<BurnInController | null>(null)
-  const aodActiveRef = useRef(aodActive)
-  const burnInEnabledRef = useRef(settings?.BurnInProtectionEnabled ?? true)
   const tabContextMenuRef = useRef<HTMLDivElement | null>(null)
   const tabContextMenuReturnFocusRef = useRef<HTMLElement | null>(null)
   const shellMenuRef = useRef<HTMLDivElement | null>(null)
   const shellMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
 
-  useEffect(() => subscribeAod(setAodState), [])
   useEffect(() => window.zinc.window.onStateChange(setWindowState), [])
 
   // Main owns the probe and caches its result. Loading it here gives the
@@ -118,39 +107,6 @@ export default function App() {
     })
     return () => {
       alive = false
-    }
-  }, [])
-
-  useEffect(() => {
-    aodActiveRef.current = aodActive
-    terminalHostRegistry.setAodMode(aodActive)
-    if (activeId) terminalHostRegistry.fitOnShow(activeId)
-    if (!aodActive || !activeId) return
-    const fitTimer = window.setTimeout(() => terminalHostRegistry.fitOnShow(activeId), 180)
-    return () => window.clearTimeout(fitTimer)
-  }, [aodActive, activeId])
-
-  useEffect(() => {
-    burnInEnabledRef.current = settings?.BurnInProtectionEnabled ?? true
-    if (aodActive && burnInEnabledRef.current) burnInControllerRef.current?.start()
-    else burnInControllerRef.current?.stop()
-  }, [aodActive, settings?.BurnInProtectionEnabled])
-
-  useEffect(() => {
-    const root = burnInRootRef.current
-    if (!root) return
-    const controller = createBurnInController({
-      root,
-      enabled: () => burnInEnabledRef.current,
-      active: () => aodActiveRef.current
-    })
-    burnInControllerRef.current = controller
-    if (aodActiveRef.current && burnInEnabledRef.current) controller.start()
-    const unsubscribeWake = subscribeAodWake(() => controller.wake())
-    return () => {
-      unsubscribeWake()
-      controller.stop()
-      if (burnInControllerRef.current === controller) burnInControllerRef.current = null
     }
   }, [])
 
@@ -176,11 +132,6 @@ export default function App() {
   // is open.
   useEffect(() => {
     if (!settings) return
-    if (aodActive) {
-      const variant = getAodVariant()
-      document.documentElement.style.setProperty('--color-accent', variant.accent)
-      return
-    }
     if (settings.AccentSource === 'system') {
       window.zinc.window.getAccentColor().then((hex) => {
         const harmonized = harmonizeAccent(hex, themeMode)
@@ -190,7 +141,7 @@ export default function App() {
       const variant = resolveVariant(getColorScheme(settings.ColorScheme), themeMode)
       document.documentElement.style.setProperty('--color-accent', variant.accent)
     }
-  }, [settings?.AccentSource, settings?.ColorScheme, themeMode, aodActive])
+  }, [settings?.AccentSource, settings?.ColorScheme, themeMode])
 
   const nextNumRef = useRef(1)
   const initializedRef = useRef(false)
@@ -503,15 +454,6 @@ export default function App() {
     if (view === 'terminal' && activeId) terminalHostRegistry.fitOnShow(activeId)
   }, [view, activeId])
 
-  // Tells main which terminal tab's shell process tree the AI status poller
-  // should inspect (parity §1.3: "检测当前激活标签"). Settings has no active
-  // terminal surface, so the status bar retracts while it is open.
-  const statusBarHostId = view === 'terminal' ? activeId : null
-
-  useEffect(() => {
-    window.zinc.aiStatus.setActiveTab(statusBarHostId)
-  }, [statusBarHostId])
-
   // Push the persisted keybindings into the global shortcut dispatcher
   // whenever settings load/change (rebind in the settings page round-trips
   // through here too).
@@ -592,12 +534,10 @@ export default function App() {
   // required the rail and the terminal to match each other.
   const railOpacity = Math.max(0, Math.min(1, settings?.RailOpacity ?? 0))
   const terminalOpacity = Math.max(0, Math.min(1, settings?.TerminalOpacity ?? 0))
-  const colorVariant = aodActive ? getAodVariant() : resolveVariant(getColorScheme(settings?.ColorScheme), themeMode)
-  const railBg = aodActive ? '#000000' : surfaceBackground(railOpacity, colorVariant.surfaceBase)
-  const terminalBg = aodActive ? '#000000' : surfaceBackground(terminalOpacity, colorVariant.surfaceBase)
-  const statusBarRequested = (settings?.ShowStatusBar ?? true) && statusBarHostId !== null
-  const statusBarHeight = getStatusBarHeight(settings?.StatusBarFontSize ?? 12)
-  const showWindowControls = windowState.platform === 'linux' || windowState.fullScreen || aodActive
+  const colorVariant = resolveVariant(getColorScheme(settings?.ColorScheme), themeMode)
+  const railBg = surfaceBackground(railOpacity, colorVariant.surfaceBase)
+  const terminalBg = surfaceBackground(terminalOpacity, colorVariant.surfaceBase)
+  const showWindowControls = windowState.platform === 'linux' || windowState.fullScreen
 
   return (
     <>
@@ -607,16 +547,10 @@ export default function App() {
         left corners, which aren't at the window's true edge), this shows
         through instead of empty window backdrop. */}
     <div
-      ref={burnInRootRef}
-      className="aod-burn-in-frame flex h-screen w-screen text-fg-secondary"
+      className="flex h-screen w-screen text-fg-secondary"
       style={{
         background: railBg,
-        padding: aodActive ? 16 : 0,
-        boxSizing: 'border-box',
-        transform: aodActive ? 'translate3d(var(--aod-offset-x, 0px), var(--aod-offset-y, 0px), 0)' : undefined
-      }}
-      onKeyDownCapture={() => {
-        if (aodActive) wakeAod()
+        boxSizing: 'border-box'
       }}
     >
       {/* Left tab rail — fixed 260px, square corners, spans the FULL window
@@ -910,8 +844,8 @@ export default function App() {
         className="relative min-h-0 flex-1 overflow-hidden"
         style={{
           background: terminalBg,
-          borderRadius: aodActive ? 0 : WINDOW_CORNER_RADIUS,
-          boxShadow: aodActive ? 'none' : 'inset 1px 0 0 rgba(255, 255, 255, 0.06), -12px 0 28px -6px rgba(0, 0, 0, 0.55)'
+          borderRadius: WINDOW_CORNER_RADIUS,
+          boxShadow: 'inset 1px 0 0 rgba(255, 255, 255, 0.06), -12px 0 28px -6px rgba(0, 0, 0, 0.55)'
         }}
       >
         {/* Top drag region's right segment — self-drawn controls appear only when native caption buttons are unavailable or intentionally hidden. */}
@@ -925,9 +859,7 @@ export default function App() {
                 onClick={() => {
                   void window.zinc.window.minimize()
                 }}
-                className={`flex h-8 w-8 items-center justify-center rounded text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg ${
-                  aodActive ? 'opacity-70' : ''
-                }`}
+                className="flex h-8 w-8 items-center justify-center rounded text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5">
                   <path d="M3 11.5h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -940,9 +872,7 @@ export default function App() {
                 onClick={() => {
                   void window.zinc.window.close()
                 }}
-                className={`icon-font flex h-8 w-8 items-center justify-center rounded text-[11px] text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg ${
-                  aodActive ? 'opacity-70' : ''
-                }`}
+                className="icon-font flex h-8 w-8 items-center justify-center rounded text-[11px] text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
               >
                 {SegoeIcon.Close}
               </button>
@@ -957,7 +887,7 @@ export default function App() {
             unload"), so this can't be a plain conditional render like the
             rail body above. */}
         <div className="absolute inset-x-0 bottom-0 top-12 overflow-hidden">
-          <div className="absolute inset-x-0 top-0" style={{ bottom: statusBarRequested ? statusBarHeight : 0 }}>
+          <div className="absolute inset-x-0 top-0 bottom-0">
             <div
               className="chrome-scroll absolute inset-0 overflow-y-auto px-8 pb-8 pt-3"
               style={{ display: view === 'settings' ? 'block' : 'none' }}
@@ -1032,20 +962,6 @@ export default function App() {
 
           </div>
 
-        </div>
-
-        {/* Bottom status bar (parity §1.3): AI usage detection for the active
-            terminal tab. It retracts while Settings is open. */}
-        <div
-          className="absolute inset-x-0 bottom-0 overflow-hidden"
-          style={{
-            display: statusBarRequested ? 'block' : 'none',
-            // The rendered bar and the terminal's reserved bottom inset share
-            // this value, so larger configured text cannot overlap the shell.
-            height: statusBarHeight
-          }}
-        >
-          <StatusBar visible={statusBarRequested} activeId={statusBarHostId} />
         </div>
       </div>
     </div>

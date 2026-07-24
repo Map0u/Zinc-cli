@@ -32,7 +32,7 @@ export function onSystemThemeModeChange(callback: (mode: ThemeMode) => void): ()
   return () => listeners.delete(callback)
 }
 
-/** Live-tracks the OS light/dark setting for chrome rendered by React (App.tsx/SettingsPage.tsx/StatusBar.tsx). */
+/** Live-tracks the OS light/dark setting for chrome rendered by React (App.tsx/SettingsPage.tsx). */
 export function useSystemThemeMode(): ThemeMode {
   const [mode, setMode] = useState(getSystemThemeMode)
   useEffect(() => {

@@ -12,13 +12,8 @@ const releaseMode = process.argv.includes('--release')
 runNode(join(appRoot, 'scripts', 'generate-legal-artifacts.mjs'), ['--check'])
 
 const appPackage = readJson(join(appRoot, 'package.json'))
-const installerPackage = readJson(join(appRoot, 'installer', 'package.json'))
-const installerLock = readJson(join(appRoot, 'installer', 'package-lock.json'))
-assert(appPackage.version === installerPackage.version, 'app and installer versions differ')
-assert(installerLock.version === installerPackage.version, 'installer lock version differs')
-assert(installerLock.packages?.['']?.version === installerPackage.version, 'installer lock root version differs')
 
-verifyPackagerConfiguration(appPackage, installerPackage)
+verifyPackagerConfiguration(appPackage)
 verifyBom(appPackage)
 verifyAssetProvenance()
 verifySourceProvenance()
@@ -26,14 +21,18 @@ for (const resourcesPath of packageResources) verifyPackagedResources(resolve(re
 
 console.log(`Verified legal inventory, SBOM, asset provenance, vendored licenses${packageResources.length ? `, and ${packageResources.length} packaged resource tree(s)` : ''}.`)
 
-function verifyPackagerConfiguration(main, wrapper) {
+function verifyPackagerConfiguration(main) {
   const mainLegal = main.build?.extraResources?.find((item) => item.from === 'resources/legal' && item.to === 'legal')
-  const wrapperLegal = wrapper.build?.extraResources?.find((item) => item.from === '../resources/legal' && item.to === 'legal')
   assert(mainLegal, 'main package does not export resources/legal as an unpacked legal directory')
-  assert(wrapperLegal, 'custom installer does not export resources/legal as an unpacked legal directory')
-  for (const mapping of [mainLegal, wrapperLegal]) {
-    assert(Array.isArray(mapping.filter) && mapping.filter.includes('LICENSE') && mapping.filter.includes('THIRD_PARTY_NOTICES.md') && mapping.filter.includes('THIRD_PARTY_NOTICES-*.md') && mapping.filter.includes('ASSET_PROVENANCE.md') && mapping.filter.includes('*.cdx.json'), 'legal extraResources filter is incomplete')
-  }
+  assert(
+    Array.isArray(mainLegal.filter) &&
+      mainLegal.filter.includes('LICENSE') &&
+      mainLegal.filter.includes('THIRD_PARTY_NOTICES.md') &&
+      mainLegal.filter.includes('THIRD_PARTY_NOTICES-*.md') &&
+      mainLegal.filter.includes('ASSET_PROVENANCE.md') &&
+      mainLegal.filter.includes('*.cdx.json'),
+    'legal extraResources filter is incomplete'
+  )
 }
 
 function verifyBom(pkg) {

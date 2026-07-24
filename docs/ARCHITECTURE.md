@@ -5,12 +5,12 @@ Zinc's active implementation is the Electron application in `app/`.
 ## Runtime Boundaries
 
 - **Main process** (`app/src/main/`) owns windows, PTY processes, settings and
-  session persistence, safe external opening, local status services, native
+  session persistence, safe external opening, shell discovery, native
   integrations, and update operations.
 - **Preload** (`app/src/preload/`) exposes a narrow typed `window.zinc` API under
   context isolation. Renderer code must not access Node or Electron directly.
 - **Renderer** (`app/src/renderer/`) owns the React interface, vertical tab rail,
-  settings, status bar, and xterm terminal hosts.
+  settings, and xterm terminal hosts.
 - **Shared contracts** (`app/src/shared/`) contain dependency-free types used on
   both sides of IPC.
 
@@ -40,8 +40,8 @@ multi-writer stores.
 - External navigation is rejected unless it passes the main-process scheme policy.
 - Update operations stay in the main process.
 - Settings and IPC payloads are normalized before use.
-- Release installers and update metadata are produced from a tagged source tree;
-  the custom installer verifies its embedded payload manifest.
+- Release installers and update metadata are produced from a tagged source tree
+  as a single NSIS setup (`Zinc-<version>-Setup.exe`).
 
 ## Updater
 

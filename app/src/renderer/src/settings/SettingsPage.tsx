@@ -12,15 +12,7 @@ import { COLOR_SCHEMES, getColorScheme, resolveVariant } from '../colorSchemes'
 import { useResolvedThemeMode } from '../themeMode'
 import { DEFAULT_KEYBINDINGS, SHORTCUT_ACTIONS, type Keybindings, type ShortcutAction } from '../../../shared/keybindings'
 import { isUnsafeAccelerator } from '../../../shared/shortcutAccelerator'
-import {
-  STATUS_BAR_TOOLS,
-  type StatusBarFieldConfig,
-  type StatusBarFieldId,
-  type StatusBarTool
-} from '../../../shared/statusBarFields'
-import type { AiStatusSnapshot } from '../../../shared/aiStatusProtocol'
 import type { UpdateState } from '../../../shared/updateProtocol'
-import { getStatusBarHeight, StatusBarFieldsRow } from '../statusbar/StatusBarRow'
 import { acceleratorFromEvent, shortcutManager } from '../shortcuts/ShortcutManager'
 import { SegoeIcon } from '../segoeFluentIcons'
 import zincIcon from '../assets/zinc-icon.png'
@@ -30,7 +22,6 @@ export type Category =
   | 'appearance'
   | 'terminal'
   | 'session'
-  | 'statusBar'
   | 'shortcuts'
   | 'language'
   | 'about'
@@ -40,7 +31,6 @@ export const SETTINGS_CATEGORIES: Array<{ id: Category; labelKey: LocaleKey; ico
   { id: 'terminal', labelKey: 'CatTerminal', icon: SegoeIcon.Terminal },
   { id: 'appearance', labelKey: 'CatAppearance', icon: SegoeIcon.Appearance },
   { id: 'session', labelKey: 'CatSession', icon: SegoeIcon.Session },
-  { id: 'statusBar', labelKey: 'CatStatusBar', icon: SegoeIcon.StatusBar },
   { id: 'shortcuts', labelKey: 'CatShortcuts', icon: SegoeIcon.Shortcuts },
   { id: 'language', labelKey: 'CatLanguage', icon: SegoeIcon.Language },
   { id: 'about', labelKey: 'CatAbout', icon: SegoeIcon.About }
@@ -51,6 +41,20 @@ export const SETTINGS_CATEGORIES: Array<{ id: Category; labelKey: LocaleKey; ico
 const RAIL_TEXT = 'var(--color-fg-primary)'
 
 const ABOUT_CHANGELOG_ENTRIES = [
+  {
+    version: '0.6.0',
+    date: '2026-07-24',
+    zh: [
+      '产品定位为轻量多 shell Windows 终端启动器：现代界面、低占用、按标签选择 shell。',
+      '移除 AI 用量状态栏、自定义 Electron 安装器套娃，以及 AOD / OLED 防烧屏等残留。',
+      '仅发布 NSIS 安装包；会话恢复支持 Grok；测试 shell 不再污染本机历史。'
+    ],
+    en: [
+      'Positioned Zinc as a lightweight multi-shell Windows terminal launcher with a modern UI and low overhead.',
+      'Removed the AI usage status bar, the nested Electron custom installer, and AOD / OLED leftovers.',
+      'NSIS-only distribution; Grok session resume; isolated test shells no longer pollute host history.'
+    ]
+  },
   {
     version: '0.5.0',
     date: '2026-07-11',
@@ -97,12 +101,12 @@ const ABOUT_CHANGELOG_ENTRIES = [
     zh: [
       '修复 Alt+M/Alt+V 在 Windows 上被系统修饰键链路拦截的问题。',
       '设置页版本号改为读取 app.getVersion()，打包后不再卡在旧版本。',
-      '修复退出全屏或 AOD 后窗口按钮重叠残影。'
+      '修复退出全屏后窗口按钮重叠残影。'
     ],
     en: [
       'Fixed Alt+M and Alt+V being swallowed by the Windows system modifier path.',
       'The Settings version now reads app.getVersion() instead of a dev-only environment value.',
-      'Fixed overlapping window button artifacts after leaving fullscreen or AOD.'
+      'Fixed overlapping window button artifacts after leaving fullscreen.'
     ]
   },
   {
@@ -219,15 +223,10 @@ export function SettingsContentBody({ category }: { category: Category }) {
       {category !== 'about' && (
         <SectionHeading>{t(SETTINGS_CATEGORIES.find((c) => c.id === category)!.labelKey)}</SectionHeading>
       )}
-      {/* Single column: cards are full-width label+control rows. The one exception
-          is the status bar's field-order list
-          (FieldOrderList below), which lays its own items out in a responsive grid —
-          that's the only part of this page meant to use the pane's extra width. */}
       <div className="flex flex-col gap-1">
         {category === 'appearance' && <AppearanceSection />}
         {category === 'terminal' && <TerminalSection />}
         {category === 'session' && <SessionSection />}
-        {category === 'statusBar' && <StatusBarSection />}
         {category === 'shortcuts' && <ShortcutsSection />}
         {category === 'language' && <LanguageSection />}
         {category === 'about' && <AboutSection />}
@@ -645,17 +644,6 @@ const ACCENT_SOURCE_OPTIONS: Array<{ value: AccentSource; labelKey: 'AccentSourc
 function AppearanceSection() {
   const { t } = useI18n()
   const { settings, updateImmediate, updateDebounced } = useSettings()
-  const [platform, setPlatform] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    window.zinc.window.getPlatform().then((next) => {
-      if (alive) setPlatform(next)
-    })
-    return () => {
-      alive = false
-    }
-  }, [])
 
   if (!settings) return null
 
@@ -709,20 +697,6 @@ function AppearanceSection() {
           onChange={(v) => updateImmediate({ AccentSource: v })}
         />
       </Card>
-      <Card title={t('CardAodModeTitle')} desc={t('CardAodModeDesc')}>
-        <Toggle
-          testId="setting-aodEnabled"
-          checked={settings.AodEnabled}
-          onChange={(v) => updateImmediate({ AodEnabled: v })}
-        />
-      </Card>
-      <Card title={t('CardBurnInProtectionTitle')} desc={t('CardBurnInProtectionDesc')}>
-        <Toggle
-          testId="setting-burnInProtection"
-          checked={settings.BurnInProtectionEnabled}
-          onChange={(v) => updateImmediate({ BurnInProtectionEnabled: v })}
-        />
-      </Card>
       <Card title={t('CardRailOpacityTitle')} desc={t('CardRailOpacityDesc')}>
         <OpacitySlider
           testId="setting-railOpacity"
@@ -748,19 +722,6 @@ function AppearanceSection() {
           onDebouncedChange={(v) => updateImmediate({ UiZoom: v })}
         />
       </Card>
-      {platform === 'linux' && (
-        <Card title={t('ScreenBrightnessLabel')} desc={t('ScreenBrightnessHint')}>
-          <RangeSlider
-            testId="setting-screenBrightness"
-            value={settings.ScreenBrightness < 0 ? 100 : settings.ScreenBrightness}
-            min={0}
-            max={100}
-            step={1}
-            label={settings.ScreenBrightness < 0 ? '--' : `${Math.round(settings.ScreenBrightness)}%`}
-            onDebouncedChange={(v) => updateDebounced({ ScreenBrightness: v })}
-          />
-        </Card>
-      )}
     </>
   )
 }
@@ -842,353 +803,6 @@ function SessionSection() {
           onChange={(v) => updateImmediate({ ResumeAiConversations: v })}
         />
       </Card>
-    </>
-  )
-}
-
-/**
- * Same popup chrome as `Dropdown` (M9's hand-styled trigger + listbox), but
- * each option toggles independently instead of closing the popup — needed
- * for the claude/codex "which tools may show" multi-select (default: both).
- */
-function MultiSelectDropdown<T extends string>({
-  value,
-  options,
-  onChange,
-  testId
-}: {
-  value: T[]
-  options: Array<{ value: T; label: string }>
-  onChange: (v: T[]) => void
-  testId: string
-}) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const pendingFocusIndexRef = useRef(0)
-
-  function closeAndReturnFocus(): void {
-    setOpen(false)
-    window.requestAnimationFrame(() => triggerRef.current?.focus())
-  }
-
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(e: MouseEvent): void {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    function onKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        closeAndReturnFocus()
-      }
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const frame = window.requestAnimationFrame(() => {
-      const options = rootRef.current?.querySelectorAll<HTMLElement>('[role="option"]')
-      options?.[pendingFocusIndexRef.current]?.focus()
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [open])
-
-  function toggle(v: T): void {
-    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
-  }
-
-  const label = options.filter((o) => value.includes(o.value)).map((o) => o.label).join(', ')
-  const firstSelectedIndex = Math.max(0, options.findIndex((o) => value.includes(o.value)))
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        data-testid={testId}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={`${testId}-listbox`}
-        onClick={() => {
-          pendingFocusIndexRef.current = firstSelectedIndex
-          setOpen((v) => !v)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
-            event.preventDefault()
-            pendingFocusIndexRef.current = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : firstSelectedIndex
-            setOpen(true)
-          }
-        }}
-        className={`flex w-40 items-center justify-between gap-2 rounded-md border bg-control-bg px-2.5 py-1.5 text-sm text-fg-primary transition-colors hover:border-control-border-hover focus:bg-control-bg-focused focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-          open ? 'border-accent' : 'border-control-border'
-        }`}
-      >
-        <span className="truncate">{label || t('StatusToolsNone')}</span>
-        <span
-          className={`icon-font shrink-0 text-[9px] text-fg-tertiary transition-transform duration-150 ${open ? '-rotate-180' : ''}`}
-        >
-          {SegoeIcon.ChevronDown}
-        </span>
-      </button>
-      {open && (
-        <div
-          id={`${testId}-listbox`}
-          role="listbox"
-          aria-multiselectable="true"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              closeAndReturnFocus()
-              return
-            }
-            if (event.key === 'Tab') {
-              window.setTimeout(() => setOpen(false), 0)
-              return
-            }
-            const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="option"]'))
-            const currentIndex = Math.max(0, items.indexOf(document.activeElement as HTMLElement))
-            let nextIndex: number | null = null
-            if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length
-            else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length
-            else if (event.key === 'Home') nextIndex = 0
-            else if (event.key === 'End') nextIndex = items.length - 1
-            if (nextIndex !== null) {
-              event.preventDefault()
-              items[nextIndex]?.focus()
-            }
-          }}
-          className="absolute right-0 z-20 mt-1.5 w-40 origin-top-right overflow-hidden rounded-lg border border-popup-border bg-popup-bg py-1 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] animate-[dropdown-in_120ms_cubic-bezier(0.16,1,0.3,1)]"
-        >
-          {options.map((opt, index) => {
-            const checked = value.includes(opt.value)
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                role="option"
-                tabIndex={index === firstSelectedIndex ? 0 : -1}
-                aria-selected={checked}
-                data-testid={`${testId}-option-${opt.value}`}
-                onClick={() => toggle(opt.value)}
-                className={`mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  checked ? 'bg-row-selected text-fg-primary' : 'text-fg-secondary hover:bg-row-hover'
-                }`}
-              >
-                <span className={`w-3 shrink-0 text-[11px] ${checked ? 'text-accent' : 'text-transparent'}`}>✓</span>
-                <span className="truncate">{opt.label}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-const STATUS_FIELD_LABEL_KEYS: Record<StatusBarFieldId, LocaleKey> = {
-  model: 'StatusFieldModel',
-  effort: 'StatusFieldEffort',
-  contextTokens: 'StatusFieldContextTokens',
-  primaryUsage: 'StatusFieldPrimaryUsage',
-  secondaryUsage: 'StatusFieldSecondaryUsage',
-  cost: 'StatusFieldCost'
-}
-
-/**
- * Per-field on/off + drag-to-reorder list for the status bar's content row.
- * HTML5 `draggable` drag/drop (no library) — reorders on drop, matching the
- * plain-DOM-event style of this file's other hand-rolled controls.
- */
-function FieldOrderList({
-  fields,
-  onChange
-}: {
-  fields: StatusBarFieldConfig[]
-  onChange: (fields: StatusBarFieldConfig[]) => void
-}) {
-  const { t } = useI18n()
-  const [dragIndex, setDragIndex] = useState<number | null>(null)
-
-  function toggle(id: StatusBarFieldId): void {
-    onChange(fields.map((f) => (f.id === id ? { ...f, on: !f.on } : f)))
-  }
-
-  function moveTo(from: number, to: number): void {
-    if (from === to) return
-    const next = [...fields]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    onChange(next)
-  }
-
-  return (
-    <div className="grid w-full grid-cols-1 gap-1 sm:grid-cols-2">
-      {fields.map((field, index) => (
-        <div
-          key={field.id}
-          draggable
-          data-testid={`statusbar-field-${field.id}`}
-          onDragStart={() => setDragIndex(index)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={() => {
-            if (dragIndex !== null) moveTo(dragIndex, index)
-            setDragIndex(null)
-          }}
-          onDragEnd={() => setDragIndex(null)}
-          className={`flex items-center gap-2 rounded-md border border-control-border bg-control-bg px-2 py-1.5 text-sm text-fg-primary transition-opacity ${
-            dragIndex === index ? 'opacity-40' : ''
-          }`}
-        >
-          <span className="cursor-grab select-none text-fg-tertiary" aria-hidden="true">
-            ⠿
-          </span>
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={field.on}
-            data-testid={`statusbar-field-toggle-${field.id}`}
-            onClick={() => toggle(field.id)}
-            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] leading-none transition-colors ${
-              field.on ? 'border-accent bg-accent text-black' : 'border-control-border text-transparent'
-            }`}
-          >
-            ✓
-          </button>
-          <span className="flex-1 truncate">{t(STATUS_FIELD_LABEL_KEYS[field.id])}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-const STATUS_TOOL_LABEL_KEYS: Record<StatusBarTool, LocaleKey> = {
-  claude: 'StatusToolClaude',
-  codex: 'StatusToolCodex'
-}
-
-const NOW_EPOCH = Math.floor(Date.now() / 1000)
-
-/** Representative sample data — not live — for the settings-page preview; deliberately
- * gives Claude a cost figure and leaves Codex's null (parity with `readCodex` never
- * computing one), so the preview also answers "what can each tool show" (4a). */
-const STATUS_PREVIEW_SNAPSHOTS: Record<StatusBarTool, AiStatusSnapshot> = {
-  claude: {
-    label: 'Claude',
-    model: 'claude-sonnet-5',
-    effort: 'high',
-    contextTokens: 42000,
-    primary: { usedPercent: 38, resetsAtEpoch: NOW_EPOCH + 3 * 3600 },
-    secondary: { usedPercent: 62, resetsAtEpoch: NOW_EPOCH + 2 * 86400 },
-    dailyCost: '$4.20',
-    weeklyCost: '$18.60'
-  },
-  codex: {
-    label: 'Codex',
-    model: 'gpt-5.5-codex',
-    effort: 'medium',
-    contextTokens: 27000,
-    primary: { usedPercent: 15, resetsAtEpoch: NOW_EPOCH + 4 * 3600 },
-    secondary: { usedPercent: 44, resetsAtEpoch: NOW_EPOCH + 3 * 86400 },
-    dailyCost: null,
-    weeklyCost: null
-  }
-}
-
-/** Live preview reusing `StatusBarFieldsRow` — the exact component the real bar
- * renders — so field on/off, order, and font size are always shown truthfully,
- * never a second hand-maintained mock render. */
-function StatusBarPreview({
-  enabledTools,
-  fields,
-  fontSize
-}: {
-  enabledTools: StatusBarTool[]
-  fields: StatusBarFieldConfig[]
-  fontSize: number
-}) {
-  const { t } = useI18n()
-  const { settings } = useSettings()
-  const themeMode = useResolvedThemeMode(settings?.ThemePreference ?? 'auto')
-  const scheme = resolveVariant(getColorScheme(settings?.ColorScheme), themeMode)
-
-  if (enabledTools.length === 0) {
-    return <div className="px-1 py-2 text-[11px] text-text-tertiary">{t('StatusBarPreviewEmpty')}</div>
-  }
-
-  return (
-    <div className="flex flex-col gap-1 overflow-hidden rounded-md border border-card-border">
-      {enabledTools.map((tool) => (
-        <div
-          key={tool}
-          className="overflow-hidden bg-control-bg"
-          style={{ height: getStatusBarHeight(fontSize) }}
-        >
-          <StatusBarFieldsRow snapshot={STATUS_PREVIEW_SNAPSHOTS[tool]} fields={fields} fontSize={fontSize} scheme={scheme} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function StatusBarSection() {
-  const { t } = useI18n()
-  const { settings, updateImmediate, updateDebounced } = useSettings()
-  if (!settings) return null
-
-  return (
-    <>
-      <Card title={t('CardShowStatusTitle')} desc={t('CardShowStatusDesc')}>
-        <Toggle
-          testId="setting-showStatusBar"
-          checked={settings.ShowStatusBar}
-          onChange={(v) => updateImmediate({ ShowStatusBar: v })}
-        />
-      </Card>
-      {settings.ShowStatusBar && (
-        <>
-          <Card title={t('CardStatusToolsTitle')} desc={t('CardStatusToolsDesc')}>
-            <MultiSelectDropdown
-              testId="setting-statusBarTools"
-              value={settings.StatusBarEnabledTools}
-              options={STATUS_BAR_TOOLS.map((tool) => ({ value: tool, label: t(STATUS_TOOL_LABEL_KEYS[tool]) }))}
-              onChange={(v) => updateImmediate({ StatusBarEnabledTools: v })}
-            />
-          </Card>
-          <Card title={t('CardStatusFontSizeTitle')}>
-            <NumberField
-              testId="setting-statusBarFontSize"
-              value={settings.StatusBarFontSize}
-              min={8}
-              max={32}
-              step={1}
-              onDebouncedChange={(v) => updateDebounced({ StatusBarFontSize: v })}
-            />
-          </Card>
-          <Card title={t('CardStatusFieldsTitle')} desc={t('CardStatusFieldsDesc')}>
-            <FieldOrderList
-              fields={settings.StatusBarFields}
-              onChange={(fields) => updateImmediate({ StatusBarFields: fields })}
-            />
-          </Card>
-          <div className="mb-1 rounded border border-card-border bg-card-bg px-4 py-3">
-            <div className="mb-2 text-[11px] text-text-tertiary">{t('CardStatusPreviewTitle')}</div>
-            <StatusBarPreview
-              enabledTools={settings.StatusBarEnabledTools}
-              fields={settings.StatusBarFields}
-              fontSize={settings.StatusBarFontSize}
-            />
-          </div>
-        </>
-      )}
     </>
   )
 }

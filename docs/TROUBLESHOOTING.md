@@ -45,4 +45,10 @@ dev renderer URL is active. Prefer project-scoped Playwright/CDP checks and a
 silent test mode so automation does not steal focus. Packaged builds must not
 expose this debugging endpoint.
 
+Automated smoke (`ZINC_TEST_ISOLATED=1` and/or `ZINC_TEST_USER_DATA`) also
+isolates shell history: PowerShell sessions force PSReadLine `SaveNothing` into
+a path under the test profile, and bash-like shells get a private `HISTFILE`.
+That keeps CDP/terminal markers out of the developer's global PSReadLine history
+(`%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt`).
+
 For help after these checks, follow [`../SUPPORT.md`](../SUPPORT.md).

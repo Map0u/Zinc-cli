@@ -27,6 +27,9 @@ test('release governance gates enforce the reviewed publication boundary', async
   assert.doesNotMatch(releaseWorkflow, /--clobber|gh release upload/)
   assert.equal(releaseWorkflow.match(/contents:\s*write/g)?.length, 1)
   assert.match(releaseWorkflow, /gh release create[\s\S]+--draft[\s\S]+gh release edit[\s\S]+--draft=false/)
+  assert.doesNotMatch(releaseWorkflow, /installer:prepare|custom-installer|Installer\.exe/)
+  assert.match(releaseWorkflow, /verify-installer-matrix\.ps1/)
+  assert.match(releaseWorkflow, /-SetupPath/)
 
   const scrubFixture = createPublicTreeFixture(t)
   write(scrubFixture, 'app/src/main/services/SettingsService.ts', `// 0.5.0 moved the assistant/secretary feature to its own development branch.
@@ -96,6 +99,8 @@ test('release branding stays on the original Zinc 3D Z artwork', () => {
   }
 
   assert.equal(existsSync(join(repositoryRoot, 'app/resources/icon-source.svg')), false)
+  assert.equal(existsSync(join(repositoryRoot, 'app/installer')), false)
+  assert.equal(existsSync(join(repositoryRoot, 'app/scripts/prepare-custom-installer.mjs')), false)
 
   const iconGenerator = readFileSync(join(repositoryRoot, 'app/scripts/generate-icons.mjs'), 'utf8')
   assert.doesNotMatch(iconGenerator, /outputs\.set\(['"]app\/(?:resources|src\/renderer)\//)
@@ -104,20 +109,10 @@ test('release branding stays on the original Zinc 3D Z artwork', () => {
   assert.match(artworkGenerator, /'resources\/icon\.png'/)
   assert.doesNotMatch(artworkGenerator, /markPen|markPoints|DrawLines/)
 
-  const installerPackage = JSON.parse(readFileSync(join(repositoryRoot, 'app/installer/package.json'), 'utf8'))
-  assert.equal(installerPackage.build.win.icon, '../resources/icon.ico')
-  assert.ok(installerPackage.build.files.includes('assets/icon.png'))
-  assert.ok(installerPackage.build.extraResources.some((item) => item.from === '../resources/icon.ico' && item.to === 'branding/icon.ico'))
-
-  const installerMain = readFileSync(join(repositoryRoot, 'app/installer/main.js'), 'utf8')
-  assert.match(installerMain, /process\.resourcesPath, 'branding', 'icon\.ico'/)
-
-  const installerPrepare = readFileSync(join(repositoryRoot, 'app/scripts/prepare-custom-installer.mjs'), 'utf8')
-  assert.match(installerPrepare, /copyFileSync\(join\(root, 'resources', 'icon\.png'\), join\(assetsDir, 'icon\.png'\)\)/)
-  assert.doesNotMatch(installerPrepare, /join\(assetsDir, 'icon\.ico'\)/)
-
-  const installerHtml = readFileSync(join(repositoryRoot, 'app/installer/renderer/index.html'), 'utf8')
-  assert.match(installerHtml, /<img src="\.\.\/assets\/icon\.png"/)
+  const appPackage = JSON.parse(readFileSync(join(repositoryRoot, 'app/package.json'), 'utf8'))
+  assert.equal(appPackage.build.win.icon, 'resources/icon.ico')
+  assert.equal(appPackage.build.nsis.installerIcon, 'resources/icon.ico')
+  assert.doesNotMatch(JSON.stringify(appPackage.scripts), /installer:(?:prepare|dist)/)
 })
 
 function createPublicTreeFixture(t) {
@@ -136,8 +131,6 @@ function createPublicTreeFixture(t) {
   }
   write(root, 'app/package.json', `${JSON.stringify(pkg, null, 2)}\n`)
   write(root, 'app/package-lock.json', `${JSON.stringify(lock, null, 2)}\n`)
-  write(root, 'app/installer/package.json', `${JSON.stringify(pkg, null, 2)}\n`)
-  write(root, 'app/installer/package-lock.json', `${JSON.stringify(lock, null, 2)}\n`)
   return root
 }
 

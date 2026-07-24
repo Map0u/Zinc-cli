@@ -237,7 +237,7 @@ function isThirdPartyNotice(file) {
 }
 
 function verifyVersions() {
-  const packageFiles = ['app/package.json', 'app/package-lock.json', 'app/installer/package.json', 'app/installer/package-lock.json']
+  const packageFiles = ['app/package.json', 'app/package-lock.json']
   let expectedVersion
 
   try {

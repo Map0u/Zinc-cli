@@ -7,10 +7,7 @@ const appRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const repositoryRoot = dirname(appRoot)
 const writeMode = process.argv.includes('--write')
 const appPackage = readJson(join(appRoot, 'package.json'))
-const installerPackage = readJson(join(appRoot, 'installer', 'package.json'))
 const lock = readJson(join(appRoot, 'package-lock.json'))
-
-assert(appPackage.version === installerPackage.version, 'app and installer versions differ')
 
 const components = collectComponents()
 components.push(collectElectron())
@@ -93,7 +90,7 @@ function renderNotice() {
     const evidence = item.licenseFile ? `\`${item.licenseFile}\`` : 'official metadata only; see review note'
     lines.push(`| \`${item.name}\` | ${item.version} | ${item.license} | ${source} | ${evidence} |`)
   }
-  lines.push('', 'The table includes every non-development package entry in the application lockfile plus Electron because Electron is embedded in both distributed executables. The custom installer has no production npm dependencies; its Electron runtime is the same version.', '',
+  lines.push('', 'The table includes every non-development package entry in the application lockfile plus Electron because Electron is embedded in the distributed Windows application.', '',
     '## Required upstream review', '',
     '**lazy-val 1.0.5:** The official npm artifact (`https://registry.npmjs.org/lazy-val/-/lazy-val-1.0.5.tgz`) and exact upstream commit (`https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071`) declare `license: MIT` and identify Vladimir Krivosheev as author. Neither contains a license-text file or copyright notice. Zinc does not invent one. Keep this omission visible to release reviewers; obtain upstream clarification or replace the dependency if a reproduced notice is required.', '',
     '## Source-code provenance review', '',

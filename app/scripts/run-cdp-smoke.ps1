@@ -69,6 +69,9 @@ try {
   }
 
   New-Item -ItemType Directory -Path $userDataRoot -Force | Out-Null
+  # Isolated userData + shell history: PtyManager reads these and redirects
+  # PSReadLine/bash history under $userDataRoot\shell-history (never the
+  # developer's global ConsoleHost_history.txt).
   $env:ZINC_TEST_SILENT = '1'
   $env:ZINC_TEST_ISOLATED = '1'
   $env:ZINC_TEST_USER_DATA = $userDataRoot

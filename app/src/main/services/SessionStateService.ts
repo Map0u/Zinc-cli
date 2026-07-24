@@ -4,11 +4,20 @@ import { SessionTool } from '../../shared/sessionState'
 import type { RestorePayload, RestoreTab, SessionState, SessionTabState } from '../../shared/sessionState'
 import { atomicWriteFileSync } from './atomicWrite'
 
-/** `claude --continue` / `codex resume --last` — passed as a single node-pty argv element (see PtyManager),
- *  never string-concatenated, so this is immune to the WinUI original's unescaped-injection bug (parity §1.4). */
+/**
+ * Resume command for a detected AI CLI — passed as a single node-pty argv
+ * element (see PtyManager), never string-concatenated, so this is immune to
+ * the WinUI original's unescaped-injection bug (parity §1.4).
+ *
+ * - Codex: `codex resume --last`
+ * - Claude: `claude --continue`
+ * - Grok Build: `grok --continue` (most recent session for the cwd; see
+ *   `grok --help` / `-c, --continue`)
+ */
 function startupCommandFor(tool: unknown): string | undefined {
   if (tool === SessionTool.Codex) return 'codex resume --last'
   if (tool === SessionTool.Claude) return 'claude --continue'
+  if (tool === SessionTool.Grok) return 'grok --continue'
   return undefined
 }
 

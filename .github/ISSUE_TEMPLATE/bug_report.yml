@@ -27,7 +27,6 @@ body:
       label: Installation method
       options:
         - NSIS setup
-        - Custom installer
         - Development build
         - Other
     validations:

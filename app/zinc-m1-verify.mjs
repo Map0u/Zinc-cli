@@ -223,75 +223,40 @@ await runSmoke('m1 terminal input and layout', async ({ page, baseline }) => {
   await waitForTerminalDimensionsChange(page, tabId, beforeViewportRestore, 'restored layout')
   assertTerminalGeometry(await terminalGeometry(page, tabId), 'restored layout')
 
-  const beforeStatusHide = await terminalGeometry(page, tabId)
-  await setSetting(page, 'ShowStatusBar', false)
-  await waitForTerminalDimensionsChange(page, tabId, beforeStatusHide, 'status bar hidden')
-  assertTerminalGeometry(await terminalGeometry(page, tabId), 'status bar hidden')
-
-  await setSetting(page, 'StatusBarFontSize', 32)
-  const beforeStatusShow = await terminalGeometry(page, tabId)
-  await setSetting(page, 'ShowStatusBar', true)
-  await waitForTerminalDimensionsChange(page, tabId, beforeStatusShow, 'status bar requested')
-  assertTerminalGeometry(await terminalGeometry(page, tabId), 'status bar requested')
-
-  const maxFontStatusGeometry = await page.evaluate((id) => {
+  // 0.6.0 removed the AI usage status bar — terminal content band fills the card.
+  const layoutFill = await page.evaluate((id) => {
     const entry = window.__zincRegistry.hosts?.get(id)
-    const statusHost = Array.from(
-      document.querySelectorAll('div.absolute.inset-x-0.bottom-0.overflow-hidden')
-    ).find((element) => element instanceof HTMLElement && element.style.height)
-    if (!entry?.container || !(statusHost instanceof HTMLElement)) return null
-
-    const hostRect = statusHost.getBoundingClientRect()
+    if (!entry?.container) return null
+    const host = entry.container.closest('.absolute.inset-0')
+    if (!(host instanceof HTMLElement)) return null
+    const hostRect = host.getBoundingClientRect()
     const terminalRect = entry.container.getBoundingClientRect()
-    const textElement = Array.from(statusHost.querySelectorAll('*')).find((element) => {
-      if (!(element instanceof HTMLElement) || !element.textContent?.trim()) return false
-      return Number.parseFloat(getComputedStyle(element).fontSize) === 32
-    })
     return {
-      reservedHeight: statusHost.clientHeight,
-      // Never the host's own scrollHeight: with no AI status data (always the
-      // case in an isolated test profile) the bar retracts via
-      // translateY(100%), and transformed overflow counts into the host's
-      // scroll area — doubling it without any real content overflow.
-      renderedHeight: statusHost.firstElementChild?.scrollHeight ?? 0,
-      hostTop: hostRect.top,
+      hostBottom: hostRect.bottom,
       terminalBottom: terminalRect.bottom,
-      renderedFontSize: textElement instanceof HTMLElement
-        ? Number.parseFloat(getComputedStyle(textElement).fontSize)
-        : null
+      hostHeight: hostRect.height,
+      terminalHeight: terminalRect.height
     }
   }, tabId)
-  assert(maxFontStatusGeometry, 'maximum-font status bar geometry exists')
+  assert(layoutFill, 'terminal layout fill geometry exists')
   assert(
-    maxFontStatusGeometry.reservedHeight >= 52,
-    '32px status-bar font reserves its computed minimum height',
-    String(maxFontStatusGeometry.reservedHeight)
+    layoutFill.terminalBottom <= layoutFill.hostBottom + 1.25,
+    'terminal host fills the content band without a reserved status strip',
+    `${layoutFill.terminalBottom} > ${layoutFill.hostBottom}`
   )
   assert(
-    maxFontStatusGeometry.reservedHeight >= maxFontStatusGeometry.renderedHeight,
-    'status-bar reserved height contains its rendered content',
-    `${maxFontStatusGeometry.reservedHeight} < ${maxFontStatusGeometry.renderedHeight}`
+    layoutFill.terminalHeight >= layoutFill.hostHeight * 0.85,
+    'terminal uses the majority of the content band height',
+    `${layoutFill.terminalHeight} / ${layoutFill.hostHeight}`
   )
-  assert(
-    maxFontStatusGeometry.terminalBottom <= maxFontStatusGeometry.hostTop + 1.25,
-    'maximum-font status bar does not overlap the terminal host',
-    `${maxFontStatusGeometry.terminalBottom} > ${maxFontStatusGeometry.hostTop}`
-  )
-  if (maxFontStatusGeometry.renderedFontSize !== null) {
-    assert(
-      maxFontStatusGeometry.renderedFontSize === 32,
-      'status-bar content renders at the configured maximum font size',
-      String(maxFontStatusGeometry.renderedFontSize)
-    )
-  }
 
   assertBufferTrace(
     await terminalBufferTrace(page, tabId, retainedMarkers),
     retainedMarkers,
-    'final historical output after viewport and status changes',
+    'final historical output after viewport changes',
     true
   )
   const finalBuffer = await page.evaluate((id) => window.__zincRegistry.getBufferText(id), tabId)
   assert(finalBuffer.includes(asciiMarker), 'pre-resize left-edge marker remains in the xterm buffer')
-  assert(finalBuffer.includes(longInputMarker), 'long-input completion marker remains after resize and status changes')
+  assert(finalBuffer.includes(longInputMarker), 'long-input completion marker remains after resize')
 })

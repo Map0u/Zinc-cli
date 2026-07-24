@@ -5,8 +5,14 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { PTY_PORT_MESSAGE_TYPE, type PtySpawnOptions, type TerminalOptionsPush } from '../../../shared/ptyProtocol'
-import { DEFAULT_COLOR_SCHEME_ID, getAodVariant, getColorScheme, resolveVariant, type ThemeMode } from '../colorSchemes'
+import { DEFAULT_COLOR_SCHEME_ID, getColorScheme, resolveVariant, type ThemeMode } from '../colorSchemes'
 import { getSystemThemeMode, onSystemThemeModeChange } from '../themeMode'
+import {
+  formatSgrParams,
+  rewriteSgrParamsForTransparentBg,
+  shouldTransparentizeTerminalBackgrounds
+} from './transparentTerminalBackground'
+import type { IDisposable } from '@xterm/xterm'
 
 // CJK aliases sit after the Latin monospace fallbacks, before the generic
 // `monospace` — Cascadia Mono/Consolas cover Latin glyphs, so those still win
@@ -22,7 +28,9 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   cursorBlink: true,
   scrollback: 10000,
   colorScheme: DEFAULT_COLOR_SCHEME_ID,
-  themeMode: 'auto'
+  themeMode: 'auto',
+  // Match SettingsService: 0 = raw Acrylic through the terminal card.
+  terminalOpacity: 0
 }
 
 /**
@@ -49,6 +57,8 @@ interface HostEntry {
   resizeTimer: number | null
   contextMenuListener: ((event: MouseEvent) => void) | null
   port: MessagePort | null
+  /** Active CSI/OSC handlers that rewrite black TUI backgrounds; disposed when mode flips off. */
+  transparentBgHandlers: IDisposable[]
 }
 
 /**
@@ -67,7 +77,6 @@ export class TerminalHostRegistry {
   private readonly noticeHandlers = new Set<(notice: TerminalNotice) => void>()
   private currentOptions: TerminalOptionsPush = { ...DEFAULT_OPTIONS }
   private systemMode: ThemeMode = getSystemThemeMode()
-  private aodMode = false
   /** Explicit user override from settings ('auto' defers to systemMode) — see themeMode.ts's ThemePreference. */
   private themePreference: 'auto' | 'light' | 'dark' = 'auto'
   /**
@@ -210,8 +219,10 @@ export class TerminalHostRegistry {
       resizeObserver: null as unknown as ResizeObserver,
       resizeTimer: null,
       contextMenuListener: null,
-      port: null
+      port: null,
+      transparentBgHandlers: []
     }
+    this.syncTransparentBackgroundHandlers(entry)
 
     entry.contextMenuListener = (event) => this.handleContextMenu(entry, event)
     container.addEventListener('contextmenu', entry.contextMenuListener)
@@ -397,12 +408,6 @@ export class TerminalHostRegistry {
     return () => this.titleHandlers.delete(handler)
   }
 
-  setAodMode(active: boolean): void {
-    if (this.aodMode === active) return
-    this.aodMode = active
-    for (const entry of this.hosts.values()) this.retheme(entry)
-  }
-
   /** Applies a pushed settings change to every open terminal, then fits and reports the resulting size (parity §2.3). */
   applyOptions(options: TerminalOptionsPush): void {
     this.currentOptions = { ...this.currentOptions, ...options }
@@ -418,6 +423,7 @@ export class TerminalHostRegistry {
       // switch — unlike ShellPath/StartingDirectory (new-tab-only), a color
       // scheme change must visibly apply to whatever's already running.
       if (options.colorScheme !== undefined || options.themeMode !== undefined) this.retheme(entry)
+      if (options.terminalOpacity !== undefined) this.syncTransparentBackgroundHandlers(entry)
       // Only ready hosts have an opened terminal to fit; the fit's own
       // onResize reports the new size to the pty (single resize path — no
       // separate report here). A font-size change that alters cell geometry
@@ -433,10 +439,55 @@ export class TerminalHostRegistry {
     entry.resizeObserver.disconnect()
     if (entry.resizeTimer !== null) window.clearTimeout(entry.resizeTimer)
     if (entry.contextMenuListener) entry.container.removeEventListener('contextmenu', entry.contextMenuListener)
+    this.clearTransparentBackgroundHandlers(entry)
     this.closePort(entry)
     entry.term.dispose()
     window.zinc.pty.kill(id)
     this.hosts.delete(id)
+  }
+
+  /**
+   * While TerminalOpacity is 0, install xterm parser hooks that map black /
+   * near-black *background* SGR (and OSC 11 default-bg) onto the transparent
+   * default background so full-screen TUIs do not cover Acrylic. See
+   * transparentTerminalBackground.ts.
+   */
+  private syncTransparentBackgroundHandlers(entry: HostEntry): void {
+    const want = shouldTransparentizeTerminalBackgrounds(
+      this.currentOptions.terminalOpacity ?? DEFAULT_OPTIONS.terminalOpacity
+    )
+    const have = entry.transparentBgHandlers.length > 0
+    if (want === have) return
+    if (!want) {
+      this.clearTransparentBackgroundHandlers(entry)
+      return
+    }
+
+    // Most-recently-registered CSI handlers run first. We consume only the
+    // sequences we rewrote; everything else falls through to xterm's default.
+    const sgr = entry.term.parser.registerCsiHandler({ final: 'm' }, (params) => {
+      const rewritten = rewriteSgrParamsForTransparentBg(params)
+      if (!rewritten) return false
+      // Re-inject the rewritten SGR; our handler returns false for the new
+      // sequence (no near-black bg left), so xterm applies it normally.
+      entry.term.write(`\x1b[${formatSgrParams(rewritten)}m`)
+      return true
+    })
+    // OSC 11 sets the terminal's default background color. TUIs often push
+    // `#000000` here for a "theme"; swallowing it keeps our transparent default.
+    const osc11 = entry.term.parser.registerOscHandler(11, () => true)
+    entry.transparentBgHandlers = [sgr, osc11]
+  }
+
+  private clearTransparentBackgroundHandlers(entry: HostEntry): void {
+    for (const d of entry.transparentBgHandlers) {
+      try {
+        d.dispose()
+      } catch {
+        // dispose is idempotent in practice; never block host teardown on it.
+      }
+    }
+    entry.transparentBgHandlers = []
   }
 
   /** Debug/verification helper: current scrollback+viewport text for a host. */
@@ -639,7 +690,6 @@ export class TerminalHostRegistry {
   // layer should ever paint the tint - the CSS one, since it's the whole
   // rectangle including the gap the canvas doesn't cover.
   private themeFor(): ITheme {
-    if (this.aodMode) return { ...getAodVariant().ansi, background: '#000000' }
     const scheme = getColorScheme(this.currentOptions.colorScheme)
     const variant = resolveVariant(scheme, this.mode)
     return { ...variant.ansi, background: 'rgba(0, 0, 0, 0)' }

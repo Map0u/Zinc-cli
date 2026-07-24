@@ -28,6 +28,12 @@ export interface TerminalOptionsPush {
   colorScheme?: string
   /** 'auto' | 'light' | 'dark' — see shared/settingsTypes.ts's ThemePreference. */
   themeMode?: string
+  /**
+   * Terminal card opacity (0–1). When 0 the card is fully transparent over Acrylic;
+   * the renderer then rewrites black TUI backgrounds so full-screen tools (Grok, …)
+   * do not paint an opaque black panel over the material.
+   */
+  terminalOpacity?: number
 }
 
 /**

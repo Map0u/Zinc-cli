@@ -1,7 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { PTY_PORT_MESSAGE_TYPE, type PtyCreateOptions, type TerminalOptionsPush } from '../shared/ptyProtocol'
 import type { SettingsPatch, ZincSettings } from '../shared/settingsTypes'
-import type { AiStatusPayload } from '../shared/aiStatusProtocol'
 import type { UpdateState } from '../shared/updateProtocol'
 import type { RendererSessionSnapshot, RestorePayload } from '../shared/sessionState'
 import type { ShortcutAction } from '../shared/keybindings'
@@ -14,10 +13,6 @@ export interface ShellProfile {
 export interface ShellProfilesResponse {
   profiles: ShellProfile[]
   fallbackNotice: { requestedId: string; resolvedId: string } | null
-}
-
-export interface AodState {
-  active: boolean
 }
 
 export interface ZincWindowState {
@@ -80,20 +75,6 @@ export interface ZincApi {
     /** Reads clipboard text via the main-process clipboard API. Resolves `null` on failure (vs. '' for an empty clipboard). */
     readText: () => Promise<string | null>
   }
-  aod: {
-    /** Synchronous startup read so the renderer can set html[data-aod] before first paint. */
-    getStateSync: () => AodState
-    /** Runtime AOD active-state changes from main. Returns an unsubscribe function. */
-    onChange: (callback: (state: AodState) => void) => () => void
-    /** Requests a runtime AOD exit. On Linux this quits the app. */
-    requestExit: () => void
-    /** Wakes the burn-in blackout display for the current AOD window. */
-    wake: () => void
-    /** Reports renderer-owned burn-in blackout state so main can swallow the first wake key. */
-    setBlackoutActive: (active: boolean) => void
-    /** Internal wake signal forwarded from main's before-input-event path. */
-    onWake: (callback: () => void) => () => void
-  }
   settings: {
     get: () => Promise<ZincSettings>
     /** Discrete controls: apply + save now, cancel any pending debounce. */
@@ -105,12 +86,6 @@ export interface ZincApi {
   }
   shells: {
     getProfiles: () => Promise<ShellProfilesResponse>
-  }
-  aiStatus: {
-    /** Tells main which tab is active — its shell pid becomes the process-tree BFS root (parity §1.3). */
-    setActiveTab: (id: string | null) => void
-    /** Fires on every status poll tick with the detected tool's Empty/NoData/Usage payload. Returns an unsubscribe function. */
-    onUpdate: (callback: (payload: AiStatusPayload) => void) => () => void
   }
   session: {
     /** Resolved restore plan from the last-saved session-state.json; `null` = fall back to the default single-tab startup (parity §1.4). */
@@ -138,7 +113,7 @@ export interface ZincApi {
      * win32 — Chromium's system-accelerator handling swallows these before
      * this window's own keydown listener ever sees them (Windows-only; see
      * main's before-input-event handler). `hostId` is main's last-known
-     * active terminal (aiStatus:setActiveTab); `sequence` is the raw
+     * active terminal from the last session snapshot; `sequence` is the raw
      * `\x1bm`/`\x1bv` escape to write straight to that host's pty.
      */
     onAltSequence: (callback: (hostId: string, sequence: string) => void) => () => void
@@ -211,22 +186,6 @@ const api: ZincApi = {
     writeText: (text) => ipcRenderer.invoke('clipboard:writeText', text),
     readText: () => ipcRenderer.invoke('clipboard:readText')
   },
-  aod: {
-    getStateSync: () => ipcRenderer.sendSync('aod:get-state-sync') as AodState,
-    onChange: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: AodState): void => callback(state)
-      ipcRenderer.on('aod:changed', listener)
-      return () => ipcRenderer.removeListener('aod:changed', listener)
-    },
-    requestExit: () => ipcRenderer.send('aod:requestExit'),
-    wake: () => ipcRenderer.send('aod:wake'),
-    setBlackoutActive: (active) => ipcRenderer.send('aod:blackoutChanged', active),
-    onWake: (callback) => {
-      const listener = (): void => callback()
-      ipcRenderer.on('aod:wake', listener)
-      return () => ipcRenderer.removeListener('aod:wake', listener)
-    }
-  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     updateImmediate: (patch) => ipcRenderer.send('settings:updateImmediate', patch),
@@ -239,14 +198,6 @@ const api: ZincApi = {
   },
   shells: {
     getProfiles: () => ipcRenderer.invoke('shells:getProfiles')
-  },
-  aiStatus: {
-    setActiveTab: (id) => ipcRenderer.send('aiStatus:setActiveTab', id),
-    onUpdate: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: AiStatusPayload): void => callback(payload)
-      ipcRenderer.on('aiStatus:update', listener)
-      return () => ipcRenderer.removeListener('aiStatus:update', listener)
-    }
   },
   session: {
     getRestorePayload: () => ipcRenderer.invoke('session:getRestorePayload'),

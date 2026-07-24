@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This notice is generated for Zinc 0.5.0 from `app/package-lock.json` and installed package metadata. Zinc itself is licensed under AGPL-3.0-only; see `LICENSE`. Third-party components remain under their own terms.
+This notice is generated for Zinc 0.6.0 from `app/package-lock.json` and installed package metadata. Zinc itself is licensed under AGPL-3.0-only; see `LICENSE`. Third-party components remain under their own terms.
 
 ## Runtime component inventory
 
@@ -36,7 +36,7 @@ This notice is generated for Zinc 0.5.0 from `app/package-lock.json` and install
 | `tiny-typed-emitter` | 2.1.0 | MIT | [source](https://github.com/binier/tiny-typed-emitter) | `LICENSE` |
 | `universalify` | 2.0.1 | MIT | [source](https://github.com/RyanZim/universalify) | `LICENSE` |
 
-The table includes every non-development package entry in the application lockfile plus Electron because Electron is embedded in both distributed executables. The custom installer has no production npm dependencies; its Electron runtime is the same version.
+The table includes every non-development package entry in the application lockfile plus Electron because Electron is embedded in the distributed Windows application.
 
 ## Required upstream review
 

@@ -53,7 +53,7 @@ BMPs during a Windows build. It loads the canonical project-owned
 `System.Drawing` primitives and project-defined colors. It does not load or
 rasterize a font, and the generated BMP files are not committed.
 
-The application and custom installer CSS name Windows system-font families
+The application CSS names Windows system-font families
 with generic fallbacks. A family name is a runtime preference, not a bundled
 font. The tracked-file scan below returns no `.ttf`, `.otf`, `.woff`, or `.woff2`
 files, so Zinc redistributes no font program:

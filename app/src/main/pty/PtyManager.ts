@@ -5,7 +5,8 @@ import { MessageChannelMain } from "electron";
 import type { MessagePortMain, WebContents } from "electron";
 import type { PtyCreateOptions } from "../../shared/ptyProtocol";
 import { getProcessCwd } from "../processCwd";
-import { buildShellSpawnArgs, type DiscoveredShell } from "../services/ShellDiscovery";
+import type { DiscoveredShell } from "../services/ShellDiscovery";
+import { buildIsolatedShellSpawn } from "../services/shellHistoryIsolation";
 
 interface Session {
   proc: pty.IPty;
@@ -67,7 +68,13 @@ export class PtyManager {
     const cwd = resolveCwd(options.cwd);
     const cols = normalizeDimension(options.cols, 80);
     const rows = normalizeDimension(options.rows, 24);
-    const args = buildShellSpawnArgs(shellProfile, options.startupCommand);
+    // When CDP/smoke sets ZINC_TEST_*, redirect or disable shell history so
+    // automated PowerShell/bash commands never append to the developer's
+    // global PSReadLine / bash history files.
+    const { env: ptyEnv, args } = buildIsolatedShellSpawn(
+      shellProfile,
+      options.startupCommand,
+    );
 
     if (!isValidSessionId(id)) throw new Error("Invalid PTY session id");
 
@@ -87,7 +94,7 @@ export class PtyManager {
       cols,
       rows,
       cwd,
-      env: process.env as { [key: string]: string },
+      env: ptyEnv,
     });
 
     let port1: MessagePortMain | undefined;

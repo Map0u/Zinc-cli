@@ -15,7 +15,6 @@ export const SegoeIcon = {
   /** Settings category: Session (E81C). */
   Session: "",
   /** Settings category: Status bar (E9D9). */
-  StatusBar: "",
   /** Settings category: Language (E774). */
   Language: "",
   /** New tab button (E710, "Add"). */

@@ -2,14 +2,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { DEFAULT_KEYBINDINGS, SHORTCUT_ACTIONS, type ShortcutAction } from '../../shared/keybindings'
 import { isUnsafeAccelerator } from '../../shared/shortcutAccelerator'
-import {
-  DEFAULT_STATUS_BAR_FIELDS,
-  STATUS_BAR_FIELD_IDS,
-  STATUS_BAR_TOOLS,
-  type StatusBarFieldConfig,
-  type StatusBarFieldId,
-  type StatusBarTool
-} from '../../shared/statusBarFields'
 import type {
   AccentSource,
   LanguagePref,
@@ -33,10 +25,36 @@ const LEGACY_ASSISTANT_SETTING_KEYS = new Set([
   'NotificationMethod'
 ])
 
+// 0.6.0 removed the AI usage status bar and its supporting settings. Strip
+// these keys on load so old settings.json files shrink to the current shape.
+const LEGACY_STATUS_BAR_SETTING_KEYS = new Set([
+  'ShowStatusBar',
+  'StatusBarEnabledTools',
+  'StatusBarFields',
+  'StatusBarFontSize',
+  'codexSessionRoots'
+])
+
+// AOD / OLED burn-in / Linux brightness were kiosk-display leftovers, not part
+// of the lightweight multi-shell launcher product. Strip on load.
+const LEGACY_AOD_SETTING_KEYS = new Set([
+  'AodEnabled',
+  'BurnInProtectionEnabled',
+  'ScreenBrightness'
+])
+
 type StoredSettings = Partial<ZincSettings> & Record<string, unknown>
 
 function containsLegacyAssistantSettings(raw: Record<string, unknown>): boolean {
   return Object.keys(raw).some((key) => key.startsWith('Secretary') || LEGACY_ASSISTANT_SETTING_KEYS.has(key))
+}
+
+function containsLegacyStatusBarSettings(raw: Record<string, unknown>): boolean {
+  return Object.keys(raw).some((key) => LEGACY_STATUS_BAR_SETTING_KEYS.has(key))
+}
+
+function containsLegacyAodSettings(raw: Record<string, unknown>): boolean {
+  return Object.keys(raw).some((key) => LEGACY_AOD_SETTING_KEYS.has(key))
 }
 
 const VALID_LANGUAGES: LanguagePref[] = ['auto', 'en', 'zh']
@@ -49,26 +67,19 @@ const VALID_COLOR_SCHEMES = ['monochrome', 'rosePine', 'tokyoNight', 'vesper', '
 
 /** UI-bound numeric ranges — must match the sliders/steppers in SettingsPage.tsx. */
 const NUMERIC_BOUNDS: Record<
-  'FontSize' | 'Scrollback' | 'RailOpacity' | 'TerminalOpacity' | 'UiZoom' | 'StatusBarFontSize',
+  'FontSize' | 'Scrollback' | 'RailOpacity' | 'TerminalOpacity' | 'UiZoom',
   { min: number; max: number }
 > = {
   FontSize: { min: 8, max: 32 },
   Scrollback: { min: 500, max: 100000 },
   RailOpacity: { min: 0, max: 1 },
   TerminalOpacity: { min: 0, max: 1 },
-  UiZoom: { min: 0.75, max: 2 },
-  StatusBarFontSize: { min: 8, max: 32 }
+  UiZoom: { min: 0.75, max: 2 }
 }
 
 function clampNumber(value: unknown, fallback: number, bounds: { min: number; max: number }): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.max(bounds.min, Math.min(bounds.max, value))
-}
-
-function normalizeScreenBrightness(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
-  if (value < 0) return -1
-  return Math.max(0, Math.min(100, value))
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
@@ -118,40 +129,6 @@ function normalizeAccentSource(value: unknown, fallback: AccentSource): AccentSo
   return typeof value === 'string' && (VALID_ACCENT_SOURCES as string[]).includes(value)
     ? (value as AccentSource)
     : fallback
-}
-
-function normalizeStatusBarEnabledTools(value: unknown, fallback: StatusBarTool[]): StatusBarTool[] {
-  if (!Array.isArray(value)) return fallback
-  const filtered = value.filter(
-    (v): v is StatusBarTool => typeof v === 'string' && (STATUS_BAR_TOOLS as string[]).includes(v)
-  )
-  return Array.from(new Set(filtered))
-}
-
-/**
- * Preserves whatever order/on-state the caller supplied for known field ids,
- * drops unknown ids, then appends any field id missing from the input (e.g.
- * an older settings.json predating a newly added field) at the end, on by
- * default — so a schema addition never silently disappears from the bar.
- */
-function normalizeStatusBarFields(value: unknown, fallback: StatusBarFieldConfig[]): StatusBarFieldConfig[] {
-  if (!Array.isArray(value)) return fallback
-  const seen = new Set<StatusBarFieldId>()
-  const result: StatusBarFieldConfig[] = []
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') continue
-    const id = (entry as Record<string, unknown>).id
-    const on = (entry as Record<string, unknown>).on
-    if (typeof id !== 'string' || !(STATUS_BAR_FIELD_IDS as string[]).includes(id)) continue
-    const fieldId = id as StatusBarFieldId
-    if (seen.has(fieldId)) continue
-    seen.add(fieldId)
-    result.push({ id: fieldId, on: typeof on === 'boolean' ? on : true })
-  }
-  for (const id of STATUS_BAR_FIELD_IDS) {
-    if (!seen.has(id)) result.push({ id, on: true })
-  }
-  return result.length > 0 ? result : fallback
 }
 
 /**
@@ -211,8 +188,7 @@ function normalizeKeybindings(
  * its valid runtime shape. Applied to both a freshly-loaded settings.json
  * (which may be hand-edited or stale from an older build) and every incoming
  * `SettingsPatch` (which may carry out-of-range or malformed values from a
- * misbehaving renderer) — never lets an invalid value (e.g. `Language:
- * 'zh-CN'`) reach `I18nContext`'s dictionary lookup or crash the terminal.
+ * misbehaving renderer) — never lets an invalid value reach runtime consumers.
  */
 function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): ZincSettings {
   return {
@@ -223,12 +199,9 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     RailOpacity: clampNumber(raw.RailOpacity, base.RailOpacity, NUMERIC_BOUNDS.RailOpacity),
     TerminalOpacity: clampNumber(raw.TerminalOpacity, base.TerminalOpacity, NUMERIC_BOUNDS.TerminalOpacity),
     UiZoom: clampNumber(raw.UiZoom, base.UiZoom, NUMERIC_BOUNDS.UiZoom),
-    ScreenBrightness: normalizeScreenBrightness(raw.ScreenBrightness, base.ScreenBrightness),
     ColorScheme: normalizeColorScheme(raw.ColorScheme, base.ColorScheme),
     ThemePreference: normalizeThemePreference(raw.ThemePreference, base.ThemePreference),
     AccentSource: normalizeAccentSource(raw.AccentSource, base.AccentSource),
-    AodEnabled: normalizeBoolean(raw.AodEnabled, base.AodEnabled),
-    BurnInProtectionEnabled: normalizeBoolean(raw.BurnInProtectionEnabled, base.BurnInProtectionEnabled),
     DefaultShellId: normalizeShellId(
       raw.DefaultShellId,
       legacyShellPathToId((raw as { ShellPath?: unknown }).ShellPath, base.DefaultShellId)
@@ -237,13 +210,6 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     Scrollback: clampNumber(raw.Scrollback, base.Scrollback, NUMERIC_BOUNDS.Scrollback),
     RestoreSessionsOnStartup: normalizeBoolean(raw.RestoreSessionsOnStartup, base.RestoreSessionsOnStartup),
     ResumeAiConversations: normalizeBoolean(raw.ResumeAiConversations, base.ResumeAiConversations),
-    ShowStatusBar: normalizeBoolean(raw.ShowStatusBar, base.ShowStatusBar),
-    StatusBarEnabledTools: normalizeStatusBarEnabledTools(raw.StatusBarEnabledTools, base.StatusBarEnabledTools),
-    StatusBarFields: normalizeStatusBarFields(raw.StatusBarFields, base.StatusBarFields),
-    StatusBarFontSize: clampNumber(raw.StatusBarFontSize, base.StatusBarFontSize, NUMERIC_BOUNDS.StatusBarFontSize),
-    codexSessionRoots: Array.isArray(raw.codexSessionRoots)
-      ? raw.codexSessionRoots.filter((r): r is string => typeof r === 'string')
-      : base.codexSessionRoots,
     Language: normalizeLanguage(raw.Language, base.Language),
     Keybindings: normalizeKeybindings(raw.Keybindings, base.Keybindings)
   }
@@ -264,12 +230,9 @@ function defaultSettings(): ZincSettings {
     RailOpacity: 0,
     TerminalOpacity: 0,
     UiZoom: 1,
-    ScreenBrightness: -1,
     ColorScheme: 'monochrome',
     ThemePreference: 'auto',
     AccentSource: 'scheme',
-    AodEnabled: false,
-    BurnInProtectionEnabled: true,
     DefaultShellId: defaultShellId(),
     // Parity §1.2: the WinUI default hardcoded a dev-machine path; 0.2.0 uses the
     // current user's profile dir instead (Windows' %USERPROFILE%).
@@ -277,13 +240,6 @@ function defaultSettings(): ZincSettings {
     Scrollback: 10000,
     RestoreSessionsOnStartup: true,
     ResumeAiConversations: true,
-    ShowStatusBar: true,
-    StatusBarEnabledTools: [...STATUS_BAR_TOOLS],
-    StatusBarFields: DEFAULT_STATUS_BAR_FIELDS.map((f) => ({ ...f })),
-    StatusBarFontSize: 12,
-    // Auto-probed at startup by the caller (see main/index.ts) when empty —
-    // never hardcoded here (parity §2.4 hardcoded-path warning).
-    codexSessionRoots: [],
     Language: 'auto',
     Keybindings: { ...DEFAULT_KEYBINDINGS }
   }
@@ -314,13 +270,18 @@ export class SettingsService {
           parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as StoredSettings) : {}
         const normalized = normalizeSettings(raw, defaultSettings())
 
-        if (containsLegacyAssistantSettings(raw) || Object.prototype.hasOwnProperty.call(raw, 'ShellPath')) {
+        if (
+          containsLegacyAssistantSettings(raw) ||
+          containsLegacyStatusBarSettings(raw) ||
+          containsLegacyAodSettings(raw) ||
+          Object.prototype.hasOwnProperty.call(raw, 'ShellPath')
+        ) {
           try {
             atomicWriteFileSync(this.filePath, JSON.stringify(normalized, null, 2))
           } catch {
             // Never echo the removed values: they may include a relay token,
             // private host, username, or command containing a key path.
-            console.error('[SettingsService] failed to remove legacy assistant settings')
+            console.error('[SettingsService] failed to remove legacy settings keys')
           }
         }
 

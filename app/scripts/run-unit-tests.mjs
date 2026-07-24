@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const appRoot = resolve(import.meta.dirname, '..')
-const roots = [join(appRoot, 'tests'), join(appRoot, 'installer', 'tests')]
+const roots = [join(appRoot, 'tests')]
 const files = roots.flatMap(collectTests).sort()
 
 if (files.length === 0) {

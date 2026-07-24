@@ -9,12 +9,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          // `statusWorkerEntry` runs inside an Electron `utilityProcess`
-          // (see AiStatusPoller / wslRootsAsync) — it needs its own bundled
-          // output alongside `index.js`, not just import-graph inclusion,
-          // since `utilityProcess.fork()` loads it as a standalone entry file.
-          index: resolve(__dirname, 'src/main/index.ts'),
-          statusWorkerEntry: resolve(__dirname, 'src/main/statusWorkerEntry.ts')
+          index: resolve(__dirname, 'src/main/index.ts')
         }
       }
       // electron-vite 5.0.0's `MainBuildOptions` type is written against

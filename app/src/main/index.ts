@@ -14,24 +14,21 @@ import type {
   IpcMainInvokeEvent,
   Input,
 } from "electron";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { applyWindowMaterial } from "./windowMaterial";
 import { PtyManager } from "./pty/PtyManager";
 import { SettingsService } from "./services/SettingsService";
-import { AiStatusPoller } from "./services/AiStatusPoller";
 import { SessionStateService } from "./services/SessionStateService";
 import { UpdaterService } from "./services/UpdaterService";
 import {
   detectActiveToolMatch,
   snapshotProcesses,
 } from "./services/ToolDetector";
-import { detectWslCodexRootsAsync } from "./services/wslRootsAsync";
 import { PasteImageService, toWslPath } from "./services/PasteImageService";
 import { resolveShellId, ShellDiscoveryService } from "./services/ShellDiscovery";
 import { getProcessCwd } from "./processCwd";
 import { getSystemAccentLight2 } from "./accentColor";
-import { AodModeController, type AodState } from "./aod/AodModeController";
 import type {
   PtyCreateOptions,
   TerminalOptionsPush,
@@ -100,8 +97,6 @@ app.on("second-instance", (_event, commandLine) => {
     return;
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
-    if (commandLine.includes("--aod"))
-      aodController?.enterAod("second-instance");
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
@@ -123,36 +118,6 @@ const sessionStateService = new SessionStateService(
 // asynchronous and its registry/WSL failures are intentionally non-fatal.
 const shellDiscoveryService = new ShellDiscoveryService();
 const pasteImageService = new PasteImageService(app.getPath("userData"));
-const initialAodActive =
-  process.argv.includes("--aod") || settingsService.get().AodEnabled;
-
-// utilityProcess.fork() bundle for both the status poller's persistent worker
-// and the one-shot WSL-root probe below — see statusWorkerEntry.ts. Same
-// physical file, two separate child processes, never the main thread.
-const statusWorkerPath = join(__dirname, "statusWorkerEntry.js");
-
-// One-time auto-probe (parity §2.4 hardcoded-path warning: never hardcode the
-// WSL distro/user). Merges newly detected roots into any existing hand-edited
-// list rather than replacing it: stale roots are harmless because readCodex()
-// tries each root, while dropping a user-provided path would be surprising.
-// Runs async, in a disposable utility process, *after* the window is created
-// (wired below) — the previous `execFileSync('wsl.exe', ...)` call ran
-// synchronously at module init and could block app startup for up to its full
-// 10s timeout (codex review of m5-status-bar).
-function probeWslCodexRoots(): void {
-  if (process.platform !== "win32") return;
-  detectWslCodexRootsAsync(statusWorkerPath)
-    .then((detected) => {
-      if (detected.length === 0) return;
-      const existing = settingsService.get().codexSessionRoots;
-      const merged = Array.from(new Set([...existing, ...detected]));
-      if (merged.length !== existing.length)
-        settingsService.updateImmediate({ codexSessionRoots: merged });
-    })
-    .catch((err) =>
-      console.error("[startup] detectWslCodexRootsAsync failed", err),
-    );
-}
 
 /** Projects the persisted settings fields the terminal bridge understands (parity §2.3 `options`). */
 function terminalOptionsFrom(settings: ZincSettings): TerminalOptionsPush {
@@ -163,36 +128,13 @@ function terminalOptionsFrom(settings: ZincSettings): TerminalOptionsPush {
     scrollback: settings.Scrollback,
     colorScheme: settings.ColorScheme,
     themeMode: settings.ThemePreference,
+    terminalOpacity: settings.TerminalOpacity,
   };
 }
 
 function applyUiZoom(win: BrowserWindow, zoom: number): void {
   if (win.webContents.isDestroyed()) return;
   win.webContents.setZoomFactor(zoom);
-}
-
-function applyScreenBrightness(value: number): void {
-  if (process.platform !== "linux" || value < 0) return;
-  try {
-    const backlightRoot = "/sys/class/backlight";
-    const device = readdirSync(backlightRoot, { withFileTypes: true }).find(
-      (entry) => entry.isDirectory(),
-    );
-    if (!device) return;
-    const devicePath = join(backlightRoot, device.name);
-    const max = Number.parseInt(
-      readFileSync(join(devicePath, "max_brightness"), "utf8").trim(),
-      10,
-    );
-    if (!Number.isFinite(max) || max <= 0) return;
-    const brightness = Math.max(
-      0,
-      Math.min(max, Math.round((max * value) / 100)),
-    );
-    writeFileSync(join(devicePath, "brightness"), String(brightness), "utf8");
-  } catch (err) {
-    console.warn("Failed to set brightness:", err);
-  }
 }
 
 function windowState(win: BrowserWindow): {
@@ -238,11 +180,7 @@ function activeRendererId(): number {
     ? mainWindow.webContents.id
     : -1;
 }
-let aodController: AodModeController | null = null;
-let lastAodEnabled = settingsService.get().AodEnabled;
 let lastUiZoom = settingsService.get().UiZoom;
-let lastScreenBrightness = settingsService.get().ScreenBrightness;
-let aodBlackoutActive = false;
 
 // Set at the top of `before-quit`, before any cleanup runs. Guards the
 // window-close handler below: without it, an OS window-close (title-bar X /
@@ -266,20 +204,6 @@ let shortcutRecordingActive = false;
 /** Wires the before-input-event fallback for `win` (M4 fix: Ctrl+Tab / Ctrl+Shift+Tab). */
 function attachShortcutFallback(win: BrowserWindow): void {
   win.webContents.on("before-input-event", (event, input: Input) => {
-    if (aodController?.isActive() && input.type === "keyDown") {
-      if (input.code === "Escape" && input.meta) {
-        event.preventDefault();
-        if (process.platform === "linux") app.quit();
-        else aodController.exitAod("keyboard");
-        return;
-      }
-      if (aodBlackoutActive) {
-        event.preventDefault();
-        aodController.wake();
-        return;
-      }
-      aodController.wake();
-    }
     if (shortcutRecordingActive) return;
     if (input.type !== "keyDown") return;
     // Windows treats Alt as a "system" modifier (WM_SYSKEYDOWN) and Chromium's
@@ -294,13 +218,14 @@ function attachShortcutFallback(win: BrowserWindow): void {
       input.alt &&
       !input.control &&
       !input.meta &&
-      (input.code === "KeyM" || input.code === "KeyV") &&
-      activeTabId
+      (input.code === "KeyM" || input.code === "KeyV")
     ) {
+      const tabId = resolveActiveTabId();
+      if (!tabId) return;
       event.preventDefault();
       win.webContents.send(
         "terminal:altSequence",
-        activeTabId,
+        tabId,
         input.code === "KeyM" ? "\x1bm" : "\x1bv",
       );
       return;
@@ -339,11 +264,6 @@ function pushTerminalOptions(win: BrowserWindow): void {
   );
 }
 
-// The renderer tells main which tab is active (see `aiStatus:setActiveTab`);
-// the poller resolves that tab's shell pid lazily on every tick, since a tab
-// close/replace can change which PtyManager session backs a given id.
-let activeTabId: string | null = null;
-
 function createWindow(): BrowserWindow {
   const windowOptions: BrowserWindowConstructorOptions = {
     width: 1220,
@@ -371,7 +291,7 @@ function createWindow(): BrowserWindow {
     // `backgroundMaterial` must be set right here, at construction time;
     // calling `setBackgroundMaterial()` afterwards for the *first*
     // application never renders (same doc).
-    windowOptions.backgroundMaterial = initialAodActive ? "none" : "acrylic";
+    windowOptions.backgroundMaterial = "acrylic";
     // Old app: `ExtendsContentIntoTitleBar = true` + `SetTitleBar(DragRegion)`
     // (MainWindow.xaml.cs) — content fills the title bar area, but the
     // *system* min/max/close caption buttons stay put at the top-right,
@@ -396,13 +316,11 @@ function createWindow(): BrowserWindow {
   win.webContents.on("will-navigate", (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-attach-webview", (event) => event.preventDefault());
-  if (process.platform === "linux" && !initialAodActive) {
+  if (process.platform === "linux") {
     win.maximize();
   }
 
-  applyWindowMaterial(win, () =>
-    aodController ? aodController.isActive() : initialAodActive,
-  );
+  applyWindowMaterial(win);
 
   attachShortcutFallback(win);
 
@@ -412,11 +330,7 @@ function createWindow(): BrowserWindow {
     // ZINC_TEST_SILENT never fires a `focus` event, so without this the
     // Acrylic material's first-paint state on that path would be unverified.
     // Harmless no-op if Acrylic already rendered correctly.
-    if (
-      process.platform === "win32" &&
-      !win.isDestroyed() &&
-      !aodController?.isActive()
-    ) {
+    if (process.platform === "win32" && !win.isDestroyed()) {
       win.setBackgroundMaterial("acrylic");
     }
     if (isTestSilent) {
@@ -441,9 +355,6 @@ function createWindow(): BrowserWindow {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }
 
-  // Parity §1.3: status polling pauses while the window is minimized.
-  win.on("minimize", () => aiStatusPoller.setMinimized(true));
-  win.on("restore", () => aiStatusPoller.setMinimized(false));
   win.on("enter-full-screen", () => pushWindowState(win));
   win.on("leave-full-screen", () => {
     pushWindowState(win);
@@ -464,11 +375,7 @@ function createWindow(): BrowserWindow {
   win.on("close", (event) => {
     if (isQuitting) return;
     event.preventDefault();
-    if (
-      skipCloseConfirm ||
-      aodController?.isActive() ||
-      latestSessionSnapshot.tabs.length <= 1
-    ) {
+    if (skipCloseConfirm || latestSessionSnapshot.tabs.length <= 1) {
       skipCloseConfirm = true;
       app.quit();
       return;
@@ -512,16 +419,7 @@ app.whenReady().then(() => {
   if (process.platform === "win32") app.setAppUserModelId(APP_ID);
   shellDiscoveryService.start();
   mainWindow = createWindow();
-  aodController = new AodModeController(mainWindow);
   applyUiZoom(mainWindow, settingsService.get().UiZoom);
-  applyScreenBrightness(settingsService.get().ScreenBrightness);
-  if (initialAodActive) aodController.enterAod("startup");
-  // utilityProcess.fork() may only be called after `ready` — both the poller
-  // (whose `start()` forks its persistent worker) and this probe (its own
-  // one-shot worker) must wait for this callback.
-  aiStatusPoller.start();
-  probeWslCodexRoots();
-
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
   });
@@ -531,17 +429,9 @@ app.whenReady().then(() => {
 // (for the settings page's own state) on every applied change.
 settingsService.onChange((settings) => {
   if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-  if (settings.AodEnabled !== lastAodEnabled) {
-    lastAodEnabled = settings.AodEnabled;
-    aodController?.setActive(settings.AodEnabled, "settings");
-  }
   if (settings.UiZoom !== lastUiZoom) {
     lastUiZoom = settings.UiZoom;
     applyUiZoom(mainWindow, settings.UiZoom);
-  }
-  if (settings.ScreenBrightness !== lastScreenBrightness) {
-    lastScreenBrightness = settings.ScreenBrightness;
-    applyScreenBrightness(settings.ScreenBrightness);
   }
   pushTerminalOptions(mainWindow);
   mainWindow.webContents.send("settings:changed", settings);
@@ -690,6 +580,13 @@ let latestSessionSnapshot: RendererSessionSnapshot = {
   tabs: [],
   activeIndex: -1,
 };
+
+/** Active terminal id for main-side Alt-sequence forwarding (from the live session cache). */
+function resolveActiveTabId(): string | null {
+  const { tabs, activeIndex } = latestSessionSnapshot;
+  if (activeIndex < 0 || activeIndex >= tabs.length) return null;
+  return tabs[activeIndex]?.id ?? null;
+}
 // Flips true the first time the renderer actually pushes a snapshot (which it
 // only ever does once its own `sessionReady` gate opens, post-restore/
 // default-tab hydration — see App.tsx). Guards `before-quit`: if the app is
@@ -705,34 +602,6 @@ ipcMain.on(
     sessionSnapshotReady = true;
   },
 );
-
-// Status bar (parity §1.3): renderer reports which tab is active; the poller
-// resolves that tab's shell pid and pushes the detected tool's usage snapshot
-// (or Empty/NoData) back on every tick (see AiStatusPoller's POLL_MS).
-ipcMain.on(
-  "aiStatus:setActiveTab",
-  (_event: IpcMainEvent, id: string | null) => {
-    activeTabId = id;
-    // Refresh immediately instead of waiting for the next tick — see
-    // AiStatusPoller.refreshNow's doc comment for why the stale-window delay
-    // read as sluggish tab switching.
-    aiStatusPoller.refreshNow();
-  },
-);
-
-const aiStatusPoller = new AiStatusPoller(
-  statusWorkerPath,
-  () => activeTabId,
-  () =>
-    activeTabId ? ptyManager.getPid(activeTabId, activeRendererId()) : null,
-  () => settingsService.get(),
-  (payload) => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send("aiStatus:update", payload);
-  },
-);
-// `.start()` is deferred to the `app.whenReady()` callback above —
-// `utilityProcess.fork()` requires `app` to already be ready.
 
 const updaterService = new UpdaterService((state) => {
   if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
@@ -766,13 +635,6 @@ nativeTheme.on("updated", () => {
 
 ipcMain.handle("settings:get", () => settingsService.get());
 
-ipcMain.on("aod:get-state-sync", (event) => {
-  const state: AodState = aodController?.getState() ?? {
-    active: initialAodActive,
-  };
-  event.returnValue = state;
-});
-
 // `process.env['npm_package_version']` is only set by npm at dev-server time —
 // a packaged build has no such env var, so the About card was permanently
 // stuck on preload's hardcoded fallback string regardless of the real
@@ -780,23 +642,6 @@ ipcMain.on("aod:get-state-sync", (event) => {
 // correct in both dev and packaged contexts.
 ipcMain.on("app:get-version-sync", (event) => {
   event.returnValue = app.getVersion();
-});
-
-ipcMain.on("aod:requestExit", () => {
-  if (process.platform === "linux") {
-    skipCloseConfirm = true;
-    app.quit();
-  } else {
-    aodController?.exitAod("renderer");
-  }
-});
-
-ipcMain.on("aod:wake", () => {
-  aodController?.wake();
-});
-
-ipcMain.on("aod:blackoutChanged", (_event: IpcMainEvent, active: boolean) => {
-  aodBlackoutActive = active;
 });
 
 ipcMain.on(
@@ -857,9 +702,10 @@ ipcMain.handle("window:close", () => {
 
 const SESSION_SAVE_BUDGET_MS = 2000;
 
-function toSessionTool(tool: "codex" | "claude" | null): SessionTool {
+function toSessionTool(tool: "codex" | "claude" | "grok" | null): SessionTool {
   if (tool === "codex") return SessionTool.Codex;
   if (tool === "claude") return SessionTool.Claude;
+  if (tool === "grok") return SessionTool.Grok;
   return SessionTool.None;
 }
 
@@ -954,11 +800,6 @@ app.on("before-quit", () => {
     ptyManager.killAll();
   } catch (err) {
     console.error("[before-quit] ptyManager.killAll failed", err);
-  }
-  try {
-    aiStatusPoller.stop();
-  } catch (err) {
-    console.error("[before-quit] aiStatusPoller.stop failed", err);
   }
 });
 

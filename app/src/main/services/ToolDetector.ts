@@ -2,8 +2,14 @@ import koffi from "koffi";
 import { basename } from "node:path";
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { getProcessCommandLine } from "../processCwd";
+import {
+  AI_CLI_TOOLS,
+  identifyToolFromCommandLine,
+  type AiCliTool,
+} from "../../shared/aiCliTools";
 
-export type DetectedTool = "codex" | "claude" | null;
+export type DetectedTool = AiCliTool | null;
+export { identifyToolFromCommandLine, AI_CLI_TOOLS };
 
 export interface ProcessRow {
   pid: number;
@@ -12,7 +18,7 @@ export interface ProcessRow {
 }
 
 export interface ActiveToolMatch {
-  tool: Exclude<DetectedTool, null>;
+  tool: AiCliTool;
   pid: number;
   /** WSL means Windows paths typed into this process must use /mnt/<drive>. */
   runtime: "native" | "wsl";
@@ -27,13 +33,6 @@ interface WindowsProcessApi {
 }
 
 const PROCESS_SNAPSHOT = 0x00000002;
-const TOOL_PATTERNS: ReadonlyArray<
-  readonly [Exclude<DetectedTool, null>, RegExp]
-> = [
-  ["codex", /(?:^|[\\/\s"'])codex(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
-  ["claude", /(?:^|[\\/\s"'])claude(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
-];
-
 let windowsApi: WindowsProcessApi | null | undefined;
 
 function loadWindowsProcessApi(): WindowsProcessApi | null {
@@ -208,8 +207,8 @@ function belongsToWsl(
 
 /**
  * Finds a supported CLI below a terminal shell. Command lines are read only
- * for descendants and only until a match is found. Codex has deterministic
- * priority when both tools are present.
+ * for descendants and only until a match is found. AI_CLI_TOOLS order is the
+ * priority when more than one tool is present under the same shell.
  */
 export function detectActiveToolMatch(
   shellPid: number | null,
@@ -231,10 +230,12 @@ export function detectActiveToolMatch(
     return commandLines.get(pid) ?? null;
   };
 
-  for (const [tool, pattern] of TOOL_PATTERNS) {
+  // Walk tools in priority order, then candidates — same semantics as before.
+  for (const tool of AI_CLI_TOOLS) {
     for (const candidate of candidates) {
       const commandLine = commandFor(candidate.pid);
-      if (commandLine && pattern.test(commandLine)) {
+      if (!commandLine) continue;
+      if (identifyToolFromCommandLine(commandLine) === tool) {
         return {
           tool,
           pid: candidate.pid,

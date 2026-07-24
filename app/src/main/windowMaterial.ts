@@ -19,16 +19,16 @@ import type { BrowserWindow } from 'electron'
  * each render as a plain rgba over the backdrop regardless of focus state,
  * so there's no longer a distinct "hidden" state for this module to report.
  */
-export function applyWindowMaterial(win: BrowserWindow, shouldSkipAcrylic: () => boolean = () => false): void {
+export function applyWindowMaterial(win: BrowserWindow): void {
   if (process.platform !== 'win32') return
 
   win.on('restore', () => {
-    if (!win.isDestroyed() && !shouldSkipAcrylic()) win.setBackgroundMaterial('acrylic')
+    if (!win.isDestroyed()) win.setBackgroundMaterial('acrylic')
   })
   win.on('focus', () => {
     // Same defensive re-apply as `restore` — MATERIAL-RESULT.md observed the
     // backdrop can also degrade to a solid fill after a focus-loss cycle,
     // not just minimize/restore.
-    if (!win.isDestroyed() && !shouldSkipAcrylic()) win.setBackgroundMaterial('acrylic')
+    if (!win.isDestroyed()) win.setBackgroundMaterial('acrylic')
   })
 }

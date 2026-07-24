@@ -6,7 +6,9 @@
 export enum SessionTool {
   None = 0,
   Codex = 1,
-  Claude = 2
+  Claude = 2,
+  /** Grok Build CLI (`grok`). */
+  Grok = 3
 }
 
 /** One row of `session-state.json`'s `Tabs` array (parity §2.4 field names, kept for future WinUI-state import). */

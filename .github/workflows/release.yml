@@ -6,7 +6,7 @@ on:
       - "v*"
   # Rehearsal. A tag is not recoverable — a published release can be downloaded by users and by
   # the auto-updater the moment it exists, and RELEASE.md forbids moving a published tag. So the
-  # whole pipeline (build, packaged legal check, installer acceptance matrix, exact nine-asset set,
+  # whole pipeline (build, packaged legal check, NSIS acceptance matrix, exact eight-asset set,
   # checksums) must be runnable without publishing anything: dispatch this from main, then tag.
   workflow_dispatch:
 
@@ -127,14 +127,6 @@ jobs:
       - name: Verify packaged application legal materials
         run: node ./scripts/verify-legal-artifacts.mjs --package-resources ./dist/win-unpacked/resources
 
-      - name: Build custom installer
-        run: |
-          npm run installer:prepare
-          npx electron-builder --projectDir installer --win portable --publish never
-
-      - name: Verify packaged installer legal materials
-        run: node ./scripts/verify-legal-artifacts.mjs --package-resources ./dist/custom-installer/win-unpacked/resources
-
       - name: Download and verify reviewed previous setup
         if: env.ZINC_PREVIOUS_RELEASE_TAG != ''
         env:
@@ -168,16 +160,16 @@ jobs:
             throw "Previous setup does not match the hash reviewed in this workflow; the release asset changed."
           }
 
-      - name: Run installer acceptance matrix
+      - name: Run NSIS acceptance matrix
         timeout-minutes: 45
         run: |
           $pkg = Get-Content package.json | ConvertFrom-Json
-          $installer = Get-ChildItem -LiteralPath dist/custom-installer -File -Filter "Zinc-$($pkg.version)-Installer.exe"
-          if ($installer.Count -ne 1) {
-            throw "Expected exactly one custom installer; found $($installer.Count)."
+          $setup = Get-ChildItem -LiteralPath dist -File -Filter "Zinc-$($pkg.version)-Setup.exe"
+          if ($setup.Count -ne 1) {
+            throw "Expected exactly one NSIS setup; found $($setup.Count)."
           }
           $matrixArgs = @(
-            '-InstallerPath', $installer[0].FullName,
+            '-SetupPath', $setup[0].FullName,
             '-ExpectedVersion', $pkg.version
           )
           if ($env:ZINC_PREVIOUS_RELEASE_TAG) {
@@ -186,7 +178,7 @@ jobs:
               '-PreviousExpectedVersion', $env:ZINC_PREVIOUS_VERSION
             )
           } else {
-            Write-Host "::warning::No reviewed baseline is pinned, so the upgrade leg of the installer matrix is NOT covered by this run. Expected for the first release of this repository; pin the previous release from 0.5.1 on."
+            Write-Host "::warning::No reviewed baseline is pinned, so the upgrade leg of the installer matrix is NOT covered by this run. Pin the previous release when one exists."
           }
           pwsh -NoProfile -File ./scripts/verify-installer-matrix.ps1 @matrixArgs
 
@@ -218,7 +210,6 @@ jobs:
             Get-SingleArtifact -Directory dist -Filter "Zinc-$($pkg.version)-Setup.exe" -Label 'setup executable'
             Get-SingleArtifact -Directory dist -Filter "Zinc-$($pkg.version)-Setup.exe.blockmap" -Label 'setup blockmap'
             Get-SingleArtifact -Directory dist -Filter 'latest.yml' -Label 'update metadata'
-            Get-SingleArtifact -Directory dist/custom-installer -Filter "Zinc-$($pkg.version)-Installer.exe" -Label 'custom installer'
             Get-SingleArtifact -Directory dist -Filter 'LICENSE' -Label 'Zinc license'
             Get-SingleArtifact -Directory dist -Filter "THIRD_PARTY_NOTICES-$($pkg.version).md" -Label 'third-party notices'
             Get-SingleArtifact -Directory dist -Filter 'ASSET_PROVENANCE.md' -Label 'asset provenance'
@@ -326,7 +317,6 @@ jobs:
             "Zinc-${ZINC_RELEASE_VERSION}-Setup.exe" \
             "Zinc-${ZINC_RELEASE_VERSION}-Setup.exe.blockmap" \
             "latest.yml" \
-            "Zinc-${ZINC_RELEASE_VERSION}-Installer.exe" \
             "LICENSE" \
             "THIRD_PARTY_NOTICES-${ZINC_RELEASE_VERSION}.md" \
             "ASSET_PROVENANCE.md" \

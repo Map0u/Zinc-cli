@@ -88,46 +88,6 @@
   --color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
 }
 
-:root[data-aod='1'] {
-  --color-accent: #d69a3c;
-  --color-card-bg: transparent;
-  --color-card-border: #2a2a2a;
-  --color-text-secondary: #666666;
-  --color-text-tertiary: #555555;
-  --color-row-selected: rgba(214, 154, 60, 0.1);
-  --color-row-hover: rgba(255, 255, 255, 0.035);
-  --color-toggle-off-bg: transparent;
-  --color-toggle-off-border: #2a2a2a;
-  --color-control-bg: transparent;
-  --color-control-bg-focused: #050505;
-  --color-control-border: #2a2a2a;
-  --color-control-border-hover: #343434;
-  --color-popup-bg: #050505;
-  --color-popup-border: #2a2a2a;
-  --color-fg-primary: #888888;
-  --color-fg-secondary: #666666;
-  --color-fg-tertiary: #555555;
-  --color-icon-hover-bg: rgba(214, 154, 60, 0.1);
-  --color-icon-hover-fg: #888888;
-  --color-scrollbar-thumb: #2a2a2a;
-  --color-scrollbar-thumb-hover: #3a3a3a;
-}
-
-html[data-aod='1'],
-html[data-aod='1'] body {
-  background: #000000;
-}
-
-html[data-aod='1'][data-aod-blackout='1'] #root {
-  opacity: 0;
-}
-
-.aod-burn-in-frame {
-  --aod-offset-x: 0px;
-  --aod-offset-y: 0px;
-  will-change: transform;
-}
-
 /* Dropdown popup open transition (settings controls redesign) — a quick
    scale+fade from the trigger's corner, not just an instant pop-in. */
 @keyframes dropdown-in {

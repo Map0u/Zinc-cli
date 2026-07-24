@@ -6,7 +6,41 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-No public changes yet.
+## [0.6.0] - 2026-07-24
+
+### Added
+
+- Session restore can resume Grok Build CLI sessions via `grok --continue` when
+  a tab was running `grok` and **Resume AI conversations** is enabled (alongside
+  existing Claude / Codex resume commands).
+- Automated coverage for default daily keyboard shortcuts (new/close/next/prev
+  tab, open settings, zoom in/out/reset) via unit tests on the shipped
+  accelerator modules and a CDP verify journey.
+
+### Changed
+
+- Repositioned Zinc as a lightweight multi-shell Windows terminal launcher
+  with a modern UI, low background overhead, and PowerShell-first multi-shell
+  discovery.
+- Version source is `app/package.json` at 0.6.0.
+- Windows distribution is **NSIS-only** (`Zinc-<version>-Setup.exe`). The nested
+  Electron custom installer wrapper and `app/installer/` were removed.
+
+### Removed
+
+- Removed the AI usage status bar UI, its settings controls, IPC, utility-process
+  worker, and Claude/Codex usage polling. Obsolete status-bar keys are stripped
+  from existing `settings.json` files on load.
+- Removed AOD (always-on display), OLED burn-in protection, and the Linux-only
+  screen brightness control. Legacy keys are stripped on load.
+- Optional AI conversation resume (`ResumeAiConversations`) is unchanged.
+
+### Fixed
+
+- CDP / isolated test shells no longer append markers to the developer's global
+  PSReadLine or bash history (`ZINC_TEST_ISOLATED` / `ZINC_TEST_USER_DATA`).
+- With **Terminal opacity** at 0, black/near-black full-screen TUI backgrounds
+  (Grok, Claude, Codex, …) are rewritten to the transparent default over Acrylic.
 
 ## [0.5.0] - 2026-07-12
 
@@ -74,5 +108,6 @@ Versions before 0.5.0 were private development snapshots used during the WinUI
 prototype, Electron migration, and packaging work. They are not supported public
 release lines. Sanitized migration context remains in `docs/` and `archive/`.
 
-[Unreleased]: https://github.com/Map0u/Zinc/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Map0u/Zinc/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Map0u/Zinc/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Map0u/Zinc/releases/tag/v0.5.0
