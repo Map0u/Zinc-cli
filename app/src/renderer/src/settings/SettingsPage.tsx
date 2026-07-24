@@ -7,7 +7,7 @@ import {
 } from 'react'
 import { useSettings } from './SettingsContext'
 import { useI18n, type LocaleKey } from '../i18n/I18nContext'
-import type { AccentSource, LanguagePref, ThemePreference } from '../../../shared/settingsTypes'
+import type { AccentSource, CursorStyle, LanguagePref, ThemePreference } from '../../../shared/settingsTypes'
 import { COLOR_SCHEMES, getColorScheme, resolveVariant } from '../colorSchemes'
 import { useResolvedThemeMode } from '../themeMode'
 import { DEFAULT_KEYBINDINGS, SHORTCUT_ACTIONS, type Keybindings, type ShortcutAction } from '../../../shared/keybindings'
@@ -21,18 +21,16 @@ import { loadShellProfiles, type ShellProfile } from '../shells/shellProfiles'
 export type Category =
   | 'appearance'
   | 'terminal'
-  | 'session'
+  | 'startup'
   | 'shortcuts'
-  | 'language'
   | 'about'
 
 /** Settings category glyphs use Segoe Fluent Icons codepoints supplied by Windows. */
 export const SETTINGS_CATEGORIES: Array<{ id: Category; labelKey: LocaleKey; icon: string }> = [
-  { id: 'terminal', labelKey: 'CatTerminal', icon: SegoeIcon.Terminal },
   { id: 'appearance', labelKey: 'CatAppearance', icon: SegoeIcon.Appearance },
-  { id: 'session', labelKey: 'CatSession', icon: SegoeIcon.Session },
+  { id: 'terminal', labelKey: 'CatTerminal', icon: SegoeIcon.Terminal },
+  { id: 'startup', labelKey: 'CatStartup', icon: SegoeIcon.Session },
   { id: 'shortcuts', labelKey: 'CatShortcuts', icon: SegoeIcon.Shortcuts },
-  { id: 'language', labelKey: 'CatLanguage', icon: SegoeIcon.Language },
   { id: 'about', labelKey: 'CatAbout', icon: SegoeIcon.About }
 ]
 
@@ -178,7 +176,7 @@ function SettingsCategoryButton({
   )
 }
 
-/** Settings' category rail, terminal-first with About last. */
+/** Settings' category rail: appearance → terminal → startup → shortcuts → about. */
 export function SettingsRailBody({
   category,
   onSelect,
@@ -226,9 +224,8 @@ export function SettingsContentBody({ category }: { category: Category }) {
       <div className="flex flex-col gap-1">
         {category === 'appearance' && <AppearanceSection />}
         {category === 'terminal' && <TerminalSection />}
-        {category === 'session' && <SessionSection />}
+        {category === 'startup' && <StartupSection />}
         {category === 'shortcuts' && <ShortcutsSection />}
-        {category === 'language' && <LanguageSection />}
         {category === 'about' && <AboutSection />}
       </div>
     </>
@@ -238,6 +235,11 @@ export function SettingsContentBody({ category }: { category: Category }) {
 /** Matches `SettingsCategoryTitle` (FontSize 22, SemiBold, default/primary foreground = white, Margin 2,8,0,4). */
 function SectionHeading({ children }: { children: string }) {
   return <h2 className="ml-0.5 mb-1 mt-2 text-[22px] font-semibold text-fg-primary">{children}</h2>
+}
+
+/** Lightweight in-page group label (not a nav level) for clustering related cards. */
+function GroupHeading({ children }: { children: string }) {
+  return <h3 className="ml-0.5 mb-0.5 mt-3 text-[11px] font-medium uppercase tracking-wide text-fg-tertiary">{children}</h3>
 }
 
 /** Matches the `SettingCard` style (CardBackgroundFillColorDefault/CardStrokeColorDefault,
@@ -431,57 +433,20 @@ function OpacitySlider({
   )
 }
 
-function RangeSlider({
-  value,
-  min,
-  max,
-  step,
-  label,
-  onDebouncedChange,
-  testId
-}: {
-  value: number
-  min: number
-  max: number
-  step: number
-  label: string
-  onDebouncedChange: (v: number) => void
-  testId: string
-}) {
-  const [draft, setDraft] = useState(value)
-  const [dragging, setDragging] = useState(false)
-  const percent = ((draft - min) / (max - min)) * 100
+/** Discrete UI zoom steps — continuous slider + live setZoomFactor caused jumpy layout. */
+const UI_ZOOM_FACTORS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const
 
-  useEffect(() => {
-    if (!dragging) setDraft(value)
-  }, [value, dragging])
-
-  return (
-    <div className="flex items-center gap-3">
-      <input
-        type="range"
-        data-testid={testId}
-        min={min}
-        max={max}
-        step={step}
-        value={draft}
-        onChange={(e) => {
-          setDragging(true)
-          const next = Number(e.target.value)
-          setDraft(next)
-          onDebouncedChange(next)
-        }}
-        onMouseUp={() => setDragging(false)}
-        onKeyUp={() => setDragging(false)}
-        onBlur={() => setDragging(false)}
-        className="opacity-slider w-48"
-        style={{
-          background: `linear-gradient(to right, var(--color-accent) ${percent}%, var(--color-control-border) ${percent}%)`
-        }}
-      />
-      <span className="w-12 text-right text-[12px] text-fg-secondary">{label}</span>
-    </div>
-  )
+function nearestUiZoomFactor(value: number): (typeof UI_ZOOM_FACTORS)[number] {
+  let best: (typeof UI_ZOOM_FACTORS)[number] = 1
+  let bestDist = Number.POSITIVE_INFINITY
+  for (const factor of UI_ZOOM_FACTORS) {
+    const dist = Math.abs(factor - value)
+    if (dist < bestDist) {
+      best = factor
+      bestDist = dist
+    }
+  }
+  return best
 }
 
 /**
@@ -641,6 +606,15 @@ const ACCENT_SOURCE_OPTIONS: Array<{ value: AccentSource; labelKey: 'AccentSourc
   { value: 'system', labelKey: 'AccentSourceSystem' }
 ]
 
+const CURSOR_STYLE_OPTIONS: Array<{
+  value: CursorStyle
+  labelKey: 'CursorStyleBlock' | 'CursorStyleBar' | 'CursorStyleUnderline'
+}> = [
+  { value: 'block', labelKey: 'CursorStyleBlock' },
+  { value: 'bar', labelKey: 'CursorStyleBar' },
+  { value: 'underline', labelKey: 'CursorStyleUnderline' }
+]
+
 function AppearanceSection() {
   const { t } = useI18n()
   const { settings, updateImmediate, updateDebounced } = useSettings()
@@ -657,6 +631,70 @@ function AppearanceSection() {
           onChange={(v) => updateImmediate({ ThemePreference: v })}
         />
       </Card>
+      <Card title={t('CardColorSchemeTitle')} desc={t('CardColorSchemeDesc')}>
+        <Dropdown
+          testId="setting-colorScheme"
+          value={settings.ColorScheme}
+          options={COLOR_SCHEMES.map((s) => ({ value: s.id, label: t(s.labelKey) }))}
+          onChange={(v) => {
+            // Grok Night/Day pair tracks OS light/dark the same way Grok's
+            // `theme = "auto"` does — pin ThemePreference to auto so Zinc's
+            // surfaceBase + ANSI flip with the same polarity Grok uses.
+            if (v === 'grok') {
+              updateImmediate({ ColorScheme: v, ThemePreference: 'auto' })
+            } else {
+              updateImmediate({ ColorScheme: v })
+            }
+          }}
+        />
+      </Card>
+      <Card title={t('CardAccentSourceTitle')} desc={t('CardAccentSourceDesc')}>
+        <Dropdown
+          testId="setting-accentSource"
+          value={settings.AccentSource}
+          options={ACCENT_SOURCE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+          onChange={(v) => updateImmediate({ AccentSource: v })}
+        />
+      </Card>
+      <GroupHeading>{t('GroupMaterial')}</GroupHeading>
+      <Card title={t('CardRailOpacityTitle')} desc={t('CardRailOpacityDesc')}>
+        <OpacitySlider
+          testId="setting-railOpacity"
+          value={settings.RailOpacity}
+          onDebouncedChange={(v) => updateDebounced({ RailOpacity: v })}
+        />
+      </Card>
+      <Card title={t('CardTerminalOpacityTitle')} desc={t('CardTerminalOpacityDesc')}>
+        <OpacitySlider
+          testId="setting-terminalOpacity"
+          value={settings.TerminalOpacity}
+          onDebouncedChange={(v) => updateDebounced({ TerminalOpacity: v })}
+        />
+      </Card>
+      <GroupHeading>{t('GroupScale')}</GroupHeading>
+      <Card title={t('UiZoomLabel')} desc={t('UiZoomHint')}>
+        <Dropdown
+          testId="setting-uiZoom"
+          value={String(nearestUiZoomFactor(settings.UiZoom))}
+          options={UI_ZOOM_FACTORS.map((factor) => ({
+            value: String(factor),
+            label: `${Math.round(factor * 100)}%`
+          }))}
+          onChange={(v) => updateImmediate({ UiZoom: Number(v) })}
+        />
+      </Card>
+    </>
+  )
+}
+
+function TerminalSection() {
+  const { t } = useI18n()
+  const { settings, updateImmediate, updateDebounced } = useSettings()
+
+  if (!settings) return null
+
+  return (
+    <>
       <Card title={t('CardFontFamilyTitle')}>
         <TextField
           testId="setting-fontFamily"
@@ -674,6 +712,14 @@ function AppearanceSection() {
           onDebouncedChange={(v) => updateDebounced({ FontSize: v })}
         />
       </Card>
+      <Card title={t('CardCursorStyleTitle')} desc={t('CardCursorStyleDesc')}>
+        <Dropdown
+          testId="setting-cursorStyle"
+          value={settings.CursorStyle}
+          options={CURSOR_STYLE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+          onChange={(v) => updateImmediate({ CursorStyle: v })}
+        />
+      </Card>
       <Card title={t('CardCursorBlinkTitle')}>
         <Toggle
           testId="setting-cursorBlink"
@@ -681,54 +727,23 @@ function AppearanceSection() {
           onChange={(v) => updateImmediate({ CursorBlink: v })}
         />
       </Card>
-      <Card title={t('CardColorSchemeTitle')} desc={t('CardColorSchemeDesc')}>
-        <Dropdown
-          testId="setting-colorScheme"
-          value={settings.ColorScheme}
-          options={COLOR_SCHEMES.map((s) => ({ value: s.id, label: t(s.labelKey) }))}
-          onChange={(v) => updateImmediate({ ColorScheme: v })}
-        />
-      </Card>
-      <Card title={t('CardAccentSourceTitle')} desc={t('CardAccentSourceDesc')}>
-        <Dropdown
-          testId="setting-accentSource"
-          value={settings.AccentSource}
-          options={ACCENT_SOURCE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
-          onChange={(v) => updateImmediate({ AccentSource: v })}
-        />
-      </Card>
-      <Card title={t('CardRailOpacityTitle')} desc={t('CardRailOpacityDesc')}>
-        <OpacitySlider
-          testId="setting-railOpacity"
-          value={settings.RailOpacity}
-          onDebouncedChange={(v) => updateDebounced({ RailOpacity: v })}
-        />
-      </Card>
-      <Card title={t('CardTerminalOpacityTitle')} desc={t('CardTerminalOpacityDesc')}>
-        <OpacitySlider
-          testId="setting-terminalOpacity"
-          value={settings.TerminalOpacity}
-          onDebouncedChange={(v) => updateDebounced({ TerminalOpacity: v })}
-        />
-      </Card>
-      <Card title={t('UiZoomLabel')} desc={t('UiZoomHint')}>
-        <RangeSlider
-          testId="setting-uiZoom"
-          value={settings.UiZoom}
-          min={0.75}
-          max={2}
-          step={0.05}
-          label={`${Math.round(settings.UiZoom * 100)}%`}
-          onDebouncedChange={(v) => updateImmediate({ UiZoom: v })}
+      <Card title={t('CardScrollbackTitle')}>
+        <NumberField
+          testId="setting-scrollback"
+          value={settings.Scrollback}
+          min={500}
+          max={100000}
+          step={1000}
+          onDebouncedChange={(v) => updateDebounced({ Scrollback: v })}
         />
       </Card>
     </>
   )
 }
 
-function TerminalSection() {
+function StartupSection() {
   const { t } = useI18n()
-  const { settings, updateImmediate, updateDebounced } = useSettings()
+  const { settings, updateImmediate } = useSettings()
   const [shellProfiles, setShellProfiles] = useState<ShellProfile[]>([])
 
   useEffect(() => {
@@ -768,27 +783,6 @@ function TerminalSection() {
           onCommit={(v) => updateImmediate({ StartingDirectory: v })}
         />
       </Card>
-      <Card title={t('CardScrollbackTitle')}>
-        <NumberField
-          testId="setting-scrollback"
-          value={settings.Scrollback}
-          min={500}
-          max={100000}
-          step={1000}
-          onDebouncedChange={(v) => updateDebounced({ Scrollback: v })}
-        />
-      </Card>
-    </>
-  )
-}
-
-function SessionSection() {
-  const { t } = useI18n()
-  const { settings, updateImmediate } = useSettings()
-  if (!settings) return null
-
-  return (
-    <>
       <Card title={t('CardRestoreTitle')} desc={t('CardRestoreDesc')}>
         <Toggle
           testId="setting-restoreSessions"
@@ -957,7 +951,7 @@ const LANGUAGE_OPTIONS: Array<{ value: LanguagePref; labelKey: 'LangAuto' | 'Lan
   { value: 'zh', labelKey: 'LangChinese' }
 ]
 
-function LanguageSection() {
+function LanguageCard() {
   const { t } = useI18n()
   const { settings, updateImmediate } = useSettings()
   if (!settings) return null
@@ -1063,6 +1057,8 @@ function AboutSection() {
   const canInstall = updateState?.status === 'downloaded'
 
   return (
+    <>
+    <LanguageCard />
     <div className="rounded-lg border border-card-border bg-card-bg px-10 py-8">
       <div className="flex items-center justify-between">
         <img src={zincIcon} alt="Zinc" className="h-14 w-14 rounded-xl shadow-lg" draggable={false} />
@@ -1205,6 +1201,7 @@ function AboutSection() {
         </div>
       )}
     </div>
+    </>
   )
 }
 

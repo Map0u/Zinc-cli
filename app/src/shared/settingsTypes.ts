@@ -15,14 +15,21 @@ export type ThemePreference = 'auto' | 'light' | 'dark'
  * in colorSchemes.ts) rather than used as a raw passthrough. */
 export type AccentSource = 'scheme' | 'system'
 
+/** xterm.js cursor shape — block (filled cell), bar (I-beam), or underline. */
+export type CursorStyle = 'block' | 'bar' | 'underline'
+
 /** Full shape of settings.json (parity §1.2 field list + a schema `version`). */
 export interface ZincSettings {
   version: 1
   FontFamily: string
   FontSize: number
   CursorBlink: boolean
+  /** Terminal cursor shape; applied live to open tabs via TerminalOptionsPush. */
+  CursorStyle: CursorStyle
   /** Opacity of the left tab rail's background, independent of `TerminalOpacity`. */
   RailOpacity: number
+  /** Width in CSS pixels of the left tab rail (drag-resized; clamped in SettingsService). */
+  RailWidth: number
   /** Opacity of the right-side terminal card's background, independent of `RailOpacity`. */
   TerminalOpacity: number
   /** Electron renderer zoom factor. 1.0 is default; valid range is 0.75-2.0. */

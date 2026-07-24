@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { terminalHostRegistry, type TerminalNotice } from './terminal/TerminalHostRegistry'
 import { useSettings } from './settings/SettingsContext'
 import { useI18n } from './i18n/I18nContext'
@@ -22,6 +22,11 @@ const FONT_SIZE_MIN = 8
 const FONT_SIZE_MAX = 32
 const DEFAULT_FONT_SIZE = 16
 
+/** Left rail width — must match SettingsService NUMERIC_BOUNDS.RailWidth. */
+const RAIL_WIDTH_MIN = 160
+const RAIL_WIDTH_MAX = 520
+const RAIL_WIDTH_DEFAULT = 260
+
 /**
  * Win11's own DWM window-corner rounding at 100% scale, and Fluent's
  * `OverlayCornerRadius`/largest `ControlCornerRadius` token — the terminal
@@ -29,6 +34,11 @@ const DEFAULT_FONT_SIZE = 16
  * window's own corner right where they meet (M9).
  */
 const WINDOW_CORNER_RADIUS = 8
+
+function clampRailWidth(value: number): number {
+  if (!Number.isFinite(value)) return RAIL_WIDTH_DEFAULT
+  return Math.max(RAIL_WIDTH_MIN, Math.min(RAIL_WIDTH_MAX, Math.round(value)))
+}
 
 interface Tab {
   id: string
@@ -85,6 +95,9 @@ export default function App() {
   const tabContextMenuReturnFocusRef = useRef<HTMLElement | null>(null)
   const shellMenuRef = useRef<HTMLDivElement | null>(null)
   const shellMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
+  /** Live width while the user drags the rail splitter (avoids waiting on settings round-trips). */
+  const [railWidthLive, setRailWidthLive] = useState<number | null>(null)
+  const railResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null)
 
   useEffect(() => window.zinc.window.onStateChange(setWindowState), [])
 
@@ -538,6 +551,58 @@ export default function App() {
   const railBg = surfaceBackground(railOpacity, colorVariant.surfaceBase)
   const terminalBg = surfaceBackground(terminalOpacity, colorVariant.surfaceBase)
   const showWindowControls = windowState.platform === 'linux' || windowState.fullScreen
+  const configuredShellId = settings?.DefaultShellId
+  const defaultShellLabel =
+    shellProfiles.find((profile) => profile.id === configuredShellId)?.label ??
+    shellProfiles[0]?.label ??
+    t('ShellDetecting')
+  const railWidth = clampRailWidth(railWidthLive ?? settings?.RailWidth ?? RAIL_WIDTH_DEFAULT)
+
+  function endRailResize(pointerId: number, finalWidth: number): void {
+    const session = railResizeRef.current
+    if (!session || session.pointerId !== pointerId) return
+    railResizeRef.current = null
+    const width = clampRailWidth(finalWidth)
+    setRailWidthLive(null)
+    updateImmediate({ RailWidth: width })
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  function onRailResizePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const startWidth = clampRailWidth(settings?.RailWidth ?? RAIL_WIDTH_DEFAULT)
+    railResizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth
+    }
+    setRailWidthLive(startWidth)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  function onRailResizePointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    const session = railResizeRef.current
+    if (!session || session.pointerId !== event.pointerId) return
+    const next = clampRailWidth(session.startWidth + (event.clientX - session.startX))
+    setRailWidthLive(next)
+    updateDebounced({ RailWidth: next })
+  }
+
+  function onRailResizePointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
+    const session = railResizeRef.current
+    if (!session || session.pointerId !== event.pointerId) return
+    const next = clampRailWidth(session.startWidth + (event.clientX - session.startX))
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      /* already released */
+    }
+    endRailResize(event.pointerId, next)
+  }
 
   return (
     <>
@@ -553,14 +618,16 @@ export default function App() {
         boxSizing: 'border-box'
       }}
     >
-      {/* Left tab rail — fixed 260px, square corners, spans the FULL window
-          height (header + body), not just a middle row — this is the base
-          layer the terminal card sits on top of (M9). Win11 NavigationView-
-          style rows: 40px height, 4px corners, 3px selection pill in a 10px
-          gutter, then a 22px slot (a sequential tab number here, an icon in
-          the settings-category rail) — all copied from the old app's
-          CreateTab()/rail-item construction. */}
-      <div className="flex w-[260px] shrink-0 flex-col">
+      {/* Left tab rail — drag-resizable width (default 260px), square corners,
+          spans the FULL window height (header + body). This is the base layer
+          the terminal card sits on top of (M9). Win11 NavigationView-style
+          rows: 40px height, 4px corners, 3px selection pill in a 10px gutter,
+          then a 22px slot (tab number / settings category icon). */}
+      <div
+        className="relative flex shrink-0 flex-col"
+        style={{ width: railWidth }}
+        data-testid="tab-rail"
+      >
         {/* Top drag region's left segment — window has no native title bar
             (titleBarStyle: 'hidden'). Persists across every `view`, same as
             the old app kept its top strip visible while Settings was open. */}
@@ -577,194 +644,233 @@ export default function App() {
           <SettingsRailBody category={category} onSelect={setCategory} onBack={() => setView('terminal')} />
         ) : (
           <>
-            <div
-              role="tablist"
-              aria-label={t('TerminalTabs')}
-              aria-orientation="vertical"
-              className="chrome-scroll flex flex-1 flex-col gap-0.5 overflow-y-auto py-1"
-            >
-              {tabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  data-tabid={tab.id}
-                  role="tab"
-                  tabIndex={tab.id === activeId ? 0 : -1}
-                  aria-selected={tab.id === activeId}
-                  className={`group relative mx-3 flex h-10 cursor-pointer items-center rounded pl-0.5 pr-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                    tab.id === activeId ? 'bg-row-selected' : 'hover:bg-row-hover'
-                  }`}
-                  onClick={() => switchTab(tab.id)}
-                  onDoubleClick={() => void cloneTab(tab.id)}
-                  onContextMenu={(e) => openTabContextMenu(e, tab.id)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      switchTab(tab.id)
-                      return
-                    }
-                    if (
-                      event.key === 'ArrowDown' ||
-                      event.key === 'ArrowRight' ||
-                      event.key === 'ArrowUp' ||
-                      event.key === 'ArrowLeft' ||
-                      event.key === 'Home' ||
-                      event.key === 'End'
-                    ) {
-                      event.preventDefault()
-                      const tabElements = Array.from(
-                        event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []
-                      )
-                      const currentIndex = tabElements.indexOf(event.currentTarget)
-                      let nextIndex = currentIndex
-                      if (event.key === 'Home') nextIndex = 0
-                      else if (event.key === 'End') nextIndex = tabElements.length - 1
-                      else if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
-                        nextIndex = (currentIndex + 1) % tabElements.length
-                      } else {
-                        nextIndex = (currentIndex - 1 + tabElements.length) % tabElements.length
+            {/* Tabby-style rail: tabs size to content; compact + / shell icons
+                sit directly under the last tab; empty space below; settings
+                pinned at the rail foot. */}
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div
+                role="tablist"
+                aria-label={t('TerminalTabs')}
+                aria-orientation="vertical"
+                className="chrome-scroll flex min-h-0 max-h-full shrink grow-0 flex-col gap-0.5 overflow-y-auto py-1"
+              >
+                {tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    data-tabid={tab.id}
+                    role="tab"
+                    tabIndex={tab.id === activeId ? 0 : -1}
+                    aria-selected={tab.id === activeId}
+                    className={`group relative mx-3 flex h-10 cursor-pointer items-center rounded pl-0.5 pr-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                      tab.id === activeId ? 'bg-row-selected' : 'hover:bg-row-hover'
+                    }`}
+                    onClick={() => switchTab(tab.id)}
+                    onDoubleClick={() => void cloneTab(tab.id)}
+                    onContextMenu={(e) => openTabContextMenu(e, tab.id)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        switchTab(tab.id)
+                        return
                       }
-                      const nextTab = tabs[nextIndex]
-                      if (nextTab) {
-                        switchTab(nextTab.id)
-                        tabElements[nextIndex]?.focus()
+                      if (
+                        event.key === 'ArrowDown' ||
+                        event.key === 'ArrowRight' ||
+                        event.key === 'ArrowUp' ||
+                        event.key === 'ArrowLeft' ||
+                        event.key === 'Home' ||
+                        event.key === 'End'
+                      ) {
+                        event.preventDefault()
+                        const tabElements = Array.from(
+                          event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []
+                        )
+                        const currentIndex = tabElements.indexOf(event.currentTarget)
+                        let nextIndex = currentIndex
+                        if (event.key === 'Home') nextIndex = 0
+                        else if (event.key === 'End') nextIndex = tabElements.length - 1
+                        else if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+                          nextIndex = (currentIndex + 1) % tabElements.length
+                        } else {
+                          nextIndex = (currentIndex - 1 + tabElements.length) % tabElements.length
+                        }
+                        const nextTab = tabs[nextIndex]
+                        if (nextTab) {
+                          switchTab(nextTab.id)
+                          tabElements[nextIndex]?.focus()
+                        }
+                        return
                       }
-                      return
-                    }
-                    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-                      event.preventDefault()
-                      const rect = event.currentTarget.getBoundingClientRect()
-                      showTabContextMenu(tab.id, rect.left + 32, rect.top + rect.height, event.currentTarget)
-                    }
-                  }}
-                  onMouseDown={(e) => {
-                    // Prevent the OS's middle-click autoscroll cursor from
-                    // appearing before we handle the close on mouseup.
-                    if (e.button === 1) e.preventDefault()
-                  }}
-                  onMouseUp={(e) => {
-                    if (e.button === 1) closeTab(tab.id)
-                  }}
-                >
-                  <span className="flex w-2.5 shrink-0 items-center justify-center">
-                    {tab.id === activeId && <span className="h-4 w-[3px] rounded-full bg-accent" />}
-                  </span>
-                  <span className="w-[22px] shrink-0 text-[12px] text-fg-tertiary">{tab.num}</span>
-                  {renamingTabId === tab.id ? (
-                    <input
-                      autoFocus
-                      defaultValue={tabDisplayTitle(tab)}
-                      aria-label={t('RenameTab')}
-                      className="min-w-0 flex-1 rounded bg-transparent px-1 text-[13px] text-fg-primary outline-none ring-1 ring-accent"
-                      onFocus={(e) => e.currentTarget.select()}
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      onMouseUp={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        e.stopPropagation()
-                        if (e.key === 'Enter') commitTabRename(tab.id, e.currentTarget.value)
-                        else if (e.key === 'Escape') setRenamingTabId(null)
-                      }}
-                      onBlur={(e) => commitTabRename(tab.id, e.currentTarget.value)}
-                    />
-                  ) : (
-                    <span className="flex-1 truncate text-[13px] text-fg-primary" title={tabDisplayTitle(tab)}>{tabDisplayTitle(tab)}</span>
-                  )}
-                  <button
-                    type="button"
-                    aria-label={t('CloseTab')}
-                    className="icon-font flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] text-fg-tertiary hover:bg-icon-hover-bg hover:text-icon-hover-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      closeTab(tab.id)
+                      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                        event.preventDefault()
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        showTabContextMenu(tab.id, rect.left + 32, rect.top + rect.height, event.currentTarget)
+                      }
+                    }}
+                    onMouseDown={(e) => {
+                      // Prevent the OS's middle-click autoscroll cursor from
+                      // appearing before we handle the close on mouseup.
+                      if (e.button === 1) e.preventDefault()
+                    }}
+                    onMouseUp={(e) => {
+                      if (e.button === 1) closeTab(tab.id)
                     }}
                   >
-                    {SegoeIcon.Close}
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <span className="flex w-2.5 shrink-0 items-center justify-center">
+                      {tab.id === activeId && <span className="h-4 w-[3px] rounded-full bg-accent" />}
+                    </span>
+                    <span className="w-[22px] shrink-0 text-[12px] text-fg-tertiary">{tab.num}</span>
+                    {renamingTabId === tab.id ? (
+                      <input
+                        autoFocus
+                        defaultValue={tabDisplayTitle(tab)}
+                        aria-label={t('RenameTab')}
+                        className="min-w-0 flex-1 rounded bg-transparent px-1 text-[13px] text-fg-primary outline-none ring-1 ring-accent"
+                        onFocus={(e) => e.currentTarget.select()}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        onMouseUp={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          e.stopPropagation()
+                          if (e.key === 'Enter') commitTabRename(tab.id, e.currentTarget.value)
+                          else if (e.key === 'Escape') setRenamingTabId(null)
+                        }}
+                        onBlur={(e) => commitTabRename(tab.id, e.currentTarget.value)}
+                      />
+                    ) : (
+                      <span className="flex-1 truncate text-[13px] text-fg-primary" title={tabDisplayTitle(tab)}>{tabDisplayTitle(tab)}</span>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={t('CloseTab')}
+                      className="icon-font flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] text-fg-tertiary hover:bg-icon-hover-bg hover:text-icon-hover-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        closeTab(tab.id)
+                      }}
+                    >
+                      {SegoeIcon.Close}
+                    </button>
+                  </div>
+                ))}
+              </div>
 
-            <div ref={shellMenuRef} className="relative mx-3 mt-2 flex items-center gap-1">
-              <button
-                type="button"
-                aria-label={t('NewTab')}
-                className="icon-font flex h-9 w-10 items-center justify-center rounded text-sm text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                onClick={() => addTab()}
+              {/* Compact icon strip under the last tab (Tabby-style), not a full-width shell label row. */}
+              <div
+                ref={shellMenuRef}
+                className="relative mx-3 mt-0.5 flex shrink-0 items-center gap-0.5 px-0.5"
+                data-testid="rail-new-tab-row"
               >
-                {SegoeIcon.Add}
-              </button>
-              <button
-                ref={shellMenuTriggerRef}
-                type="button"
-                aria-label={t('ChooseShell')}
-                aria-haspopup="menu"
-                aria-expanded={shellMenuOpen}
-                className={`icon-font flex h-9 w-7 items-center justify-center rounded text-[9px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  shellMenuOpen ? 'bg-row-hover' : ''
-                }`}
-                onClick={() => setShellMenuOpen((open) => !open)}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    setShellMenuOpen(true)
-                  }
-                }}
-              >
-                {SegoeIcon.ChevronDown}
-              </button>
-              {shellMenuOpen && (
-                <div
-                  role="menu"
+                <button
+                  type="button"
+                  aria-label={t('NewTab')}
+                  data-testid="new-tab"
+                  className="icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  onClick={() => addTab()}
+                >
+                  {SegoeIcon.Add}
+                </button>
+                <button
+                  ref={shellMenuTriggerRef}
+                  type="button"
                   aria-label={t('ChooseShell')}
-                  className="absolute bottom-full left-0 z-30 mb-1.5 min-w-44 origin-bottom-left overflow-hidden rounded-lg border border-popup-border bg-popup-bg py-1 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] animate-[dropdown-in_120ms_cubic-bezier(0.16,1,0.3,1)]"
+                  aria-haspopup="menu"
+                  aria-expanded={shellMenuOpen}
+                  data-testid="choose-shell"
+                  title={defaultShellLabel}
+                  className={`icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                    shellMenuOpen ? 'bg-row-hover' : ''
+                  }`}
+                  onClick={() => setShellMenuOpen((open) => !open)}
                   onKeyDown={(event) => {
-                    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                    if (items.length === 0) return
-                    const currentIndex = Math.max(0, items.indexOf(document.activeElement as HTMLElement))
-                    let nextIndex: number | null = null
-                    if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length
-                    else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length
-                    else if (event.key === 'Home') nextIndex = 0
-                    else if (event.key === 'End') nextIndex = items.length - 1
-                    if (nextIndex === null) return
-                    event.preventDefault()
-                    items[nextIndex]?.focus()
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault()
+                      setShellMenuOpen(true)
+                    }
                   }}
                 >
-                  {shellProfiles.length > 0 ? (
-                    shellProfiles.map((profile) => (
-                      <button
-                        key={profile.id}
-                        type="button"
-                        role="menuitem"
-                        className="mx-1 flex w-[calc(100%-0.5rem)] items-center rounded px-2 py-1.5 text-left text-sm text-fg-secondary transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        onClick={() => {
-                          addTab({ shellId: profile.id, shellLabel: profile.label })
-                          setShellMenuOpen(false)
-                          requestAnimationFrame(() => shellMenuTriggerRef.current?.focus())
-                        }}
-                      >
-                        {profile.label}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="px-3 py-2 text-sm text-fg-tertiary">{t('ShellDetecting')}</div>
-                  )}
-                </div>
-              )}
-              <button
-                type="button"
-                aria-label={t('SettingsTooltip')}
-                data-testid="open-settings"
-                className="icon-font flex h-9 w-10 items-center justify-center rounded text-sm text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                onClick={() => setView('settings')}
-              >
-                {SegoeIcon.Settings}
-              </button>
+                  {SegoeIcon.Terminal}
+                </button>
+                {shellMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label={t('ChooseShell')}
+                    className="absolute left-0 top-full z-30 mt-1 min-w-44 origin-top-left overflow-hidden rounded-lg border border-popup-border bg-popup-bg py-1 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] animate-[dropdown-in_120ms_cubic-bezier(0.16,1,0.3,1)]"
+                    onKeyDown={(event) => {
+                      const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                      if (items.length === 0) return
+                      const currentIndex = Math.max(0, items.indexOf(document.activeElement as HTMLElement))
+                      let nextIndex: number | null = null
+                      if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length
+                      else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length
+                      else if (event.key === 'Home') nextIndex = 0
+                      else if (event.key === 'End') nextIndex = items.length - 1
+                      if (nextIndex === null) return
+                      event.preventDefault()
+                      items[nextIndex]?.focus()
+                    }}
+                  >
+                    {shellProfiles.length > 0 ? (
+                      shellProfiles.map((profile) => (
+                        <button
+                          key={profile.id}
+                          type="button"
+                          role="menuitem"
+                          className="mx-1 flex w-[calc(100%-0.5rem)] items-center rounded px-2 py-1.5 text-left text-sm text-fg-secondary transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          onClick={() => {
+                            addTab({ shellId: profile.id, shellLabel: profile.label })
+                            setShellMenuOpen(false)
+                            requestAnimationFrame(() => shellMenuTriggerRef.current?.focus())
+                          }}
+                        >
+                          {profile.label}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-fg-tertiary">{t('ShellDetecting')}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="min-h-2 min-w-0 flex-1" aria-hidden />
+
+              <div className="mx-3 mb-2 flex shrink-0 items-center px-0.5">
+                <button
+                  type="button"
+                  aria-label={t('SettingsTooltip')}
+                  data-testid="open-settings"
+                  className="icon-font flex h-7 w-7 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  onClick={() => setView('settings')}
+                >
+                  {SegoeIcon.Settings}
+                </button>
+              </div>
             </div>
           </>
         )}
+
+        {/* Vertical splitter — sits on the rail/terminal seam so the cursor
+            over the middle edge can drag the rail width freely. */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('ResizeTabRail')}
+          aria-valuemin={RAIL_WIDTH_MIN}
+          aria-valuemax={RAIL_WIDTH_MAX}
+          aria-valuenow={railWidth}
+          data-testid="rail-resize-handle"
+          className="absolute inset-y-0 -right-1 z-30 w-2 cursor-col-resize touch-none [-webkit-app-region:no-drag]"
+          onPointerDown={onRailResizePointerDown}
+          onPointerMove={onRailResizePointerMove}
+          onPointerUp={onRailResizePointerUp}
+          onPointerCancel={onRailResizePointerUp}
+          onDoubleClick={() => {
+            setRailWidthLive(null)
+            updateImmediate({ RailWidth: RAIL_WIDTH_DEFAULT })
+          }}
+        />
       </div>
 
       {tabContextMenu && (

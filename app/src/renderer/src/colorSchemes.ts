@@ -3,6 +3,7 @@ import type { ITheme } from '@xterm/xterm'
 /** One selectable palette: the terminal's 16 ANSI colors plus the chrome surface tint they're paired with. */
 export type ColorSchemeLabelKey =
   | 'ColorSchemeMonochrome'
+  | 'ColorSchemeGrok'
   | 'ColorSchemeRosePine'
   | 'ColorSchemeTokyoNight'
   | 'ColorSchemeVesper'
@@ -81,6 +82,73 @@ const MONOCHROME: ColorScheme = {
       brightMagenta: '#454545',
       brightCyan: '#454545',
       brightWhite: '#000000'
+    }
+  }
+}
+
+/**
+ * Grok Build TUI's default pair: GrokNight (dark) + GrokDay (light).
+ * RGB values match the open-source palette in
+ * `xai-grok-pager-render` `theme/groknight.rs` / `theme/grokday.rs`
+ * (neutral gray base; Tokyo Night accents on dark, deepened accents on light).
+ * `surfaceBase` uses each theme's `bg_base` so Acrylic under TerminalOpacity 0
+ * reads the same family as Grok's fullscreen canvas.
+ */
+const GROK: ColorScheme = {
+  id: 'grok',
+  labelKey: 'ColorSchemeGrok',
+  dark: {
+    // BG_STORM — GrokNight main bg_base
+    surfaceBase: [20, 20, 20],
+    // MAGENTA — accent_assistant / accent_running
+    accent: '#BB9AF7',
+    ansi: {
+      foreground: '#E1E1E1',
+      cursor: '#C8C8C8',
+      selectionBackground: '#BB9AF755',
+      black: '#0A0A0A',
+      red: '#F7768E',
+      green: '#9ECE6A',
+      yellow: '#E0AF68',
+      blue: '#7AA2F7',
+      magenta: '#BB9AF7',
+      cyan: '#7DCFFF',
+      white: '#E1E1E1',
+      brightBlack: '#5A5A5A',
+      brightRed: '#F7768E',
+      brightGreen: '#9ECE6A',
+      brightYellow: '#E0AF68',
+      brightBlue: '#7AA2F7',
+      brightMagenta: '#BB9AF7',
+      brightCyan: '#7DCFFF',
+      brightWhite: '#FFFFFF'
+    }
+  },
+  light: {
+    // BG_STORM — GrokDay main bg_base
+    surfaceBase: [238, 238, 238],
+    // MAGENTA deepened for light bg
+    accent: '#7D4BC6',
+    ansi: {
+      foreground: '#262626',
+      cursor: '#444444',
+      selectionBackground: '#7D4BC62A',
+      black: '#262626',
+      red: '#CD3048',
+      green: '#378E23',
+      yellow: '#A27612',
+      blue: '#2F64D2',
+      magenta: '#7D4BC6',
+      cyan: '#0082AA',
+      white: '#262626',
+      brightBlack: '#767676',
+      brightRed: '#AF2323',
+      brightGreen: '#2C7A1C',
+      brightYellow: '#8A640F',
+      brightBlue: '#28448A',
+      brightMagenta: '#6C3EB2',
+      brightCyan: '#0F87A2',
+      brightWhite: '#0A0A0A'
     }
   }
 }
@@ -371,6 +439,7 @@ const CAMPBELL: ColorScheme = {
 
 export const COLOR_SCHEMES: readonly ColorScheme[] = [
   MONOCHROME,
+  GROK,
   ROSE_PINE,
   TOKYO_NIGHT,
   VESPER,

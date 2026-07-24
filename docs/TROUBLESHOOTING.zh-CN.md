@@ -33,8 +33,14 @@ payload 完整性错误。
 
 ## 开发界面检查
 
-仅在 dev renderer URL 有效时，开发版会在 `http://127.0.0.1:9336` 暴露 Electron
-CDP。优先使用项目 Playwright/CDP 与静默测试模式；打包版不得开放该端口。
+开发版仅在 `app/` 下执行 `npm run dev` 且 dev renderer 生效时，于
+`http://127.0.0.1:9336` 暴露 Electron CDP。安装版 Zinc **不会**打开该端口。
+
+项目 MCP `playwright-zinc`（`.mcp.json` → `scripts/playwright-zinc-mcp.ps1`）：
+
+1. 若 9336 可达，则附着到 Zinc Electron；
+2. 否则启动**隔离 headless Chromium**（不占用 fatality 的 9335），便于截 mock /
+   文档页。要操作真实应用 UI，先 `npm run dev` 再重连 MCP。
 
 自动化冒烟（`ZINC_TEST_ISOLATED=1` 和/或 `ZINC_TEST_USER_DATA`）会隔离 shell
 历史：PowerShell 会话将 PSReadLine 设为 `SaveNothing` 并写到测试 profile 下的路径，

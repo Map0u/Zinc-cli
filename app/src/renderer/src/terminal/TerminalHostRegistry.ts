@@ -26,6 +26,7 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   fontFamily: 'JetBrains Mono',
   fontSize: 16,
   cursorBlink: true,
+  cursorStyle: 'block',
   scrollback: 10000,
   colorScheme: DEFAULT_COLOR_SCHEME_ID,
   themeMode: 'auto',
@@ -144,6 +145,7 @@ export class TerminalHostRegistry {
       fontFamily: this.fontFamilyString(),
       fontSize: this.currentOptions.fontSize ?? DEFAULT_OPTIONS.fontSize,
       cursorBlink: this.currentOptions.cursorBlink ?? DEFAULT_OPTIONS.cursorBlink,
+      cursorStyle: this.currentOptions.cursorStyle ?? DEFAULT_OPTIONS.cursorStyle,
       scrollback: this.currentOptions.scrollback ?? DEFAULT_OPTIONS.scrollback,
       allowProposedApi: true,
       // Needed so xterm actually renders its (always fully transparent, see
@@ -418,6 +420,7 @@ export class TerminalHostRegistry {
       if (options.fontFamily !== undefined) entry.term.options.fontFamily = this.fontFamilyString()
       if (options.fontSize !== undefined) entry.term.options.fontSize = options.fontSize
       if (options.cursorBlink !== undefined) entry.term.options.cursorBlink = options.cursorBlink
+      if (options.cursorStyle !== undefined) entry.term.options.cursorStyle = options.cursorStyle
       if (options.scrollback !== undefined) entry.term.options.scrollback = options.scrollback
       // Re-theme already-open tabs live, not just tabs opened after the
       // switch — unlike ShellPath/StartingDirectory (new-tab-only), a color

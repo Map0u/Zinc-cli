@@ -4,6 +4,7 @@ import { DEFAULT_KEYBINDINGS, SHORTCUT_ACTIONS, type ShortcutAction } from '../.
 import { isUnsafeAccelerator } from '../../shared/shortcutAccelerator'
 import type {
   AccentSource,
+  CursorStyle,
   LanguagePref,
   SettingsPatch,
   ThemePreference,
@@ -60,19 +61,30 @@ function containsLegacyAodSettings(raw: Record<string, unknown>): boolean {
 const VALID_LANGUAGES: LanguagePref[] = ['auto', 'en', 'zh']
 const VALID_THEME_PREFERENCES: ThemePreference[] = ['auto', 'light', 'dark']
 const VALID_ACCENT_SOURCES: AccentSource[] = ['scheme', 'system']
+const VALID_CURSOR_STYLES: CursorStyle[] = ['block', 'bar', 'underline']
 
 // Kept in sync with renderer/src/colorSchemes.ts's registry ids — main never
 // touches palette data itself, just validates/persists the selected id.
-const VALID_COLOR_SCHEMES = ['monochrome', 'rosePine', 'tokyoNight', 'vesper', 'everforest', 'campbell']
+const VALID_COLOR_SCHEMES = [
+  'monochrome',
+  'grok',
+  'rosePine',
+  'tokyoNight',
+  'vesper',
+  'everforest',
+  'campbell'
+]
 
 /** UI-bound numeric ranges — must match the sliders/steppers in SettingsPage.tsx. */
 const NUMERIC_BOUNDS: Record<
-  'FontSize' | 'Scrollback' | 'RailOpacity' | 'TerminalOpacity' | 'UiZoom',
+  'FontSize' | 'Scrollback' | 'RailOpacity' | 'RailWidth' | 'TerminalOpacity' | 'UiZoom',
   { min: number; max: number }
 > = {
   FontSize: { min: 8, max: 32 },
   Scrollback: { min: 500, max: 100000 },
   RailOpacity: { min: 0, max: 1 },
+  // Left tab rail drag width — room for number + title + close, not wider than ~half a laptop window.
+  RailWidth: { min: 160, max: 520 },
   TerminalOpacity: { min: 0, max: 1 },
   UiZoom: { min: 0.75, max: 2 }
 }
@@ -128,6 +140,12 @@ function normalizeColorScheme(value: unknown, fallback: string): string {
 function normalizeAccentSource(value: unknown, fallback: AccentSource): AccentSource {
   return typeof value === 'string' && (VALID_ACCENT_SOURCES as string[]).includes(value)
     ? (value as AccentSource)
+    : fallback
+}
+
+function normalizeCursorStyle(value: unknown, fallback: CursorStyle): CursorStyle {
+  return typeof value === 'string' && (VALID_CURSOR_STYLES as string[]).includes(value)
+    ? (value as CursorStyle)
     : fallback
 }
 
@@ -196,7 +214,9 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     FontFamily: normalizeString(raw.FontFamily, base.FontFamily),
     FontSize: clampNumber(raw.FontSize, base.FontSize, NUMERIC_BOUNDS.FontSize),
     CursorBlink: normalizeBoolean(raw.CursorBlink, base.CursorBlink),
+    CursorStyle: normalizeCursorStyle(raw.CursorStyle, base.CursorStyle),
     RailOpacity: clampNumber(raw.RailOpacity, base.RailOpacity, NUMERIC_BOUNDS.RailOpacity),
+    RailWidth: clampNumber(raw.RailWidth, base.RailWidth, NUMERIC_BOUNDS.RailWidth),
     TerminalOpacity: clampNumber(raw.TerminalOpacity, base.TerminalOpacity, NUMERIC_BOUNDS.TerminalOpacity),
     UiZoom: clampNumber(raw.UiZoom, base.UiZoom, NUMERIC_BOUNDS.UiZoom),
     ColorScheme: normalizeColorScheme(raw.ColorScheme, base.ColorScheme),
@@ -224,10 +244,13 @@ function defaultSettings(): ZincSettings {
     FontFamily: 'JetBrains Mono',
     FontSize: 16,
     CursorBlink: true,
+    CursorStyle: 'block',
     // 0 (not the old app's opaque 1.0 default): a fresh install shows raw
     // Mica on both the rail and the terminal card until the user opts into a
     // solid tint on either one independently.
     RailOpacity: 0,
+    // Matches the long-standing fixed rail width before drag-resize.
+    RailWidth: 260,
     TerminalOpacity: 0,
     UiZoom: 1,
     ColorScheme: 'monochrome',

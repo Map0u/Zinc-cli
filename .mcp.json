@@ -1,8 +1,12 @@
 {
   "mcpServers": {
     "playwright-zinc": {
-      "command": "npx",
-      "args": ["@playwright/mcp@latest", "--cdp-endpoint", "http://127.0.0.1:9336"]
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-File",
+        "scripts/playwright-zinc-mcp.ps1"
+      ]
     }
   }
 }

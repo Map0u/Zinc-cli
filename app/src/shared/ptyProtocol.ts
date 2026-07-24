@@ -23,6 +23,8 @@ export interface TerminalOptionsPush {
   fontFamily?: string
   fontSize?: number
   cursorBlink?: boolean
+  /** xterm cursor shape: 'block' | 'bar' | 'underline'. */
+  cursorStyle?: 'block' | 'bar' | 'underline'
   scrollback?: number
   /** Palette id — see renderer/src/colorSchemes.ts. Main only forwards the id, never palette data. */
   colorScheme?: string

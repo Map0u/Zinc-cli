@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zinc hero mock light</title>
+  <style>
+    :root {
+      --bg: #f3f5f8;
+      --surface: rgba(255, 255, 255, 0.88);
+      --rail: rgba(248, 250, 252, 0.96);
+      --border: rgba(15, 23, 42, 0.08);
+      --text: #1f2430;
+      --muted: #667085;
+      --accent: #3b82f6;
+      --tab-active: rgba(59, 130, 246, 0.1);
+      --green: #059669;
+      --yellow: #b45309;
+      --cyan: #0e7490;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(1000px 520px at 15% 0%, rgba(99, 140, 255, 0.18), transparent 55%),
+        radial-gradient(800px 480px at 90% 100%, rgba(16, 185, 129, 0.1), transparent 50%),
+        linear-gradient(160deg, #eef2f7 0%, #dfe6f0 100%);
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      padding: 48px;
+    }
+    .window {
+      width: 1120px;
+      height: 640px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow:
+        0 28px 70px rgba(15, 23, 42, 0.16),
+        0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+      backdrop-filter: blur(20px);
+    }
+    .rail {
+      background: var(--rail);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 12px 10px;
+      gap: 8px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 8px 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4px;
+    }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #60a5fa, #2563eb 55%, #1d4ed8);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 15px;
+      color: white;
+    }
+    .brand-name { font-weight: 600; font-size: 14px; }
+    .brand-sub { font-size: 11px; color: var(--muted); }
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      padding: 8px 8px 4px;
+    }
+    .tab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      border: 1px solid transparent;
+    }
+    .tab.active {
+      background: var(--tab-active);
+      color: var(--text);
+      border-color: rgba(59, 130, 246, 0.2);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.ps { background: #3b82f6; }
+    .dot.cmd { background: #94a3b8; }
+    .dot.bash { background: #16a34a; }
+    .dot.wsl { background: #db2777; }
+    .tab-meta { margin-left: auto; font-size: 11px; opacity: 0.7; }
+    .rail-footer {
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+    .chip {
+      flex: 1;
+      text-align: center;
+      font-size: 12px;
+      padding: 8px 6px;
+      border-radius: 8px;
+      background: rgba(15, 23, 42, 0.03);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .main { display: flex; flex-direction: column; min-width: 0; }
+    .titlebar {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.45);
+    }
+    .titlebar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .pill {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.1);
+      color: var(--accent);
+      border: 1px solid rgba(59, 130, 246, 0.22);
+    }
+    .win-controls { display: flex; gap: 8px; }
+    .win-controls span {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.12);
+    }
+    .terminal {
+      flex: 1;
+      padding: 18px 20px;
+      font-family: "Cascadia Code", "Cascadia Mono", "Consolas", "Courier New", monospace;
+      font-size: 14px;
+      line-height: 1.55;
+      background: rgba(255, 255, 255, 0.55);
+      overflow: hidden;
+    }
+    .line { white-space: pre-wrap; }
+    .prompt { color: var(--green); }
+    .path { color: var(--cyan); }
+    .cmd { color: var(--text); }
+    .out { color: var(--muted); }
+    .hl { color: var(--yellow); }
+    .ok { color: var(--green); }
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 15px;
+      background: var(--accent);
+      margin-left: 2px;
+      vertical-align: -2px;
+    }
+    .status {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 14px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.5);
+    }
+    .status strong { color: var(--text); font-weight: 500; }
+  </style>
+</head>
+<body>
+  <div class="window" id="hero">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brand-mark">Z</div>
+        <div>
+          <div class="brand-name">Zinc</div>
+          <div class="brand-sub">Windows terminal</div>
+        </div>
+      </div>
+      <div class="section-label">Sessions</div>
+      <div class="tab active">
+        <span class="dot ps"></span>
+        <span>PowerShell 7</span>
+        <span class="tab-meta">pwsh</span>
+      </div>
+      <div class="tab">
+        <span class="dot bash"></span>
+        <span>Git Bash</span>
+        <span class="tab-meta">bash</span>
+      </div>
+      <div class="tab">
+        <span class="dot wsl"></span>
+        <span>Ubuntu</span>
+        <span class="tab-meta">wsl</span>
+      </div>
+      <div class="tab">
+        <span class="dot cmd"></span>
+        <span>Command Prompt</span>
+        <span class="tab-meta">cmd</span>
+      </div>
+      <div class="rail-footer">
+        <div class="chip">+ New</div>
+        <div class="chip">Settings</div>
+      </div>
+    </aside>
+    <section class="main">
+      <div class="titlebar">
+        <div class="titlebar-left">
+          <span class="pill">Light</span>
+          <span>Vertical tabs · multi-shell · session restore</span>
+        </div>
+        <div class="win-controls" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+      <div class="terminal">
+        <div class="line"><span class="prompt">PS</span> <span class="path">E:\Projects\demo</span><span class="cmd">&gt; Get-ChildItem -Name</span></div>
+        <div class="line out">README.md</div>
+        <div class="line out">src/</div>
+        <div class="line out">scripts/</div>
+        <div class="line" style="margin-top: 10px"><span class="prompt">PS</span> <span class="path">E:\Projects\demo</span><span class="cmd">&gt; pwsh --version</span></div>
+        <div class="line out">PowerShell 7.5.x</div>
+        <div class="line" style="margin-top: 10px"><span class="prompt">PS</span> <span class="path">E:\Projects\demo</span><span class="cmd">&gt; </span><span class="hl"># lightweight · no accounts · no telemetry</span></div>
+        <div class="line"><span class="prompt">PS</span> <span class="path">E:\Projects\demo</span><span class="cmd">&gt; </span><span class="ok">echo "ready"</span><span class="cursor"></span></div>
+      </div>
+      <div class="status">
+        <span>Shell <strong>PowerShell 7</strong></span>
+        <span>Encoding <strong>UTF-8</strong></span>
+        <span>Theme <strong>Light</strong></span>
+        <span style="margin-left:auto">Zinc 0.6 · Windows 10/11 x64</span>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

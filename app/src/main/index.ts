@@ -125,6 +125,7 @@ function terminalOptionsFrom(settings: ZincSettings): TerminalOptionsPush {
     fontFamily: settings.FontFamily,
     fontSize: settings.FontSize,
     cursorBlink: settings.CursorBlink,
+    cursorStyle: settings.CursorStyle,
     scrollback: settings.Scrollback,
     colorScheme: settings.ColorScheme,
     themeMode: settings.ThemePreference,

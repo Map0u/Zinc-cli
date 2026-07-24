@@ -41,9 +41,18 @@ per-user data directory if a corrupt state persists.
 ## Development UI Inspection
 
 Development builds expose Electron CDP on `http://127.0.0.1:9336` only while the
-dev renderer URL is active. Prefer project-scoped Playwright/CDP checks and a
-silent test mode so automation does not steal focus. Packaged builds must not
-expose this debugging endpoint.
+dev renderer URL is active (`npm run dev` in `app/`). Packaged installs of Zinc
+never open this port — that is intentional.
+
+Project MCP `playwright-zinc` (see `.mcp.json` → `scripts/playwright-zinc-mcp.ps1`):
+
+1. If `http://127.0.0.1:9336/json/version` responds, attach to Zinc Electron.
+2. Otherwise start an **isolated headless Chromium** so file:// / docs / marketing
+   mocks still work. It does **not** use the shared fatality Chrome on `9335`.
+
+To drive the real app UI: run `cd app; npm run dev`, then re-invoke the MCP tools
+(or restart the MCP server so it re-probes CDP). Prefer silent / isolated test
+profiles (`ZINC_TEST_ISOLATED=1`) so automation does not steal focus.
 
 Automated smoke (`ZINC_TEST_ISOLATED=1` and/or `ZINC_TEST_USER_DATA`) also
 isolates shell history: PowerShell sessions force PSReadLine `SaveNothing` into
