@@ -32,7 +32,7 @@ pane splitting, or built-in SSH profile management.
 
 ## Requirements
 
-- Zinc 0.6.0 supports Windows only: Windows 10 or Windows 11, x64. No other
+- Zinc 0.6.1 supports Windows only: Windows 10 or Windows 11, x64. No other
   platform is planned.
 - [PowerShell 7](https://github.com/PowerShell/PowerShell) is the recommended
   default shell. When it is not installed, Zinc automatically falls back to

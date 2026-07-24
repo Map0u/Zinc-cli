@@ -16,6 +16,17 @@ import {
 } from './shells/shellProfiles'
 import type { ShortcutAction } from '../../shared/keybindings'
 import type { RestorePayload } from '../../shared/sessionState'
+import {
+  TAB_DRAG_THRESHOLD_PX,
+  TAB_ROW_STRIDE_PX,
+  ghostProbeY as ghostProbeYFrom,
+  liveSlotCenters as liveSlotCentersFrom,
+  moveItem,
+  resolveDropIndex as resolveDropIndexFrom,
+  tabDragDistance,
+  tabDragShiftY,
+  tabDropLineTop
+} from './tabs/tabDragOrder'
 
 /** Bounds mirrored from the settings page's font-size NumberField (SettingsPage.tsx). */
 const FONT_SIZE_MIN = 8
@@ -35,15 +46,24 @@ const RAIL_WIDTH_DEFAULT = 260
  */
 const WINDOW_CORNER_RADIUS = 8
 
+/** Matches index.css / chrome easing (dropdown + settings slide). */
+const TAB_MOTION_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)'
+const TAB_SHIFT_MS = 160
+const TAB_SETTLE_MS = 160
+/** Lift scale on the ghost (skipped under prefers-reduced-motion). */
+const TAB_DRAG_SCALE = 1.02
+
 function clampRailWidth(value: number): number {
   if (!Number.isFinite(value)) return RAIL_WIDTH_DEFAULT
   return Math.max(RAIL_WIDTH_MIN, Math.min(RAIL_WIDTH_MAX, Math.round(value)))
 }
 
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 interface Tab {
   id: string
-  /** Auto-incrementing, never recycled — matches the WinUI original (parity §1.1). */
-  num: number
   /** Last title reported by the terminal process via OSC 0/2. */
   title?: string
   /** User-provided rail label; when set, terminal title updates no longer overwrite the displayed label. */
@@ -56,6 +76,43 @@ interface Tab {
   shellLabel?: string
   /** `claude --continue` / `codex resume --last` / `grok --continue` for a restored tab whose saved session had a known AI tool. */
   startupCommand?: string
+}
+
+/**
+ * Pointer-capture session for rail tab reorder.
+ *
+ * Smooth model (avoids between-row flicker):
+ * - tabs[] stays frozen until pointerup (no live setTabs remounts).
+ * - Source row stays in flow at opacity 0 (keeps its slot).
+ * - A body-level ghost (cloneNode) is position:fixed and tracks the pointer in X/Y.
+ * - dropIndex only updates sibling translateY (with midline hysteresis).
+ * - Order commits once on drop, then ghost settles into the target slot.
+ */
+interface TabDragSession {
+  pointerId: number
+  tabId: string
+  fromIndex: number
+  dropIndex: number
+  startX: number
+  startY: number
+  grabOffsetX: number
+  grabOffsetY: number
+  width: number
+  height: number
+  active: boolean
+  didReorder: boolean
+  clientX: number
+  clientY: number
+  frame: number | null
+  settling: boolean
+  /** Fixed floating clone appended to document.body. */
+  ghost: HTMLElement | null
+  /** Source row kept in flow (opacity 0) while the ghost is up. */
+  sourceEl: HTMLElement | null
+  /** Viewport Y of each row center at drag start (pre-shift). */
+  slotCenters: number[]
+  /** list.scrollTop when slotCenters were captured — adjust centers on scroll. */
+  baseScrollTop: number
 }
 
 interface TabContextMenuState {
@@ -98,6 +155,19 @@ export default function App() {
   /** Live width while the user drags the rail splitter (avoids waiting on settings round-trips). */
   const [railWidthLive, setRailWidthLive] = useState<number | null>(null)
   const railResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null)
+  const tabListRef = useRef<HTMLDivElement | null>(null)
+  const tabDragRef = useRef<TabDragSession | null>(null)
+  /**
+   * Drag UI published to React only when from/drop indices matter for sibling
+   * shifts — not on every pointermove (ghost paint is pure DOM).
+   */
+  const [tabDragUi, setTabDragUi] = useState<{
+    tabId: string
+    fromIndex: number
+    dropIndex: number
+  } | null>(null)
+  /** Suppress the click that follows a completed drag-reorder (pointerup → click). */
+  const suppressTabClickRef = useRef(false)
 
   useEffect(() => window.zinc.window.onStateChange(setWindowState), [])
 
@@ -156,7 +226,8 @@ export default function App() {
     }
   }, [settings?.AccentSource, settings?.ColorScheme, themeMode])
 
-  const nextNumRef = useRef(1)
+  /** Monotonic id suffix for `tab-${n}` only — never shown as the rail number. */
+  const nextIdRef = useRef(1)
   const initializedRef = useRef(false)
   // Flips true only after restoreTabs()/addTab() has committed the initial
   // hydration from session-state.json. Guards the [tabs, activeId] snapshot
@@ -186,8 +257,7 @@ export default function App() {
   }
 
   function addTab(options: AddTabOptions = {}): void {
-    const num = nextNumRef.current++
-    const id = `tab-${num}`
+    const id = `tab-${nextIdRef.current++}`
     const configuredShellId = settings?.DefaultShellId
     const selectedProfile = profileForId(options.shellId ?? configuredShellId) ?? (options.shellId ? undefined : shellProfiles[0])
     setTabs((prev) =>
@@ -197,7 +267,6 @@ export default function App() {
             ...prev,
             {
               id,
-              num,
               title: options.initialTitle,
               customTitle: options.customTitle,
               spawnCwd: options.spawnCwd,
@@ -213,14 +282,13 @@ export default function App() {
   /** Recreates every tab from a resolved session-state.json restore plan in one shot, so `ActiveIndex` lands correctly (parity §1.4) instead of drifting to whichever tab `addTab` added last. */
   function restoreTabs(payload: RestorePayload): void {
     const restored: Tab[] = payload.tabs.map((t) => {
-      const num = nextNumRef.current++
+      const id = `tab-${nextIdRef.current++}`
       // Sessions written before multi-shell support have no id. Attach the
       // current default now so they receive the normal title and are migrated
       // the next time session state is persisted.
       const shellId = t.shellId ?? settings?.DefaultShellId
       return {
-        id: `tab-${num}`,
-        num,
+        id,
         spawnCwd: t.cwd,
         startupCommand: t.startupCommand,
         shellId,
@@ -230,6 +298,333 @@ export default function App() {
     setTabs(restored)
     const idx = payload.activeIndex >= 0 && payload.activeIndex < restored.length ? payload.activeIndex : 0
     setActiveId(restored[idx]?.id ?? null)
+  }
+
+  function tabRowElement(tabId: string): HTMLElement | null {
+    const list = tabListRef.current
+    if (!list) return null
+    return list.querySelector<HTMLElement>(`[data-tabid="${CSS.escape(tabId)}"]`)
+  }
+
+  function applyTabOrder(fromIndex: number, toIndex: number): boolean {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return false
+    let changed = false
+    setTabs((prev) => {
+      if (fromIndex >= prev.length || toIndex >= prev.length) return prev
+      const next = moveItem(prev, fromIndex, toIndex)
+      changed = next !== prev
+      return next
+    })
+    return changed
+  }
+
+  function measureSlotCenters(): number[] {
+    const list = tabListRef.current
+    if (!list) return []
+    return Array.from(list.querySelectorAll<HTMLElement>('[data-tabid]')).map((el) => {
+      const rect = el.getBoundingClientRect()
+      return rect.top + rect.height / 2
+    })
+  }
+
+  /** Slot centers in current viewport space (base capture + scroll delta only). */
+  function liveSlotCenters(session: TabDragSession): number[] {
+    const list = tabListRef.current
+    const scrollTop = list?.scrollTop ?? session.baseScrollTop
+    return liveSlotCentersFrom(session.slotCenters, session.baseScrollTop, scrollTop)
+  }
+
+  /** Ghost vertical center (users judge insertion by the floating row, not the cursor tip). */
+  function ghostProbeY(session: TabDragSession): number {
+    return ghostProbeYFrom(session.clientY, session.grabOffsetY, session.height)
+  }
+
+  function resolveDropIndex(session: TabDragSession, probeY: number): number {
+    return resolveDropIndexFrom({
+      centers: liveSlotCenters(session),
+      fromIndex: session.fromIndex,
+      dropIndex: session.dropIndex,
+      probeY
+    })
+  }
+
+  /** Apply dropIndex change immediately (pointer path) — not only on the scroll rAF. */
+  function syncDropIndex(session: TabDragSession): void {
+    const nextDrop = resolveDropIndex(session, ghostProbeY(session))
+    if (nextDrop === session.dropIndex) return
+    session.dropIndex = nextDrop
+    session.didReorder = nextDrop !== session.fromIndex
+    setTabDragUi({
+      tabId: session.tabId,
+      fromIndex: session.fromIndex,
+      dropIndex: nextDrop
+    })
+  }
+
+  function paintGhost(session: TabDragSession): void {
+    const ghost = session.ghost
+    if (!ghost) return
+    const reduced = prefersReducedMotion()
+    const x = session.clientX - session.grabOffsetX
+    const y = session.clientY - session.grabOffsetY
+    const scale = reduced ? 1 : TAB_DRAG_SCALE
+    ghost.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`
+    // Accent ring when the drop slot is no longer the origin — pairs with the line.
+    ghost.dataset.docked = session.dropIndex !== session.fromIndex ? 'true' : 'false'
+  }
+
+  function mountGhost(session: TabDragSession, source: HTMLElement): void {
+    const reduced = prefersReducedMotion()
+    const ghost = source.cloneNode(true) as HTMLElement
+    ghost.removeAttribute('data-tabid')
+    ghost.removeAttribute('role')
+    ghost.removeAttribute('tabindex')
+    ghost.setAttribute('data-tab-ghost', '')
+    ghost.setAttribute('aria-hidden', 'true')
+    // Strip interactive controls from the clone so it can't steal events.
+    for (const node of ghost.querySelectorAll('button, input, a')) {
+      node.remove()
+    }
+    ghost.style.position = 'fixed'
+    ghost.style.left = '0'
+    ghost.style.top = '0'
+    ghost.style.right = 'auto'
+    ghost.style.bottom = 'auto'
+    ghost.style.width = `${session.width}px`
+    ghost.style.height = `${session.height}px`
+    ghost.style.margin = '0'
+    ghost.style.zIndex = '10000'
+    ghost.style.pointerEvents = 'none'
+    ghost.style.transformOrigin = '0 0'
+    ghost.style.transition = 'none'
+    ghost.style.willChange = 'transform'
+    ghost.style.boxSizing = 'border-box'
+    ghost.style.cursor = 'grabbing'
+    ghost.style.opacity = '1'
+    ghost.style.background = getComputedStyle(source).backgroundColor || 'var(--color-row-selected)'
+    ghost.style.boxShadow = reduced
+      ? 'none'
+      : '0 12px 32px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,255,255,0.07)'
+    document.body.appendChild(ghost)
+    session.ghost = ghost
+    session.sourceEl = source
+    source.classList.add('tab-rail-source-hidden')
+    source.style.opacity = '0'
+    source.style.pointerEvents = 'none'
+    paintGhost(session)
+  }
+
+  function unmountGhost(session: TabDragSession): void {
+    session.ghost?.remove()
+    session.ghost = null
+    const source = session.sourceEl
+    if (source) {
+      source.classList.remove('tab-rail-source-hidden')
+      source.style.opacity = ''
+      source.style.pointerEvents = ''
+      source.classList.remove('tab-rail-lifting')
+    }
+    session.sourceEl = null
+  }
+
+  function autoScrollTabList(clientY: number): boolean {
+    const list = tabListRef.current
+    if (!list) return false
+    const rect = list.getBoundingClientRect()
+    const edge = 32
+    const maxStep = 16
+    let delta = 0
+    if (clientY < rect.top + edge) {
+      const t = (rect.top + edge - clientY) / edge
+      delta = -Math.ceil(maxStep * Math.min(1, Math.max(0.2, t)))
+    } else if (clientY > rect.bottom - edge) {
+      const t = (clientY - (rect.bottom - edge)) / edge
+      delta = Math.ceil(maxStep * Math.min(1, Math.max(0.2, t)))
+    }
+    if (delta === 0) return false
+    const before = list.scrollTop
+    list.scrollTop = before + delta
+    return list.scrollTop !== before
+  }
+
+  /** rAF: edge auto-scroll only; drop index is synced on the pointer path. */
+  function runTabDragFrame(): void {
+    const session = tabDragRef.current
+    if (!session?.active || session.settling) return
+    session.frame = null
+
+    const scrolled = autoScrollTabList(session.clientY)
+    if (scrolled) {
+      // Scroll moves slots under the ghost — re-resolve drop after the scroll step.
+      syncDropIndex(session)
+      paintGhost(session)
+      session.frame = window.requestAnimationFrame(() => runTabDragFrame())
+    }
+  }
+
+  function scheduleTabDragFrame(session: TabDragSession): void {
+    if (session.frame != null || session.settling) return
+    session.frame = window.requestAnimationFrame(() => runTabDragFrame())
+  }
+
+  function finishTabDragSession(session: TabDragSession): void {
+    if (tabDragRef.current === session) tabDragRef.current = null
+    unmountGhost(session)
+    if (session.didReorder || session.active) {
+      suppressTabClickRef.current = true
+      window.setTimeout(() => {
+        suppressTabClickRef.current = false
+      }, 0)
+    }
+    setTabDragUi(null)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  /**
+   * Commit tabs[] once, then settle the ghost onto the target row's box.
+   * One order write → no between-row remount flicker during the gesture.
+   */
+  function settleAndCommit(session: TabDragSession): void {
+    session.settling = true
+    const from = session.fromIndex
+    const to = session.dropIndex
+    // Drop sibling shift styles before the array commits so transforms don't
+    // fight the new order for a frame (that fight is the between-row flash).
+    setTabDragUi(null)
+    if (from !== to) {
+      session.didReorder = true
+      setTabs((prev) => moveItem(prev, from, to))
+    }
+
+    const ghost = session.ghost
+    if (!ghost || prefersReducedMotion()) {
+      finishTabDragSession(session)
+      return
+    }
+
+    // After commit, measure the source row (same id) in its new slot.
+    requestAnimationFrame(() => {
+      const targetEl = tabRowElement(session.tabId)
+      const target = targetEl?.getBoundingClientRect()
+      if (!target || !session.ghost) {
+        finishTabDragSession(session)
+        return
+      }
+      const g = session.ghost
+      g.style.transition = `transform ${TAB_SETTLE_MS}ms ${TAB_MOTION_EASE}, box-shadow ${TAB_SETTLE_MS}ms ease`
+      g.style.transform = `translate3d(${target.left}px, ${target.top}px, 0) scale(1)`
+      g.style.boxShadow = 'none'
+
+      let finished = false
+      const finish = (): void => {
+        if (finished) return
+        finished = true
+        g.removeEventListener('transitionend', onEnd)
+        finishTabDragSession(session)
+      }
+      const onEnd = (event: TransitionEvent): void => {
+        if (event.propertyName !== 'transform') return
+        finish()
+      }
+      g.addEventListener('transitionend', onEnd)
+      window.setTimeout(finish, TAB_SETTLE_MS + 40)
+    })
+  }
+
+  function endTabDrag(pointerId: number): void {
+    const session = tabDragRef.current
+    if (!session || session.pointerId !== pointerId || session.settling) return
+    if (session.frame != null) {
+      window.cancelAnimationFrame(session.frame)
+      session.frame = null
+    }
+    if (session.active) {
+      settleAndCommit(session)
+      return
+    }
+    finishTabDragSession(session)
+  }
+
+  function onTabPointerDown(event: ReactPointerEvent<HTMLDivElement>, tabId: string): void {
+    if (event.button !== 0) return
+    if ((event.target as HTMLElement).closest('button, input, textarea, a')) return
+    if (renamingTabId === tabId) return
+    if (tabDragRef.current?.settling || tabDragRef.current?.active) return
+    const fromIndex = tabs.findIndex((tab) => tab.id === tabId)
+    if (fromIndex < 0) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    tabDragRef.current = {
+      pointerId: event.pointerId,
+      tabId,
+      fromIndex,
+      dropIndex: fromIndex,
+      startX: event.clientX,
+      startY: event.clientY,
+      grabOffsetX: event.clientX - rect.left,
+      grabOffsetY: event.clientY - rect.top,
+      width: rect.width,
+      height: rect.height,
+      active: false,
+      didReorder: false,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      frame: null,
+      settling: false,
+      ghost: null,
+      sourceEl: null,
+      slotCenters: [],
+      baseScrollTop: 0
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function onTabPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    const session = tabDragRef.current
+    if (!session || session.pointerId !== event.pointerId || session.settling) return
+    session.clientX = event.clientX
+    session.clientY = event.clientY
+
+    if (!session.active) {
+      if (tabDragDistance(event.clientX - session.startX, event.clientY - session.startY) < TAB_DRAG_THRESHOLD_PX) {
+        return
+      }
+      session.active = true
+      const rect = event.currentTarget.getBoundingClientRect()
+      session.width = rect.width
+      session.height = rect.height
+      session.grabOffsetX = event.clientX - rect.left
+      session.grabOffsetY = event.clientY - rect.top
+      session.slotCenters = measureSlotCenters()
+      session.baseScrollTop = tabListRef.current?.scrollTop ?? 0
+      mountGhost(session, event.currentTarget)
+      event.currentTarget.classList.add('tab-rail-lifting')
+      setTabDragUi({
+        tabId: session.tabId,
+        fromIndex: session.fromIndex,
+        dropIndex: session.dropIndex
+      })
+      document.body.style.cursor = 'grabbing'
+      document.body.style.userSelect = 'none'
+      if (session.tabId !== activeId) switchTab(session.tabId)
+    }
+
+    event.preventDefault()
+    // Ghost + drop index on the move event (no rAF lag for either).
+    syncDropIndex(session)
+    paintGhost(session)
+    scheduleTabDragFrame(session)
+  }
+
+  function onTabPointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
+    const session = tabDragRef.current
+    if (!session || session.pointerId !== event.pointerId) return
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      /* already released */
+    }
+    endTabDrag(event.pointerId)
   }
 
   function switchTab(id: string): void {
@@ -530,10 +925,22 @@ export default function App() {
             switchTab: typeof switchTab
             closeTab: typeof closeTab
             cloneTab: typeof cloneTab
+            reorderTab: (fromIndex: number, toIndex: number) => void
           }
           __zincRegistry: typeof terminalHostRegistry
         }
-      ).__zincTabs = { tabs, activeId, addTab, switchTab, closeTab, cloneTab }
+      ).__zincTabs = {
+            tabs,
+            activeId,
+            addTab,
+            switchTab,
+            closeTab,
+            cloneTab,
+            /** Test helper: move tab at fromIndex to toIndex (display numbers follow order). */
+            reorderTab: (fromIndex: number, toIndex: number) => {
+              setTabs((prev) => moveItem(prev, fromIndex, toIndex))
+            }
+          }
       ;(window as unknown as { __zincRegistry: typeof terminalHostRegistry }).__zincRegistry =
         terminalHostRegistry
     }
@@ -622,7 +1029,7 @@ export default function App() {
           spans the FULL window height (header + body). This is the base layer
           the terminal card sits on top of (M9). Win11 NavigationView-style
           rows: 40px height, 4px corners, 3px selection pill in a 10px gutter,
-          then a 22px slot (tab number / settings category icon). */}
+          then a 22px slot (1-based position number / settings category icon). */}
       <div
         className="relative flex shrink-0 flex-col"
         style={{ width: railWidth }}
@@ -649,29 +1056,90 @@ export default function App() {
                 pinned at the rail foot. */}
             <div className="flex min-h-0 flex-1 flex-col">
               <div
+                ref={tabListRef}
                 role="tablist"
                 aria-label={t('TerminalTabs')}
                 aria-orientation="vertical"
-                className="chrome-scroll flex min-h-0 max-h-full shrink grow-0 flex-col gap-0.5 overflow-y-auto py-1"
+                data-dragging={tabDragUi ? 'true' : undefined}
+                className="tab-rail-list chrome-scroll flex min-h-0 max-h-full shrink grow-0 flex-col gap-0.5 overflow-y-auto py-1"
               >
-                {tabs.map((tab) => (
+                {/* Inner relative stack so the drop line scrolls with the rows. */}
+                <div className="relative flex flex-col gap-0.5">
+                {tabs.map((tab, index) => {
+                  const isDragSource = tabDragUi?.tabId === tab.id
+                  const shiftY =
+                    tabDragUi && !isDragSource
+                      ? tabDragShiftY(index, tabDragUi.fromIndex, tabDragUi.dropIndex)
+                      : 0
+                  // Positional number follows the live visual order while dragging.
+                  let displayNum = index + 1
+                  if (tabDragUi) {
+                    if (isDragSource) displayNum = tabDragUi.dropIndex + 1
+                    else {
+                      const { fromIndex, dropIndex } = tabDragUi
+                      if (fromIndex < dropIndex && index > fromIndex && index <= dropIndex) {
+                        displayNum = index
+                      } else if (fromIndex > dropIndex && index >= dropIndex && index < fromIndex) {
+                        displayNum = index + 2
+                      }
+                    }
+                  }
+                  return (
                   <div
                     key={tab.id}
                     data-tabid={tab.id}
+                    data-dragging={isDragSource ? 'true' : undefined}
                     role="tab"
                     tabIndex={tab.id === activeId ? 0 : -1}
                     aria-selected={tab.id === activeId}
-                    className={`group relative mx-3 flex h-10 cursor-pointer items-center rounded pl-0.5 pr-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                      tab.id === activeId ? 'bg-row-selected' : 'hover:bg-row-hover'
+                    aria-grabbed={isDragSource || undefined}
+                    draggable={false}
+                    className={`group relative mx-3 flex h-10 select-none items-center rounded pl-0.5 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                      isDragSource
+                        ? 'cursor-grabbing bg-row-selected tab-rail-lifting'
+                        : tab.id === activeId
+                          ? 'cursor-grab bg-row-selected'
+                          : 'cursor-grab hover:bg-row-hover'
                     }`}
-                    onClick={() => switchTab(tab.id)}
-                    onDoubleClick={() => void cloneTab(tab.id)}
+                    style={
+                      tabDragUi && !isDragSource
+                        ? {
+                            transform: shiftY ? `translate3d(0, ${shiftY}px, 0)` : 'translate3d(0, 0, 0)',
+                            transition: prefersReducedMotion()
+                              ? undefined
+                              : `transform ${TAB_SHIFT_MS}ms ${TAB_MOTION_EASE}`,
+                            willChange: 'transform',
+                            zIndex: 0
+                          }
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (suppressTabClickRef.current) return
+                      switchTab(tab.id)
+                    }}
+                    onDoubleClick={() => {
+                      if (suppressTabClickRef.current || tabDragUi) return
+                      void cloneTab(tab.id)
+                    }}
                     onContextMenu={(e) => openTabContextMenu(e, tab.id)}
+                    onDragStart={(e) => e.preventDefault()}
+                    onPointerDown={(e) => onTabPointerDown(e, tab.id)}
+                    onPointerMove={onTabPointerMove}
+                    onPointerUp={onTabPointerUp}
+                    onPointerCancel={onTabPointerUp}
                     onKeyDown={(event) => {
                       if (event.target !== event.currentTarget) return
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault()
                         switchTab(tab.id)
+                        return
+                      }
+                      if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                        event.preventDefault()
+                        const from = tabs.findIndex((item) => item.id === tab.id)
+                        if (from < 0) return
+                        const to = event.key === 'ArrowUp' ? from - 1 : from + 1
+                        applyTabOrder(from, to)
                         return
                       }
                       if (
@@ -709,8 +1177,6 @@ export default function App() {
                       }
                     }}
                     onMouseDown={(e) => {
-                      // Prevent the OS's middle-click autoscroll cursor from
-                      // appearing before we handle the close on mouseup.
                       if (e.button === 1) e.preventDefault()
                     }}
                     onMouseUp={(e) => {
@@ -720,13 +1186,13 @@ export default function App() {
                     <span className="flex w-2.5 shrink-0 items-center justify-center">
                       {tab.id === activeId && <span className="h-4 w-[3px] rounded-full bg-accent" />}
                     </span>
-                    <span className="w-[22px] shrink-0 text-[12px] text-fg-tertiary">{tab.num}</span>
+                    <span className="w-[22px] shrink-0 text-[12px] tabular-nums text-fg-tertiary">{displayNum}</span>
                     {renamingTabId === tab.id ? (
                       <input
                         autoFocus
                         defaultValue={tabDisplayTitle(tab)}
                         aria-label={t('RenameTab')}
-                        className="min-w-0 flex-1 rounded bg-transparent px-1 text-[13px] text-fg-primary outline-none ring-1 ring-accent"
+                        className="min-w-0 flex-1 select-text rounded bg-transparent px-1 text-[13px] text-fg-primary outline-none ring-1 ring-accent"
                         onFocus={(e) => e.currentTarget.select()}
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
@@ -753,7 +1219,26 @@ export default function App() {
                       {SegoeIcon.Close}
                     </button>
                   </div>
-                ))}
+                  )
+                })}
+                {(() => {
+                  if (!tabDragUi) return null
+                  const lineTop = tabDropLineTop(
+                    tabDragUi.fromIndex,
+                    tabDragUi.dropIndex,
+                    tabs.length
+                  )
+                  const active = lineTop != null
+                  return (
+                    <div
+                      className="tab-rail-drop-line"
+                      data-active={active ? 'true' : undefined}
+                      style={active ? { top: lineTop } : undefined}
+                      aria-hidden
+                    />
+                  )
+                })()}
+                </div>
               </div>
 
               {/* Compact icon strip under the last tab (Tabby-style), not a full-width shell label row. */}

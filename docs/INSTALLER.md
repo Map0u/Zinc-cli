@@ -35,7 +35,7 @@ NSIS silent flags:
 After installing on Windows:
 
 ```powershell
-pwsh ./app/scripts/verify-install.ps1 -ExpectedVersion 0.6.0
+pwsh ./app/scripts/verify-install.ps1 -ExpectedVersion 0.6.1
 ```
 
 For the complete acceptance matrix (clean install, overwrite, reinstall,
@@ -43,8 +43,8 @@ optional upgrade, final uninstall, and a packaged PowerShell terminal smoke):
 
 ```powershell
 pwsh ./app/scripts/verify-installer-matrix.ps1 `
-  -SetupPath ./app/dist/Zinc-0.6.0-Setup.exe `
-  -ExpectedVersion 0.6.0
+  -SetupPath ./app/dist/Zinc-0.6.1-Setup.exe `
+  -ExpectedVersion 0.6.1
 ```
 
 Add `-PreviousSetupPath` with a reviewed older setup (and

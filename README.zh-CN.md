@@ -27,7 +27,7 @@ Zinc 有意不提供云同步、账户体系、插件平台、分屏，以及内
 
 ## 系统要求
 
-- Zinc 0.6.0 仅支持 Windows：Windows 10 或 Windows 11，x64。其他平台没有计划。
+- Zinc 0.6.1 仅支持 Windows：Windows 10 或 Windows 11，x64。其他平台没有计划。
 - 推荐安装 [PowerShell 7](https://github.com/PowerShell/PowerShell) 作为默认
   shell；未安装时 Zinc 会自动回退到 Windows PowerShell 或命令提示符。
 - Git Bash 与 WSL 是可选 shell：仅在你已自行安装时才会被发现并出现在选择列表中。

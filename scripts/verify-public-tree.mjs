@@ -14,6 +14,9 @@ const allowedBinaryFiles = new Set([
   'app/resources/icon.png',
   'app/src/renderer/public/icon.png',
   'app/src/renderer/src/assets/zinc-icon.png',
+  // Docs media copies of the same approved project-owned 3D Z (public-tree allowlist).
+  'docs/media/icon-32.png',
+  'docs/media/zinc-icon.png',
   'archive/winui-native-legacy/CompositionWebView/WinUI3Attempt/Assets/AppIcon.ico',
   'archive/winui-native-legacy/CompositionWebView/WinUI3Attempt/Assets/LockScreenLogo.scale-200.png',
   'archive/winui-native-legacy/CompositionWebView/WinUI3Attempt/Assets/SplashScreen.scale-200.png',

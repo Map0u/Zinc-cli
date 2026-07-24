@@ -167,6 +167,100 @@
   }
 }
 
+/*
+  Vertical tab rail reorder — smooth dnd-kit-style model (see App.tsx):
+    - tabs[] frozen until drop (no live remount flicker between rows)
+    - source stays in flow at opacity 0; body-level ghost is position:fixed
+    - siblings only translateY with hysteresis on dropIndex
+    - drop target: accent insertion line (VS Code / Finder style) + soft glow
+    - easing cubic-bezier(0.16, 1, 0.3, 1) matches dropdown / settings slide
+  Text is non-selectable chrome; rename <input> opts into text selection.
+*/
+.tab-rail-list [role='tab'] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  touch-action: none;
+}
+
+.tab-rail-list [role='tab'] input {
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+
+.tab-rail-list [role='tab']:not([data-dragging='true']) {
+  transition: background-color 120ms ease;
+}
+
+/* During drag, hover paint is idle — only transform transitions on siblings. */
+.tab-rail-list[data-dragging='true'] [role='tab']:not([data-dragging='true']) {
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* In-flow source while the ghost is up (keeps slot height; invisible). */
+.tab-rail-list [role='tab'][data-dragging='true'],
+.tab-rail-list [role='tab'].tab-rail-lifting,
+.tab-rail-list [role='tab'].tab-rail-source-hidden {
+  opacity: 0;
+  pointer-events: none;
+  cursor: grabbing;
+}
+
+/*
+  Insertion line — primary "you landed here" cue.
+  Thin accent bar + soft bloom (not a full-row flash; position reads clearer).
+*/
+.tab-rail-drop-line {
+  position: absolute;
+  left: 0.75rem; /* match mx-3 */
+  right: 0.75rem;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 20;
+  background: var(--color-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent),
+    0 0 10px color-mix(in srgb, var(--color-accent) 55%, transparent),
+    0 0 18px color-mix(in srgb, var(--color-accent) 28%, transparent);
+  transform: scaleX(0.92);
+  opacity: 0;
+}
+
+.tab-rail-drop-line[data-active='true'] {
+  opacity: 1;
+  transform: scaleX(1);
+  transition:
+    top 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 120ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Floating clone on document.body */
+[data-tab-ghost] {
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+  touch-action: none;
+}
+
+/* Ghost "docked to a new slot" — slight accent ring so the hand and the line agree. */
+[data-tab-ghost][data-docked='true'] {
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.42),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent),
+    0 0 14px color-mix(in srgb, var(--color-accent) 35%, transparent) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-rail-list[data-dragging='true'] [role='tab']:not([data-dragging='true']),
+  .tab-rail-drop-line[data-active='true'] {
+    transition: none;
+  }
+}
+
 /* Segoe Fluent Icons is supplied by Windows and is not bundled. Falls back to
    Segoe MDL2 Assets, the pre-Win11 name for the same glyph set, for older
    Windows installs that never got the Fluent Icons font update. */

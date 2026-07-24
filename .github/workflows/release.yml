@@ -26,10 +26,12 @@ env:
   # The hash is pinned in the workflow on purpose: a release's own SHA256SUMS.txt lives in the same
   # mutable place as the setup it vouches for, so checking one against the other only proves they
   # agree — not that either is still the artifact we reviewed.
-  ZINC_PREVIOUS_RELEASE_TAG: ""
-  ZINC_PREVIOUS_SETUP_NAME: ""
-  ZINC_PREVIOUS_VERSION: ""
-  ZINC_PREVIOUS_SETUP_SHA256: ""
+  # Reviewed public v0.6.0 baseline (SHA-256 from that release's SHA256SUMS.txt,
+  # independently pinned here so a mutable release asset cannot self-vouch).
+  ZINC_PREVIOUS_RELEASE_TAG: "v0.6.0"
+  ZINC_PREVIOUS_SETUP_NAME: "Zinc-0.6.0-Setup.exe"
+  ZINC_PREVIOUS_VERSION: "0.6.0"
+  ZINC_PREVIOUS_SETUP_SHA256: "b5025c16ba00aec88a44de897da892f6f0da57eab123c291770696e7fa487657"
 
 jobs:
   public-tree:

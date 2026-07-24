@@ -6,6 +6,30 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-24
+
+### Added
+
+- Vertical tab-rail drag reorder: free X/Y follow-hand ghost, frozen list order
+  during drag, sibling shift gap, insertion line, and dock accent when the drop
+  slot differs from the origin.
+- Unit coverage for the shipped drop-index helpers (ghost-center probe, boundary
+  hysteresis, `moveItem`, shift/line geometry).
+
+### Fixed
+
+- Drop targeting now uses the ghost card’s vertical center (not raw pointer Y)
+  and hysteresis on shared slot boundaries, so an insert that already looks
+  between rows actually commits.
+- Display tab numbers stay positional `1…n` through drag, close, and reorder.
+- Tab rail labels are non-selectable so pointer drag is not stolen by text selection.
+
+### Changed
+
+- Version source is `app/package.json` at 0.6.1.
+- Release workflow pins the previous public setup to reviewed `v0.6.0` for the
+  installer upgrade acceptance path.
+
 ## [0.6.0] - 2026-07-24
 
 ### Added
@@ -108,6 +132,7 @@ Versions before 0.5.0 were private development snapshots used during the WinUI
 prototype, Electron migration, and packaging work. They are not supported public
 release lines. Sanitized migration context remains in `docs/` and `archive/`.
 
-[Unreleased]: https://github.com/Map0u/Zinc/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Map0u/Zinc/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Map0u/Zinc/releases/tag/v0.6.1
 [0.6.0]: https://github.com/Map0u/Zinc/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Map0u/Zinc/releases/tag/v0.5.0

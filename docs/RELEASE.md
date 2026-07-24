@@ -5,7 +5,7 @@ match `app/package.json` exactly.
 
 ## Version Sources
 
-For 0.6.0, both files must report `0.6.0`:
+For 0.6.1, both files must report `0.6.1`:
 
 - `app/package.json`
 - `app/package-lock.json` (root package entry)
@@ -51,14 +51,14 @@ npm run dist
 
 Expected artifacts:
 
-- `Zinc-0.6.0-Setup.exe`
-- `Zinc-0.6.0-Setup.exe.blockmap`
+- `Zinc-0.6.1-Setup.exe`
+- `Zinc-0.6.1-Setup.exe.blockmap`
 - `latest.yml`
 - a release `SHA256SUMS.txt`
 - `LICENSE`
-- `THIRD_PARTY_NOTICES-0.6.0.md`
+- `THIRD_PARTY_NOTICES-0.6.1.md`
 - `ASSET_PROVENANCE.md`
-- `zinc-0.6.0.cdx.json` (CycloneDX 1.5 SBOM)
+- `zinc-0.6.1.cdx.json` (CycloneDX 1.5 SBOM)
 
 Run the NSIS acceptance matrix in [`INSTALLER.md`](INSTALLER.md). Test the
 packaged application, not only the development server. The matrix must launch
@@ -83,9 +83,9 @@ the moment it exists, and a published tag must never be moved. Rehearse first.
 
 ## Tag and Workflow
 
-After all checks pass and the release commit is approved, create `v0.6.0` from
+After all checks pass and the release commit is approved, create `v0.6.1` from
 the exact `main` commit, as an annotated tag whose message is exactly
-`chore(release): v0.6.0`. Pushing a `v*` tag runs
+`chore(release): v0.6.1`. Pushing a `v*` tag runs
 `.github/workflows/release.yml`. The workflow uses full checkout history and
 rejects a lightweight tag, an unexpected tag message, a tag/version mismatch,
 or any tagged commit other than the exact `origin/main` tip. This prevents
@@ -105,7 +105,7 @@ features that were removed again before shipping, and that page is what a
 first-time user reads before deciding to trust an unsigned binary. The workflow
 fails if the notes file for the tag is missing.
 
-For 0.6.0, pin the previous public release (`v0.5.0`) in the workflow `env` block
+For 0.6.1, pin the previous public release (`v0.6.0`) in the workflow `env` block
 when running the upgrade leg of the installer matrix. Clean install, overwrite,
 reinstall, and uninstall remain required regardless.
 
@@ -142,7 +142,7 @@ Install the previous public version, then test:
 2. update available detection after publication;
 3. download progress and failure handling;
 4. install/restart;
-5. Settings > About and the Windows uninstall entry both show `0.6.0`.
+5. Settings > About and the Windows uninstall entry both show `0.6.1`.
 
 ## Repository Publication Checklist
 
@@ -156,7 +156,7 @@ Before changing a private repository to public:
   issue templates, Dependabot, and least-privilege Actions permissions;
 - confirm `README`, license, security, privacy, contribution, support, conduct,
   notices, and changelog pages render correctly on GitHub;
-- publish only reviewed 0.6.0 artifacts and checksums.
+- publish only reviewed 0.6.1 artifacts and checksums.
 
 ### Copyright and asset gate
 

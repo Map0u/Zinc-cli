@@ -1,6 +1,6 @@
 # Zinc Maintainer Handoff
 
-Zinc 0.6.0 uses the Electron application in [`app/`](../app/) as its only
+Zinc 0.6.1 uses the Electron application in [`app/`](../app/) as its only
 implementation. [`archive/`](../archive/) contains isolated historical
 feasibility experiments only.
 

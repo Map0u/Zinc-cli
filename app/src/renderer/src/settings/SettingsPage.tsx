@@ -40,6 +40,20 @@ const RAIL_TEXT = 'var(--color-fg-primary)'
 
 const ABOUT_CHANGELOG_ENTRIES = [
   {
+    version: '0.6.1',
+    date: '2026-07-24',
+    zh: [
+      '左侧标签支持拖拽重排：自由水平/垂直跟手、空隙让位、插入指示线。',
+      '落点按幽灵卡片中心判定，视觉上已在两行之间时会真正插入。',
+      '标签序号始终为位置 1…n；标签文字不可选中。'
+    ],
+    en: [
+      'Drag to reorder left-rail tabs: free X/Y follow-hand ghost, sibling gap, and insertion line.',
+      'Drop targeting uses the floating card center so between-row inserts actually commit.',
+      'Tab numbers stay positional 1…n; rail labels are non-selectable.'
+    ]
+  },
+  {
     version: '0.6.0',
     date: '2026-07-24',
     zh: [
