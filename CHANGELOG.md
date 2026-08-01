@@ -6,6 +6,17 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-08-01
+
+### Changed
+
+- Settings and update UI copy (zh-CN / en-US): shorter, factual strings; About
+  tagline matches product positioning (lightweight Windows terminal, vertical
+  tabs); AI resume descriptions clarify local continue/resume only (no agent
+  proxy, no upload).
+- Website (zincli.org) marketing copy and layout rework is tracked in the Zinc
+  Web repository; download links follow the published GitHub Release tag.
+
 ## [0.6.2] - 2026-07-25
 
 ### Added

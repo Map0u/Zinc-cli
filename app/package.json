@@ -1,6 +1,6 @@
 {
   "name": "zinc",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "description": "A lightweight multi-shell Windows terminal launcher with a modern UI",
   "license": "AGPL-3.0-only",
