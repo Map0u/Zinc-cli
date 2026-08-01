@@ -1,23 +1,8 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import { SegoeIcon } from '../segoeFluentIcons'
-import { findChangelogEntry } from './changelogEntries'
 import { useUpdate } from './UpdateContext'
-
-function notesForDialog(
-  releaseNotes: string | null | undefined,
-  version: string | null | undefined,
-  language: 'en' | 'zh'
-): { kind: 'text'; text: string } | { kind: 'bullets'; items: string[] } {
-  if (releaseNotes && releaseNotes.trim()) {
-    return { kind: 'text', text: releaseNotes.trim() }
-  }
-  const entry = findChangelogEntry(version)
-  if (entry) {
-    return { kind: 'bullets', items: language === 'zh' ? entry.zh : entry.en }
-  }
-  return { kind: 'text', text: '' }
-}
+import { resolveUpdateNotes } from './updateNotes'
 
 export function UpdateDialog() {
   const { t, language } = useI18n()
@@ -41,7 +26,7 @@ export function UpdateDialog() {
 
   const version =
     state.downloadedVersion ?? state.availableVersion ?? state.currentVersion
-  const notes = notesForDialog(state.releaseNotes, version, language)
+  const notes = resolveUpdateNotes(version, state.releaseNotes, language)
   const percent = state.percent === null ? null : Math.round(state.percent)
   const canInstall = state.status === 'downloaded'
   const canRetry = state.status === 'error' || state.status === 'not-available' || state.status === 'idle'

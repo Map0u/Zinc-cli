@@ -8,6 +8,32 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.4',
+    date: '2026-08-02',
+    zh: [
+      '更新弹窗优先显示本地中英更新摘要，不再整段塞入 GitHub Release 下载页说明。',
+      '远端更新说明若含 HTML 会先剥成纯文本，避免标签原文出现在弹窗里。'
+    ],
+    en: [
+      'The update dialog prefers local bilingual release bullets over the full GitHub Release download-page notes.',
+      'Remote release notes that arrive as HTML are stripped to plain text so markup tags no longer appear in the dialog.'
+    ]
+  },
+  {
+    version: '0.6.3',
+    date: '2026-08-01',
+    zh: [
+      '设置 / 关于 / 更新弹窗文案收紧（中英）：标签更短，透明度、shell、会话恢复表述更清楚。',
+      '关于页一句话与产品定位对齐：轻量 Windows 终端、默认垂直标签。',
+      'AI 会话续聊说明写清：仅在本地键入 continue / resume，不代跑 agent、不上传终端内容。'
+    ],
+    en: [
+      'Settings, About, and update-dialog copy polish (Chinese and English): shorter labels and clearer opacity / shell / session-restore wording.',
+      'About tagline aligned with the product pitch: lightweight Windows terminal with vertical tabs by default.',
+      'AI conversation resume copy states clearly: Zinc types local continue / resume only; it does not run an agent or upload terminal content.'
+    ]
+  },
+  {
     version: '0.6.2',
     date: '2026-07-25',
     zh: [

@@ -6,6 +6,19 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-08-02
+
+### Fixed
+
+- Update dialog release notes: prefer local bilingual `changelogEntries` bullets
+  over the GitHub Release body, and strip HTML when falling back to remote notes
+  so GitHub-rendered tags no longer appear as plain text.
+
+### Changed
+
+- Release process documents that each ship must add a matching
+  `changelogEntries.ts` entry for the in-app update dialog.
+
 ## [0.6.3] - 2026-08-01
 
 ### Changed

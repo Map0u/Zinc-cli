@@ -144,6 +144,12 @@ Install the previous public version, then test:
 4. install/restart;
 5. Settings > About and the Windows uninstall entry both show `0.6.1`.
 
+The update dialog prefers bilingual bullets from
+`app/src/renderer/src/update/changelogEntries.ts` over the GitHub Release body.
+When shipping a new version, add a matching entry there in the same release unit
+so the dialog does not fall back to the download-page notes (which may arrive as
+HTML from the updater feed).
+
 ## Repository Publication Checklist
 
 Before changing a private repository to public:
