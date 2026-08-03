@@ -887,9 +887,9 @@ function LanguageCard() {
 }
 
 const PROJECT_URLS = {
-  source: 'https://github.com/Map0u/Zinc',
-  license: 'https://github.com/Map0u/Zinc/blob/main/LICENSE',
-  thirdParty: 'https://github.com/Map0u/Zinc/blob/main/THIRD_PARTY_NOTICES.md'
+  source: 'https://github.com/Map0u/Zinc-cli',
+  license: 'https://github.com/Map0u/Zinc-cli/blob/main/LICENSE',
+  thirdParty: 'https://github.com/Map0u/Zinc-cli/blob/main/THIRD_PARTY_NOTICES.md'
 } as const
 
 /** Bespoke hero layout (not `Card`, which is a label-left/control-right settings row and

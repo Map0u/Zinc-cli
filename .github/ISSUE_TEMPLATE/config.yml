@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/Map0u/Zinc/security/advisories/new
+    url: https://github.com/Map0u/Zinc-cli/security/advisories/new
     about: Report security and privacy vulnerabilities privately.
   - name: Support guide
-    url: https://github.com/Map0u/Zinc/blob/main/SUPPORT.md
+    url: https://github.com/Map0u/Zinc-cli/blob/main/SUPPORT.md
     about: Read the support and troubleshooting guidance before filing an issue.

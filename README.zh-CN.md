@@ -6,14 +6,14 @@
 
 > 一款为 Windows 设计的现代化、类原生终端，专注于简洁与设计哲学。
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Map0u/Zinc?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
-[![GitHub Downloads (latest)](https://img.shields.io/github/downloads/Map0u/Zinc/latest/total?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
-[![License: AGPL-3.0-only](https://img.shields.io/github/license/Map0u/Zinc?style=flat-square)](./LICENSE)
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Map0u/Zinc/ci.yml?branch=main&style=flat-square)](https://github.com/Map0u/Zinc/actions)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Map0u/Zinc-cli?style=flat-square)](https://github.com/Map0u/Zinc-cli/releases/latest)
+[![GitHub Downloads (latest)](https://img.shields.io/github/downloads/Map0u/Zinc-cli/latest/total?style=flat-square)](https://github.com/Map0u/Zinc-cli/releases/latest)
+[![License: AGPL-3.0-only](https://img.shields.io/github/license/Map0u/Zinc-cli?style=flat-square)](./LICENSE)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Map0u/Zinc-cli/ci.yml?branch=main&style=flat-square)](https://github.com/Map0u/Zinc-cli/actions)
 
 Zinc 是一款为 Windows 10/11 打造的终端，面向追求干净、高效、与桌面融为一体的命令行工作流的开发者。垂直标签布局 + 克制的功能集：该强的地方强，该静的地方静。
 
-**[从官方网站下载](https://zincli.org)** · **[GitHub Releases](https://github.com/Map0u/Zinc/releases/latest)**
+**[从官方网站下载](https://zincli.org)** · **[GitHub Releases](https://github.com/Map0u/Zinc-cli/releases/latest)**
 
 ---
 
@@ -50,7 +50,7 @@ Zinc 的构建遵循一套明确的原则：
 
 ## 安装
 
-1.  访问 [**官方网站**](https://zincli.org) 或 [**Releases 页面**](https://github.com/Map0u/Zinc/releases/latest)。
+1.  访问 [**官方网站**](https://zincli.org) 或 [**Releases 页面**](https://github.com/Map0u/Zinc-cli/releases/latest)。
 2.  下载 `Zinc-0.6.4-Setup.exe` 安装包。
 3.  运行安装程序。
 
@@ -89,7 +89,7 @@ Zinc 将你的隐私放在首位。
 
 ```powershell
 # 克隆仓库
-git clone https://github.com/Map0u/Zinc.git
+git clone https://github.com/Map0u/Zinc-cli.git
 cd Zinc/app
 
 # 安装依赖
@@ -116,4 +116,4 @@ npm run dist
 
 ---
 
-[官方网站](https://zincli.org) | [GitHub 仓库](https://github.com/Map0u/Zinc)
+[官方网站](https://zincli.org) | [GitHub 仓库](https://github.com/Map0u/Zinc-cli)

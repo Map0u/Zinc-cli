@@ -6,14 +6,14 @@
 
 > A modern, native-like terminal for Windows, crafted with a focus on simplicity and design.
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Map0u/Zinc?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
-[![GitHub Downloads (latest)](https://img.shields.io/github/downloads/Map0u/Zinc/latest/total?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
-[![License: AGPL-3.0-only](https://img.shields.io/github/license/Map0u/Zinc?style=flat-square)](./LICENSE)
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Map0u/Zinc/ci.yml?branch=main&style=flat-square)](https://github.com/Map0u/Zinc/actions)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Map0u/Zinc-cli?style=flat-square)](https://github.com/Map0u/Zinc-cli/releases/latest)
+[![GitHub Downloads (latest)](https://img.shields.io/github/downloads/Map0u/Zinc-cli/latest/total?style=flat-square)](https://github.com/Map0u/Zinc-cli/releases/latest)
+[![License: AGPL-3.0-only](https://img.shields.io/github/license/Map0u/Zinc-cli?style=flat-square)](./LICENSE)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Map0u/Zinc-cli/ci.yml?branch=main&style=flat-square)](https://github.com/Map0u/Zinc-cli/actions)
 
 Zinc is a terminal for Windows 10/11, designed for developers who want a clean, efficient, and highly integrated command-line workspace. It pairs a deliberate vertical-tab layout with a focused feature set—powerful where it matters, quiet where it does not.
 
-**[Download from the official website](https://zincli.org)** · **[GitHub Releases](https://github.com/Map0u/Zinc/releases/latest)**
+**[Download from the official website](https://zincli.org)** · **[GitHub Releases](https://github.com/Map0u/Zinc-cli/releases/latest)**
 
 ---
 
@@ -50,7 +50,7 @@ To maintain its focus on being a lean and fast terminal, Zinc deliberately avoid
 
 ## Installation
 
-1.  Navigate to the [**official website**](https://zincli.org) or the [**Releases**](https://github.com/Map0u/Zinc/releases/latest) page.
+1.  Navigate to the [**official website**](https://zincli.org) or the [**Releases**](https://github.com/Map0u/Zinc-cli/releases/latest) page.
 2.  Download the `Zinc-0.6.4-Setup.exe` installer.
 3.  Run the installer.
 
@@ -89,7 +89,7 @@ The active application lives in [`app/`](./app/). The `archive/` directory keeps
 
 ```powershell
 # Clone the repository
-git clone https://github.com/Map0u/Zinc.git
+git clone https://github.com/Map0u/Zinc-cli.git
 cd Zinc/app
 
 # Install dependencies
@@ -116,4 +116,4 @@ This project is licensed under the [AGPL-3.0-only](./LICENSE).
 
 ---
 
-[Official Website](https://zincli.org) | [GitHub Repository](https://github.com/Map0u/Zinc)
+[Official Website](https://zincli.org) | [GitHub Repository](https://github.com/Map0u/Zinc-cli)

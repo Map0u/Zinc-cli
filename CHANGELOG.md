@@ -180,7 +180,7 @@ Versions before 0.5.0 were private development snapshots used during the WinUI
 prototype, Electron migration, and packaging work. They are not supported public
 release lines. Sanitized migration context remains in `docs/` and `archive/`.
 
-[Unreleased]: https://github.com/Map0u/Zinc/compare/v0.6.1...HEAD
-[0.6.1]: https://github.com/Map0u/Zinc/releases/tag/v0.6.1
-[0.6.0]: https://github.com/Map0u/Zinc/releases/tag/v0.6.0
-[0.5.0]: https://github.com/Map0u/Zinc/releases/tag/v0.5.0
+[Unreleased]: https://github.com/Map0u/Zinc-cli/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Map0u/Zinc-cli/releases/tag/v0.6.1
+[0.6.0]: https://github.com/Map0u/Zinc-cli/releases/tag/v0.6.0
+[0.5.0]: https://github.com/Map0u/Zinc-cli/releases/tag/v0.5.0
