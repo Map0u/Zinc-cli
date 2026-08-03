@@ -1,90 +1,119 @@
 # Zinc
 
-简体中文 | [English](README.md)
+[**官方网站: zincli.org**](https://zincli.org)
 
-Zinc 是一个轻量多 shell 的 Windows 终端启动器，基于 Electron、React、xterm.js
-与 `node-pty` 构建。它优先支持 PowerShell 7，保持现代紧凑界面（垂直标签栏、
-Acrylic 风格窗口、实用设置），后台占用克制，便于打开本机已安装的各类 shell。
+[![English](https://img.shields.io/badge/Language-English-blue.svg?style=flat-square)](./README.md)
 
-当前应用位于 [`app/`](app/)。归档目录只保留相互隔离的历史可行性实验，
-不包含第二套产品实现。
+> 一款为 Windows 设计的现代化、类原生终端，专注于简洁与设计哲学。
 
-## 主要功能
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Map0u/Zinc?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
+[![GitHub Downloads (latest)](https://img.shields.io/github/downloads/Map0u/Zinc/latest/total?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
+[![License: AGPL-3.0-only](https://img.shields.io/github/license/Map0u/Zinc?style=flat-square)](./LICENSE)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Map0u/Zinc/ci.yml?branch=main&style=flat-square)](https://github.com/Map0u/Zinc/actions)
 
-- 垂直终端标签，支持新建、重命名、复制与关闭。
-- 自动探测本机 shell——PowerShell 7、Windows PowerShell、命令提示符、Git Bash
-  与已安装的 WSL 发行版——经 `node-pty`、ConPTY 与 xterm.js 运行，支持按标签
-  选择 shell 与可配置的默认 shell。
-- Acrylic 风格无边框 Windows 界面，支持明暗主题和系统强调色。
-- 字体、配色、不透明度、快捷键、缩放、回滚行数与会话恢复设置。
-- 剪贴板图片粘贴、可点击网页链接；新建或复制标签会尝试继承当前工作目录，
-  后续在 shell 中切换目录可能无法反映。
-- 按用户安装的 Windows NSIS 安装包，以及可选的 GitHub Releases 更新流程。
-- 英文与简体中文界面资源。
+Zinc 是一款为 Windows 10/11 打造的终端，面向追求干净、高效、与桌面融为一体的命令行工作流的开发者。垂直标签布局 + 克制的功能集：该强的地方强，该静的地方静。
 
-Zinc 有意不提供云同步、账户体系、插件平台、分屏，以及内置 SSH
-配置管理。
+**[从官方网站下载](https://zincli.org)** · **[GitHub Releases](https://github.com/Map0u/Zinc/releases/latest)**
 
-## 系统要求
+---
 
-- Zinc 0.6.1 仅支持 Windows：Windows 10 或 Windows 11，x64。其他平台没有计划。
-- 推荐安装 [PowerShell 7](https://github.com/PowerShell/PowerShell) 作为默认
-  shell；未安装时 Zinc 会自动回退到 Windows PowerShell 或命令提示符。
-- Git Bash 与 WSL 是可选 shell：仅在你已自行安装时才会被发现并出现在选择列表中。
-- 默认按用户安装，日常运行 Zinc 不需要管理员权限；无需另装 Node.js。
+## 设计哲学
+
+Zinc 的构建遵循一套明确的原则：
+
+*   **纯粹至上：** 终端应当有力却不嘈杂。Zinc 提供核心能力，主动拒绝臃肿选项。
+*   **美学集成：** 无边框 Acrylic 风格界面与垂直标签栏，像现代 Windows 桌面的一部分。
+*   **本地优先的隐私：** 零分析遥测。设置、会话元数据与粘贴图片留在本机；可选的更新检查才会连接 GitHub Releases。
+
+## 核心功能
+
+*   **垂直标签栏：** 多会话时名字仍完整可读，不必猜省略号背后是什么。
+*   **自动探测 Shell：** PowerShell 7、Windows PowerShell、CMD、Git Bash 与已安装的 WSL 发行版。
+*   **现代美学：** 无边框 Acrylic 风格、主题与透明度调节。
+*   **深度自定义：** 字体、配色、快捷键、缩放、回滚行数等。
+*   **会话恢复：** 重启后恢复标签顺序与工作目录。
+*   **智能交互：**
+    *   **可点击链接：** 在系统浏览器中打开 URL。
+    *   **粘贴图片：** 将剪贴板图片以本机路径粘贴进当前终端。
+    *   **会话续写：** 本地辅助，可为你代敲 `claude --continue` 或 `grok --continue`——无 AI 内核，不上传终端内容。
+*   **可选更新：** 静默检查 GitHub Releases（可按需使用）。
+*   **多语言界面：** 英文与简体中文。
+
+## 我们明确不做
+
+为了保持其作为一款轻量、快速终端的专注，Zinc 刻意避免了以下功能：
+
+*   云同步与用户账户
+*   插件市场或扩展 API
+*   分屏功能（我们专注于标签页和窗口管理）
+*   内置 SSH 配置管理
 
 ## 安装
 
-从本仓库的 GitHub Releases 页面下载 `Zinc-<version>-Setup.exe`（NSIS 安装包）。
-这是 Zinc 唯一提供的 Windows 安装方式。
+1.  访问 [**官方网站**](https://zincli.org) 或 [**Releases 页面**](https://github.com/Map0u/Zinc/releases/latest)。
+2.  下载 `Zinc-0.6.4-Setup.exe` 安装包。
+3.  运行安装程序。
 
-Zinc 当前未做 Windows 代码签名，Microsoft Defender SmartScreen 会拦截首次运行。
-请先下载同一 Release 的 `SHA256SUMS.txt`，在下载目录执行
-`Get-FileHash .\Zinc-<version>-Setup.exe -Algorithm SHA256`，与清单中同名文件那一行的
-校验值逐字比对；一致才运行，不一致请删除文件。
-
-## 开发
-
-安装 Node.js 22.12 或更高版本，然后在 PowerShell 中运行：
-
-```powershell
-cd app
-npm ci
-npm run typecheck
-npm run build
-npm run dev
-```
-
-Windows 打包同样从 `app/` 执行：
-
-```powershell
-npm run dist
-```
-
-进行较大改动前，请阅读[贡献指南](CONTRIBUTING.zh-CN.md)、
-[架构说明](docs/ARCHITECTURE.md)与[故障排查](docs/TROUBLESHOOTING.zh-CN.md)。
+> **关于 Windows SmartScreen 的说明：**
+> 本应用未进行代码签名，因此 Windows SmartScreen 可能会显示警告。若要继续，请点击「更多信息」，然后点击「仍要运行」。
+>
+> 为验证安装包的完整性，你可以将其 SHA256 哈希值与发布页面上 `SHA256SUMS` 文件中提供的值进行比较。打开 PowerShell 并运行以下命令：
+>
+> ```powershell
+> Get-FileHash .\Zinc-0.6.4-Setup.exe -Algorithm SHA256
+> ```
 
 ## 隐私与安全
 
-Zinc 不内置分析统计或广告遥测。设置、会话恢复元数据和粘贴的剪贴板图片保存在
-本机。终端命令及其子进程仍可自行访问网络，检查更新时会连接 GitHub Releases。
-完整边界见[隐私说明](PRIVACY.zh-CN.md)，漏洞报告方式见
-[安全策略](SECURITY.zh-CN.md)。
+Zinc 将你的隐私放在首位。
 
-请勿在公开 Issue 中附上未脱敏的终端截图、日志、配置文件或会话状态；其中可能
-包含用户名、路径、命令、令牌、主机名和工作目录。
+*   **零遥测：** 本应用不收集任何分析或使用数据。
+*   **本地数据存储：** 所有设置、会话元数据和粘贴的图片数据都只存储在你的本地计算机上。
+*   **网络活动：**
+    *   Zinc 本身仅在检查更新时连接到 GitHub Releases API，此为可选功能。
+    *   终端子进程（如 PowerShell、WSL、curl）可以像往常一样访问网络。
+*   **无 AI，不上传：** 会话续写功能是一个简单的命令输入宏，不涉及任何 AI 模型，也不会上传你的终端内容。
 
-## 文档
+更多详情，请参阅我们的[隐私政策](./PRIVACY.zh-CN.md)和[安全策略](./SECURITY.zh-CN.md)。
 
-- [架构说明](docs/ARCHITECTURE.md)
-- [安装器行为](docs/INSTALLER.md)
-- [发布流程](docs/RELEASE.md)
-- [故障排查](docs/TROUBLESHOOTING.zh-CN.md)
-- [支持说明](SUPPORT.zh-CN.md)
-- [第三方许可说明](THIRD_PARTY_NOTICES.md)
-- [更新日志](CHANGELOG.md)
+## 开发者指南
 
-## 许可证
+### 环境要求
 
-Zinc 仅按 [GNU Affero General Public License v3.0](LICENSE) 分发。第三方组件
-继续适用各自许可证，详见[第三方许可说明](THIRD_PARTY_NOTICES.md)。
+*   Node.js ≥22.12
+*   Windows 10/11 x64
+
+### 快速开始
+
+核心应用代码位于 `app/` 目录中。`archive/` 目录仅包含历史实验代码，不参与当前构建。
+
+```powershell
+# 克隆仓库
+git clone https://github.com/Map0u/Zinc.git
+cd Zinc/app
+
+# 安装依赖
+npm ci
+
+# 运行类型检查
+npm run typecheck
+
+# 启动开发服务器
+npm run dev
+
+# 构建应用
+npm run build
+
+# 打包应用
+npm run dist
+```
+
+欢迎贡献。较大改动前请阅读[贡献指南](./CONTRIBUTING.zh-CN.md)、[架构说明](./docs/ARCHITECTURE.md)与[故障排查](./docs/TROUBLESHOOTING.zh-CN.md)。
+
+## 许可协议
+
+本项目基于 [AGPL-3.0-only](./LICENSE) 许可协议。
+
+---
+
+[官方网站](https://zincli.org) | [GitHub 仓库](https://github.com/Map0u/Zinc)

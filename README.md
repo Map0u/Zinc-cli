@@ -1,103 +1,119 @@
 # Zinc
 
-[简体中文](README.zh-CN.md) | English
+[**Official Website: zincli.org**](https://zincli.org)
 
-Zinc is a lightweight multi-shell Windows terminal launcher built with
-Electron, React, xterm.js, and `node-pty`. It puts PowerShell 7 first, keeps a
-modern compact UI (vertical tab rail, Acrylic-style window, practical
-settings), and stays low-overhead so you can open the shells already installed
-on your machine.
+[![简体中文](https://img.shields.io/badge/Language-简体中文-blue.svg?style=flat-square)](./README.zh-CN.md)
 
-The active application is in [`app/`](app/). The archive retains only isolated
-historical feasibility experiments; it is not a second product implementation.
+> A modern, native-like terminal for Windows, crafted with a focus on simplicity and design.
 
-## Highlights
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Map0u/Zinc?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
+[![GitHub Downloads (latest)](https://img.shields.io/github/downloads/Map0u/Zinc/latest/total?style=flat-square)](https://github.com/Map0u/Zinc/releases/latest)
+[![License: AGPL-3.0-only](https://img.shields.io/github/license/Map0u/Zinc?style=flat-square)](./LICENSE)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Map0u/Zinc/ci.yml?branch=main&style=flat-square)](https://github.com/Map0u/Zinc/actions)
 
-- Vertical terminal tabs with create, rename, duplicate, and close flows.
-- Auto-detected shells — PowerShell 7, Windows PowerShell, Command Prompt,
-  Git Bash, and installed WSL distributions — backed by ConPTY through
-  `node-pty` and xterm.js, with a per-tab shell picker and a configurable
-  default.
-- Acrylic-style frameless Windows UI with light/dark and accent-aware settings.
-- Configurable fonts, colors, opacity, shortcuts, zoom, scrollback, and session
-  restore.
-- Clipboard image paste, clickable web links, and new or duplicated tabs that
-  try to inherit the current working directory; later shell directory changes
-  may not be reflected.
-- Per-user Windows NSIS setup and an optional GitHub Releases update flow.
-- English and Simplified Chinese interface resources.
+Zinc is a terminal for Windows 10/11, designed for developers who want a clean, efficient, and highly integrated command-line workspace. It pairs a deliberate vertical-tab layout with a focused feature set—powerful where it matters, quiet where it does not.
 
-Zinc intentionally does not provide cloud sync, accounts, a plugin platform,
-pane splitting, or built-in SSH profile management.
+**[Download from the official website](https://zincli.org)** · **[GitHub Releases](https://github.com/Map0u/Zinc/releases/latest)**
 
-## Requirements
+---
 
-- Zinc 0.6.1 supports Windows only: Windows 10 or Windows 11, x64. No other
-  platform is planned.
-- [PowerShell 7](https://github.com/PowerShell/PowerShell) is the recommended
-  default shell. When it is not installed, Zinc automatically falls back to
-  Windows PowerShell or Command Prompt.
-- Git Bash and WSL are optional shells: they appear only when you have already
-  installed them yourself.
-- A normal per-user installation does not require Zinc to run as administrator,
-  and does not require a separate Node.js installation.
+## Design Philosophy
 
-## Install
+Zinc is built on a clear set of principles:
 
-Download `Zinc-<version>-Setup.exe` (the NSIS installer) from the repository's
-GitHub Releases page. That is the only Windows installer Zinc ships.
+*   **Simplicity by Design:** A terminal should be powerful yet uncluttered. Zinc ships the essentials and refuses the rest.
+*   **Aesthetic Integration:** A frameless Acrylic-style window and a vertical tab rail that feels at home on a modern Windows desktop.
+*   **Local-First Privacy:** Zero analytics telemetry. Settings, session metadata, and pasted images stay on your machine. Optional update checks contact GitHub Releases only.
 
-Zinc is not code-signed, so Microsoft Defender SmartScreen will block the first
-run. Download `SHA256SUMS.txt` from the same release, run
-`Get-FileHash .\Zinc-<version>-Setup.exe -Algorithm SHA256` in your download
-folder, and compare it against the line for that exact filename. Run the file
-only if the values match; delete it if they do not.
+## Key Features
 
-## Development
+*   **Vertical Tab Bar:** Manage many sessions with full names visible—no guessing behind ellipses.
+*   **Automatic Shell Detection:** PowerShell 7, Windows PowerShell, CMD, Git Bash, and installed WSL distributions.
+*   **Modern Aesthetics:** Frameless Acrylic-style chrome, themes, and opacity controls.
+*   **Deep Customization:** Fonts, colors, shortcuts, zoom, scrollback, and more.
+*   **Session Persistence:** Restore tab order and working directories after a restart.
+*   **Intelligent Interaction:**
+    *   **Clickable Links:** Open URLs in your system browser.
+    *   **Image Paste:** Paste clipboard images as local paths into the active terminal.
+    *   **Continuation Assistance:** A local-only helper that can type `claude --continue` or `grok --continue` for you—no AI core, no upload of terminal content.
+*   **Optional Updates:** Quiet checks against GitHub Releases when enabled.
+*   **Multilingual UI:** English and Simplified Chinese.
 
-Install Node.js 22.12 or newer, then run the following commands in PowerShell:
+## What Zinc Will Not Do
 
-```powershell
-cd app
-npm ci
-npm run typecheck
-npm run build
-npm run dev
-```
+To maintain its focus on being a lean and fast terminal, Zinc deliberately avoids certain features:
 
-Windows packaging is also run from `app/`:
+*   Cloud Sync & User Accounts
+*   Plugin Marketplace or Extension APIs
+*   Split Panes (focus is on tab/window management)
+*   Built-in SSH Profile Management
 
-```powershell
-npm run dist
-```
+## Installation
 
-See [Contributing](CONTRIBUTING.md), [Architecture](docs/ARCHITECTURE.md), and
-[Troubleshooting](docs/TROUBLESHOOTING.md) before making larger changes.
+1.  Navigate to the [**official website**](https://zincli.org) or the [**Releases**](https://github.com/Map0u/Zinc/releases/latest) page.
+2.  Download the `Zinc-0.6.4-Setup.exe` installer.
+3.  Run the installer.
+
+> **Note on Windows SmartScreen:**
+> The application is not code-signed. As a result, Windows SmartScreen will likely display a warning. To proceed, click "More info" and then "Run anyway".
+>
+> To verify the integrity of the installer, you can compare its SHA256 hash with the one provided in `SHA256SUMS` on the release page. Open PowerShell and run the following command:
+>
+> ```powershell
+> Get-FileHash .\Zinc-0.6.4-Setup.exe -Algorithm SHA256
+> ```
 
 ## Privacy and Security
 
-Zinc has no built-in analytics or advertising telemetry. Settings, restored
-session metadata, and pasted clipboard images are stored locally. Terminal
-commands and child processes can still access the network, and checking for
-updates contacts GitHub Releases. Read [Privacy](PRIVACY.md) for the complete
-data boundary and [Security](SECURITY.md) before reporting a vulnerability.
+Zinc is designed with your privacy as a top priority.
 
-Never attach unredacted terminal screenshots, logs, configuration files, or
-session state to a public issue. They can contain usernames, paths, commands,
-tokens, hostnames, and working directories.
+*   **Zero Telemetry:** The application collects no analytics or usage data.
+*   **Local Data Storage:** All settings, session metadata, and pasted image data are stored exclusively on your local machine.
+*   **Network Activity:**
+    *   Zinc itself only connects to the internet to check for updates from the GitHub Releases API, an optional feature.
+    *   The terminal subprocesses (e.g., PowerShell, WSL, curl) can access the network as they normally would.
+*   **No AI, No Uploads:** The session continuation feature is a simple command-typing macro and does not involve any AI models or upload your terminal contents.
 
-## Documentation
+For more details, see [Privacy](./PRIVACY.md) and [Security](./SECURITY.md).
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Installer behavior](docs/INSTALLER.md)
-- [Release process](docs/RELEASE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Support](SUPPORT.md)
-- [Third-party notices](THIRD_PARTY_NOTICES.md)
-- [Changelog](CHANGELOG.md)
+## For Developers
+
+### Prerequisites
+
+*   Node.js ≥22.12
+*   Windows 10/11 x64
+
+### Getting Started
+
+The active application lives in [`app/`](./app/). The `archive/` directory keeps isolated historical experiments only—not a second product tree.
+
+```powershell
+# Clone the repository
+git clone https://github.com/Map0u/Zinc.git
+cd Zinc/app
+
+# Install dependencies
+npm ci
+
+# Run type-checking
+npm run typecheck
+
+# Start the development server
+npm run dev
+
+# Build the application
+npm run build
+
+# Package the application for distribution
+npm run dist
+```
+
+Contributions are welcome. Read [Contributing](./CONTRIBUTING.md), [Architecture](./docs/ARCHITECTURE.md), and [Troubleshooting](./docs/TROUBLESHOOTING.md) before larger changes.
 
 ## License
 
-Zinc is distributed under the [GNU Affero General Public License v3.0 only](LICENSE).
-Third-party components remain under their respective licenses; see
-[Third-party notices](THIRD_PARTY_NOTICES.md).
+This project is licensed under the [AGPL-3.0-only](./LICENSE).
+
+---
+
+[Official Website](https://zincli.org) | [GitHub Repository](https://github.com/Map0u/Zinc)
