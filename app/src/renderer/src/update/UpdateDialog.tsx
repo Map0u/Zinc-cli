@@ -35,14 +35,10 @@ export function UpdateDialog() {
 
   let primaryLabel = t('UpdateDialogActionUpdate')
   if (state.status === 'checking') primaryLabel = t('AboutUpdateChecking')
-  else if (state.status === 'downloading') {
-    primaryLabel =
-      percent === null
-        ? t('AboutUpdateDownloading')
-        : `${t('AboutUpdateDownloading')} ${percent}%`
+  else if (state.status === 'downloading' || state.status === 'available') {
+    primaryLabel = t('UpdateDialogActionDownloading')
   } else if (state.status === 'downloaded') primaryLabel = t('UpdateDialogActionRestart')
   else if (state.status === 'error') primaryLabel = t('UpdateDialogActionRetry')
-  else if (state.status === 'available') primaryLabel = t('UpdateDialogActionDownloading')
 
   function onPrimary(): void {
     if (canInstall) {
@@ -83,7 +79,7 @@ export function UpdateDialog() {
   const fallbackNotes = t('UpdateDialogNotesFallback')
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-5 py-6">
+    <div className="zinc-dialog-backdrop">
       <div
         ref={dialogRef}
         role="dialog"
@@ -92,7 +88,7 @@ export function UpdateDialog() {
         data-testid="update-dialog"
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="flex max-h-[min(720px,calc(100vh-3rem))] w-full max-w-[560px] flex-col rounded-lg border border-card-border bg-card-bg shadow-2xl focus:outline-none"
+        className="zinc-dialog-surface flex max-h-[min(640px,calc(100vh-3rem))] w-full max-w-[640px] flex-col focus:outline-none"
       >
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-card-border px-5">
           <h2 id="update-dialog-title" className="text-[14px] font-semibold text-fg-primary">

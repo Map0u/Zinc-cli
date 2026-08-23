@@ -58,8 +58,21 @@ function decodeBasicEntities(value: string): string {
 }
 
 /**
- * Prefer local bilingual bullets; fall back to stripped remote notes; else empty
- * text (UI shows i18n fallback).
+ * GitHub Release bodies often include installer filenames, hashes, and the
+ * product pitch. Those belong on the release page, not in the in-app dialog.
+ */
+export function looksLikeReleaseAssetDump(text: string): boolean {
+  if (!text) return false
+  if (text.length > 600) return true
+  if (text.split('\n').filter((line) => line.trim()).length > 10) return true
+  return /SHA-?256|Get-FileHash|Which file do I download|checksum|Zinc-[\d.]+-Setup\.exe/i.test(
+    text
+  )
+}
+
+/**
+ * Prefer local bilingual bullets; keep short remote notes; drop installer
+ * dumps. Empty text lets the UI show the i18n fallback.
  */
 export function resolveUpdateNotes(
   version: string | null | undefined,
@@ -72,7 +85,7 @@ export function resolveUpdateNotes(
   }
 
   const stripped = stripReleaseNotesHtml(releaseNotes)
-  if (stripped) {
+  if (stripped && !looksLikeReleaseAssetDump(stripped)) {
     return { kind: 'text', text: stripped }
   }
 

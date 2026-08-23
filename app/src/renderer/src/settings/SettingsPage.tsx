@@ -892,12 +892,7 @@ const PROJECT_URLS = {
   thirdParty: 'https://github.com/Map0u/Zinc-cli/blob/main/THIRD_PARTY_NOTICES.md'
 } as const
 
-/** Bespoke hero layout (not `Card`, which is a label-left/control-right settings row and
- * reads wrong for an About page). Icon top-left, name top-right on the same row (the icon
- * already reads as "Z" — no separate wordmark needed), tagline+version below, and the
- * runtime versions actually available via preload's `process.versions` as a full-width
- * stat row at the bottom — no invented fields (no author/license/repo — not present in
- * package.json). */
+/** Product mark + version + update action. Legal and runtime dump stay off this page. */
 function AboutSection() {
   const { t, language } = useI18n()
   const { state: updateState, check, install, busy: updateBusy, openDialog } = useUpdate()
@@ -905,13 +900,6 @@ function AboutSection() {
   const changelogDialogRef = useRef<HTMLDivElement>(null)
   const changelogCloseRef = useRef<HTMLButtonElement>(null)
   const changelogReturnFocusRef = useRef<HTMLElement | null>(null)
-  const versions = window.zinc.versions
-  const runtimeCols: Array<[string, string]> = [
-    ['Electron', versions.electron],
-    ['Chromium', versions.chrome],
-    ['Node.js', versions.node],
-    ['V8', versions.v8]
-  ]
 
   useEffect(() => {
     if (!isChangelogOpen) return
@@ -984,86 +972,73 @@ function AboutSection() {
   return (
     <>
     <LanguageCard />
-    <div className="rounded-lg border border-card-border bg-card-bg px-10 py-8">
-      <div className="flex items-center justify-between">
-        <img src={zincIcon} alt="Zinc" className="h-14 w-14 rounded-xl shadow-lg" draggable={false} />
-        <div className="text-2xl font-semibold text-fg-primary">Zinc</div>
-      </div>
-
-      <div className="mt-5 flex flex-col gap-1">
-        <div className="text-[13px] text-fg-secondary">{t('CardAboutTagline')}</div>
-        <div className="text-[13px] text-fg-secondary">
+    <div className="rounded-lg border border-card-border bg-card-bg px-10 py-12" data-testid="about-page">
+      <div className="flex flex-col items-center text-center">
+        <img
+          src={zincIcon}
+          alt="Zinc"
+          className="h-16 w-16 rounded-[14px/8px] shadow-lg"
+          draggable={false}
+        />
+        <div className="mt-5 text-[22px] font-semibold tracking-tight text-fg-primary">Zinc</div>
+        <div className="mt-1.5 text-[13px] text-fg-secondary">{t('CardAboutTagline')}</div>
+        <div className="mt-3 text-[12px] tracking-wide text-fg-tertiary">
           {t('CardAboutVersion')} {window.zinc.version}
         </div>
       </div>
 
-      <div className="mt-5">
+      <div className="mx-auto mt-10 max-w-sm border-t border-card-border pt-6 text-center">
+        <div className="text-[12px] text-fg-primary">{t('AboutUpdatesTitle')}</div>
+        <div className="mt-1 text-[11px] text-fg-tertiary">{updateLabel}</div>
+        <button
+          type="button"
+          data-testid="about-update-primary"
+          disabled={primaryDisabled && !canInstall}
+          onClick={onUpdatePrimary}
+          className="mt-4 rounded border border-card-border bg-control-bg px-3 py-1.5 text-[12px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
+        >
+          {primaryLabel}
+        </button>
+      </div>
+
+      <div className="mt-8 flex flex-col items-center gap-3">
         <button
           type="button"
           onClick={() => setIsChangelogOpen(true)}
           aria-haspopup="dialog"
-          className="rounded border border-card-border bg-control-bg px-3 py-1.5 text-[12px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded text-[12px] text-fg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {t('AboutChangelogButton')}
         </button>
-      </div>
-
-      <div className="mt-5 rounded border border-card-border bg-control-bg px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-semibold text-fg-primary">{t('AboutUpdatesTitle')}</div>
-            <div className="mt-0.5 text-[11px] text-fg-tertiary">{updateLabel}</div>
-          </div>
-          <button
-            type="button"
-            data-testid="about-update-primary"
-            disabled={primaryDisabled && !canInstall}
-            onClick={onUpdatePrimary}
-            className="rounded border border-card-border bg-control-bg px-3 py-1.5 text-[12px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
-          >
-            {primaryLabel}
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-6 grid grid-cols-4 gap-6 border-t border-card-border pt-4">
-        {runtimeCols.map(([label, value]) => (
-          <div key={label} className="flex flex-col gap-0.5">
-            <div className="text-[11px] uppercase tracking-wide text-fg-tertiary">{label}</div>
-            <div className="truncate text-[12px] text-fg-secondary">{value}</div>
-          </div>
-        ))}
-      </div>
-
-      <section className="mt-6 border-t border-card-border pt-4" aria-labelledby="about-legal-title">
-        <h3 id="about-legal-title" className="text-[12px] font-semibold text-fg-primary">
-          {t('AboutLegalTitle')}
-        </h3>
-        <p className="mt-2 text-[11px] leading-5 text-fg-secondary">Copyright © 2026 Zinc contributors</p>
-        <p className="text-[11px] leading-5 text-fg-secondary">{t('AboutLicenseNotice')}</p>
-        <p className="text-[11px] leading-5 text-fg-secondary">{t('AboutWarrantyNotice')}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <nav className="flex flex-wrap items-center justify-center" aria-label={t('AboutLegalTitle')}>
           {(
             [
-              ['AboutSourceLink', PROJECT_URLS.source],
               ['AboutLicenseLink', PROJECT_URLS.license],
+              ['AboutSourceLink', PROJECT_URLS.source],
               ['AboutThirdPartyLink', PROJECT_URLS.thirdParty]
             ] as Array<[LocaleKey, string]>
-          ).map(([labelKey, url]) => (
-            <button
-              key={url}
-              type="button"
-              onClick={() => void window.zinc.shell.openExternal(url)}
-              className="rounded border border-card-border bg-control-bg px-3 py-1.5 text-[11px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              {t(labelKey)}
-            </button>
+          ).map(([labelKey, url], index) => (
+            <span key={url} className="flex items-center">
+              {index > 0 ? (
+                <span aria-hidden="true" className="px-2.5 text-[11px] text-fg-tertiary">
+                  ·
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void window.zinc.shell.openExternal(url)}
+                className="rounded text-[11px] text-fg-tertiary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {t(labelKey)}
+              </button>
+            </span>
           ))}
-        </div>
-      </section>
+        </nav>
+        <p className="text-[11px] text-fg-tertiary">Copyright © 2026 Zinc contributors</p>
+      </div>
 
       {isChangelogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-5 py-6">
+        <div className="zinc-dialog-backdrop">
           <div
             ref={changelogDialogRef}
             role="dialog"
@@ -1071,7 +1046,7 @@ function AboutSection() {
             aria-labelledby="about-changelog-title"
             tabIndex={-1}
             onKeyDown={handleChangelogKeyDown}
-            className="flex max-h-[min(720px,calc(100vh-3rem))] w-full max-w-[760px] flex-col rounded-lg border border-card-border bg-card-bg shadow-2xl focus:outline-none"
+            className="zinc-dialog-surface flex max-h-[min(640px,calc(100vh-3rem))] w-full max-w-[640px] flex-col focus:outline-none"
           >
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-card-border px-5">
               <h2 id="about-changelog-title" className="text-[14px] font-semibold text-fg-primary">

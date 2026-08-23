@@ -98,11 +98,16 @@ test('resolveUpdateNotes uses English local bullets when language is en', () => 
   assert.ok(notes.items.some((item) => /copy polish|tagline|resume/i.test(item)))
 })
 
-test('resolveUpdateNotes strips remote HTML when no local entry exists', () => {
+test('resolveUpdateNotes ignores remote GitHub asset dumps when no local entry exists', () => {
   const notes = resolveUpdateNotes('9.9.9', SAMPLE_GITHUB_HTML, 'zh')
   assert.equal(notes.kind, 'text')
-  assert.ok(notes.text.includes('Copy polish'))
-  assert.ok(!/<[a-zA-Z/!]/.test(notes.text))
+  assert.equal(notes.text, '')
+})
+
+test('resolveUpdateNotes keeps short remote notes when no local entry exists', () => {
+  const notes = resolveUpdateNotes('9.9.9', '<p>Fixed the update dialog overlap.</p>', 'en')
+  assert.equal(notes.kind, 'text')
+  assert.equal(notes.text, 'Fixed the update dialog overlap.')
 })
 
 test('resolveUpdateNotes returns empty text when both sources are missing', () => {
