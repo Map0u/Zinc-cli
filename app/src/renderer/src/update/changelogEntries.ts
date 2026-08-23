@@ -8,6 +8,20 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.6',
+    date: '2026-08-23',
+    zh: [
+      '更新弹窗和更新日志改为不透明底板，关于页文字不再透上来叠在一起。',
+      '关于页只保留标志、版本、检查更新和底部链接，去掉运行时版本格和法律长文。',
+      '没有本地摘要时，不再把 GitHub 安装包名和校验和整段塞进更新弹窗。'
+    ],
+    en: [
+      'Update and changelog dialogs use an opaque surface so About text no longer shows through.',
+      'About keeps the mark, version, update action, and quiet legal links; the runtime grid and warranty paragraphs are gone.',
+      'GitHub installer names and checksums are no longer dumped into the update dialog when local notes are missing.'
+    ]
+  },
+  {
     version: '0.6.5',
     date: '2026-08-23',
     zh: [

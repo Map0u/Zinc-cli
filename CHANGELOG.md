@@ -6,6 +6,21 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-08-23
+
+### Fixed
+
+- Update and changelog dialogs use an opaque popup surface so About text no
+  longer shows through the modal.
+- Remote GitHub Release asset dumps (installer names, checksums, download
+  instructions) are no longer shown in the update dialog when local notes are
+  missing.
+
+### Changed
+
+- About page keeps the product mark, version, update action, and quiet legal
+  links. The Electron/Chromium/Node/V8 grid and warranty paragraphs are gone.
+
 ## [0.6.5] - 2026-08-23
 
 ### Fixed

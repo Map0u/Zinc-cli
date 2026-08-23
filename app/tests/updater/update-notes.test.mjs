@@ -131,3 +131,11 @@ test('changelogEntries includes 0.6.5 for About and the update dialog', () => {
   assert.ok(entry.zh.length >= 1)
   assert.ok(entry.en.length >= 1)
 })
+
+test('changelogEntries includes 0.6.6 for About and the update dialog', () => {
+  const entry = CHANGELOG_ENTRIES.find((item) => item.version === '0.6.6')
+  assert.ok(entry)
+  assert.equal(entry.date, '2026-08-23')
+  assert.ok(entry.zh.length >= 1)
+  assert.ok(entry.en.length >= 1)
+})

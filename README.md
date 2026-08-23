@@ -51,7 +51,7 @@ To maintain its focus on being a lean and fast terminal, Zinc deliberately avoid
 ## Installation
 
 1.  Navigate to the [**official website**](https://zincli.org) or the [**Releases**](https://github.com/Map0u/Zinc-cli/releases/latest) page.
-2.  Download the `Zinc-0.6.5-Setup.exe` installer.
+2.  Download the `Zinc-0.6.6-Setup.exe` installer.
 3.  Run the installer.
 
 > **Note on Windows SmartScreen:**
@@ -60,7 +60,7 @@ To maintain its focus on being a lean and fast terminal, Zinc deliberately avoid
 > To verify the integrity of the installer, you can compare its SHA256 hash with the one provided in `SHA256SUMS` on the release page. Open PowerShell and run the following command:
 >
 > ```powershell
-> Get-FileHash .\Zinc-0.6.5-Setup.exe -Algorithm SHA256
+> Get-FileHash .\Zinc-0.6.6-Setup.exe -Algorithm SHA256
 > ```
 
 ## Privacy and Security
