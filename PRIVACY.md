@@ -25,11 +25,12 @@ They are not intended for source control or public bug reports.
 ## Local process inspection for session restore
 
 When session restore and optional AI conversation resume are enabled, Zinc may
-briefly inspect the process tree of a terminal tab at quit time to record
-whether Claude or Codex was running and which working directory to restore.
-That inspection is local, does not upload results, and is not continuous
-polling. Turning off session restore or AI conversation resume reduces what is
-recorded.
+inspect the process tree of a terminal tab on a short running-app interval and
+again at quit, to record whether Claude, Codex, or Grok Build was running and
+which working directory to restore. Tab-list changes rewrite the local snapshot
+without repeating that process-tree scan. The inspection is local and does not
+upload results. Turning off session restore or AI conversation resume reduces
+what is recorded.
 
 ## Network Activity
 
@@ -67,8 +68,8 @@ ignored by Git and must never be committed.
 ## Your Choices
 
 - Disable session restore if working-directory persistence is unwanted.
-- Disable AI conversation resume if quit-time process-tree inspection for
-  Claude/Codex resume commands is unwanted.
+- Disable AI conversation resume if local process-tree inspection for
+  Claude/Codex/Grok resume commands is unwanted.
 - Delete pasted images and Zinc's local user-data directory when they are no
   longer needed; do not rely on startup cleanup for urgent deletion.
 - Prefer a development (unpackaged) build if you do not want Zinc to contact

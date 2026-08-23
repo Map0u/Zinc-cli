@@ -17,6 +17,8 @@ export interface SessionTabState {
   Tool: SessionTool
   /** Stable shell id, absent in session files written before multi-shell support. */
   ShellId?: string
+  /** Codex session id when persist saw `codex resume <id>` on the process command line. */
+  SessionId?: string
 }
 
 /** Full shape of `session-state.json` (parity §2.4). */

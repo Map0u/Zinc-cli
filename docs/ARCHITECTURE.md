@@ -27,9 +27,12 @@ first-class shell; alternative executables can be configured by the user.
 ## Local Persistence
 
 `SettingsService` stores normalized settings in Electron's per-user `userData`
-directory. `SessionStateService` stores tab order, active tab, and working
-directories for optional restore. Clipboard images are saved under a local
-`PastedImages` directory. See [`../PRIVACY.md`](../PRIVACY.md).
+directory. `SessionStateService` stores tab order, active tab, working
+directories, and last-seen AI CLI metadata for optional restore. The snapshot
+is rewritten on a short running-app interval, after tab-list changes, and on
+quit, so a crash or power loss does not depend on a clean `before-quit`.
+Clipboard images are saved under a local `PastedImages` directory. See
+[`../PRIVACY.md`](../PRIVACY.md).
 
 Zinc keeps a single-instance lock because settings and session state are not
 multi-writer stores.

@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Session restore now writes `session-state.json` on a running-app interval and
+  after tab changes, keeps last-known working directories / AI tools when a
+  scan misses, and no longer types `codex resume --last` into every Codex tab.
+
 ## [0.6.4] - 2026-08-02
 
 ### Fixed

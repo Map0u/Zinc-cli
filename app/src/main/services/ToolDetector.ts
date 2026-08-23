@@ -22,6 +22,8 @@ export interface ActiveToolMatch {
   pid: number;
   /** WSL means Windows paths typed into this process must use /mnt/<drive>. */
   runtime: "native" | "wsl";
+  /** Command line that identified this tool; used to extract a Codex session id. */
+  commandLine: string;
 }
 
 interface WindowsProcessApi {
@@ -208,11 +210,14 @@ function belongsToWsl(
 /**
  * Finds a supported CLI below a terminal shell. Command lines are read only
  * for descendants and only until a match is found. AI_CLI_TOOLS order is the
- * priority when more than one tool is present under the same shell.
+ * priority when more than one tool is present under the same shell, except
+ * that `preferredTool` (a tab's last-known tool) is searched first so a
+ * leftover `claude` cannot hijack a Grok/Codex tab.
  */
 export function detectActiveToolMatch(
   shellPid: number | null,
   rows = snapshotProcesses(),
+  preferredTool?: AiCliTool | null,
 ): ActiveToolMatch | null {
   if (
     !Number.isSafeInteger(shellPid) ||
@@ -230,8 +235,11 @@ export function detectActiveToolMatch(
     return commandLines.get(pid) ?? null;
   };
 
-  // Walk tools in priority order, then candidates — same semantics as before.
-  for (const tool of AI_CLI_TOOLS) {
+  const tools = preferredTool
+    ? [preferredTool, ...AI_CLI_TOOLS.filter((tool) => tool !== preferredTool)]
+    : AI_CLI_TOOLS;
+
+  for (const tool of tools) {
     for (const candidate of candidates) {
       const commandLine = commandFor(candidate.pid);
       if (!commandLine) continue;
@@ -242,6 +250,7 @@ export function detectActiveToolMatch(
           runtime: belongsToWsl(candidate, commandLine, rowsByPid, shellPid!)
             ? "wsl"
             : "native",
+          commandLine,
         };
       }
     }

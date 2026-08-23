@@ -2,34 +2,57 @@ import { existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { SessionTool } from '../../shared/sessionState'
 import type { RestorePayload, RestoreTab, SessionState, SessionTabState } from '../../shared/sessionState'
+import {
+  mergeTabPersistState,
+  shouldWriteSessionSnapshot,
+  startupCommandForRestore,
+  type LastKnownTab
+} from '../../shared/sessionPersist'
 import { atomicWriteFileSync } from './atomicWrite'
 
-/**
- * Resume command for a detected AI CLI — passed as a single node-pty argv
- * element (see PtyManager), never string-concatenated, so this is immune to
- * the WinUI original's unescaped-injection bug (parity §1.4).
- *
- * - Codex: `codex resume --last`
- * - Claude: `claude --continue`
- * - Grok Build: `grok --continue` (most recent session for the cwd; see
- *   `grok --help` / `-c, --continue`)
- */
-function startupCommandFor(tool: unknown): string | undefined {
-  if (tool === SessionTool.Codex) return 'codex resume --last'
-  if (tool === SessionTool.Claude) return 'claude --continue'
-  if (tool === SessionTool.Grok) return 'grok --continue'
-  return undefined
+export type PersistToolMatch = { tool: SessionTool; pid: number; sessionId?: string }
+
+export interface PersistOptions {
+  budgetMs?: number
+  /** Expensive process-tree scan. Tab-list debounce passes set this false. */
+  scanTools?: boolean
+  /** Empty tab lists may overwrite the file only on the unified quit path. */
+  quitting?: boolean
+}
+
+function toTabState(id: string, shellId: string | undefined, known: LastKnownTab): SessionTabState {
+  return {
+    WorkingDirectory: known.cwd,
+    Tool: known.tool,
+    ...(shellId ? { ShellId: shellId } : {}),
+    ...(known.sessionId ? { SessionId: known.sessionId } : {})
+  }
 }
 
 /**
  * Owns `session-state.json` (in `app.getPath('userData')`): reads it back into
- * a restore plan at startup, and writes a fresh snapshot on every unified
- * quit (see `before-quit` in main/index.ts — parity §1.1's "close last tab"
- * bug is fixed by routing that path through the same quit flow, so an empty
- * tab list gets persisted here too, not silently dropped).
+ * a restore plan at startup, and writes snapshots on a running-app timer,
+ * after tab-list changes, and on the unified quit path (see `before-quit` in
+ * main/index.ts). Closing the last tab still routes through that quit flow so
+ * an empty tab list is persisted instead of being silently dropped.
  */
 export class SessionStateService {
+  private readonly lastKnown = new Map<string, LastKnownTab>()
+
   constructor(private readonly filePath: string) {}
+
+  /** Last-known row for a live tab, used to prefer that tool during detection. */
+  peekLastKnown(id: string): LastKnownTab | undefined {
+    return this.lastKnown.get(id)
+  }
+
+  /** Drop sticky state for tabs that are no longer in the renderer snapshot. */
+  pruneLastKnown(liveIds: readonly string[]): void {
+    const live = new Set(liveIds)
+    for (const id of [...this.lastKnown.keys()]) {
+      if (!live.has(id)) this.lastKnown.delete(id)
+    }
+  }
 
   /**
    * `null` means "don't restore" — startup should fall back to the normal
@@ -47,15 +70,22 @@ export class SessionStateService {
       const tabsRaw = Array.isArray(raw.Tabs) ? raw.Tabs : []
       if (tabsRaw.length === 0) return null
 
-      const tabs: RestoreTab[] = tabsRaw.map((t) => {
+      const activeIndex =
+        typeof raw.ActiveIndex === 'number' && raw.ActiveIndex >= 0 && raw.ActiveIndex < tabsRaw.length
+          ? raw.ActiveIndex
+          : 0
+
+      const tabs: RestoreTab[] = tabsRaw.map((t, index) => {
         const cwd = typeof t?.WorkingDirectory === 'string' && t.WorkingDirectory.length > 0 ? t.WorkingDirectory : homedir()
-        const startupCommand = resumeAiConversations ? startupCommandFor(t?.Tool) : undefined
         const shellId = typeof t?.ShellId === 'string' && t.ShellId.length > 0 ? t.ShellId : undefined
+        const sessionId = typeof t?.SessionId === 'string' && t.SessionId.length > 0 ? t.SessionId : undefined
+        const startupCommand = startupCommandForRestore(t?.Tool, {
+          resumeAi: resumeAiConversations,
+          sessionId,
+          allowCodexLast: t?.Tool === SessionTool.Codex && index === activeIndex
+        })
         return { cwd, shellId, ...(startupCommand ? { startupCommand } : {}) }
       })
-
-      const activeIndex =
-        typeof raw.ActiveIndex === 'number' && raw.ActiveIndex >= 0 && raw.ActiveIndex < tabs.length ? raw.ActiveIndex : 0
 
       return { tabs, activeIndex }
     } catch (err) {
@@ -72,6 +102,7 @@ export class SessionStateService {
    * shutdown.
    */
   clear(): void {
+    this.lastKnown.clear()
     try {
       if (existsSync(this.filePath)) unlinkSync(this.filePath)
     } catch (err) {
@@ -82,79 +113,96 @@ export class SessionStateService {
   }
 
   /**
-   * Best-effort snapshot + write, budgeted to `budgetMs` total (parity §1.4:
-   * "2 秒超时保护，超时退化为只存 shell cwd"). `resolveShellCwd` (a single PEB
-   * read) is cheap; `resolveToolMatch` (a full process-tree snapshot + BFS per
-   * tab) is the expensive part, so once the deadline passes remaining tabs
-   * just skip AI-tool detection (and therefore the AI-child cwd read) rather
-   * than skipping the whole tab — falling back to the shell's own cwd exactly
-   * matches "超时退化为只存 shell cwd".
+   * Best-effort snapshot + write. Tool detection is budgeted to `budgetMs`
+   * when `scanTools` is on (parity §1.4: timeout degrades to last-known /
+   * shell cwd instead of Tool.None). Cheap tab-list persists skip the scan
+   * and rewrite last-known rows so a crash still has a recent tab order.
    *
-   * cwd priority when a tool *is* detected in time (parity §1.4: "cwd 优先级：
-   * AI 子进程 cwd > shell cwd"): the AI child's own cwd wins over the shell's,
-   * since a plain `cd`/`Set-Location` never updates pwsh's PEB cwd (parity §3
-   * known issue #4) but a codex/claude child spawned mid-session does reflect
-   * wherever the user actually was.
+   * Dead PTYs and failed scans keep last-known cwd/tool. An all-fallback
+   * snapshot (every tab is homedir + Tool.None with no prior sticky state)
+   * is not written over a good file. Empty tab lists write only on quit.
    */
   persist(
     tabsSnapshot: Array<{ id: string; shellId?: string }>,
     activeIndex: number,
     resolveShellCwd: (id: string) => string | null,
-    resolveToolMatch: (id: string) => { tool: SessionTool; pid: number } | null,
+    resolveToolMatch: (id: string) => PersistToolMatch | null,
     resolveAiCwd: (pid: number) => string | null,
-    budgetMs = 2000
-  ): void {
-    const deadline = Date.now() + budgetMs
-    // Every resolver call below reaches into native process inspection
-    // (koffi/PEB reads via ToolDetector/getProcessCwd) that can throw for
-    // reasons unrelated to this tab's own data (a stale pid, a process that
-    // exited mid-snapshot, a native-call error) — each call is individually
-    // guarded so one tab's failure degrades only that tab to its cheapest
-    // known-good fallback (shell cwd / Tool.None) rather than aborting the
-    // whole persist (and, upstream, the rest of before-quit's cleanup).
+    options: PersistOptions = {}
+  ): boolean {
+    const fallbackCwd = homedir()
+    const scanTools = options.scanTools !== false
+    const quitting = options.quitting === true
+    const deadline = Date.now() + (scanTools ? (options.budgetMs ?? 2000) : 0)
+
+    this.pruneLastKnown(tabsSnapshot.map((tab) => tab.id))
+
+    let usedFallbackCount = 0
     const tabs: SessionTabState[] = tabsSnapshot.map(({ id, shellId }) => {
-      let shellCwd: string
+      let shellCwd: string | null = null
       try {
-        shellCwd = resolveShellCwd(id) ?? homedir()
+        shellCwd = resolveShellCwd(id)
       } catch {
-        shellCwd = homedir()
+        shellCwd = null
       }
 
-      if (Date.now() >= deadline) {
-        return { WorkingDirectory: shellCwd, Tool: SessionTool.None, ...(shellId ? { ShellId: shellId } : {}) }
+      const known = this.lastKnown.get(id)
+      const withinBudget = scanTools && Date.now() < deadline
+      let match: PersistToolMatch | null = null
+      if (withinBudget) {
+        try {
+          match = resolveToolMatch(id)
+        } catch {
+          match = null
+        }
       }
 
-      let match: { tool: SessionTool; pid: number } | null
-      try {
-        match = resolveToolMatch(id)
-      } catch {
-        match = null
-      }
-      if (!match) return { WorkingDirectory: shellCwd, Tool: SessionTool.None, ...(shellId ? { ShellId: shellId } : {}) }
-
-      // resolveToolMatch() itself (full process-tree snapshot + PEB reads) can
-      // burn most/all of the budget, so re-check the deadline before the last
-      // expensive read (resolveAiCwd) rather than only before resolveToolMatch —
-      // otherwise before-quit could still block well past budgetMs.
-      if (Date.now() >= deadline) {
-        return { WorkingDirectory: shellCwd, Tool: SessionTool.None, ...(shellId ? { ShellId: shellId } : {}) }
+      let aiCwd: string | null = null
+      if (match && Date.now() < deadline) {
+        try {
+          aiCwd = resolveAiCwd(match.pid)
+        } catch {
+          aiCwd = null
+        }
       }
 
-      let aiCwd: string | null
-      try {
-        aiCwd = resolveAiCwd(match.pid)
-      } catch {
-        aiCwd = null
-      }
-      return { WorkingDirectory: aiCwd ?? shellCwd, Tool: match.tool, ...(shellId ? { ShellId: shellId } : {}) }
+      const merged = mergeTabPersistState(
+        {
+          shellCwd,
+          match: match ? { tool: match.tool, sessionId: match.sessionId } : null,
+          aiCwd,
+          scannedTool: withinBudget
+        },
+        known,
+        fallbackCwd
+      )
+
+      if (merged.usedFallbackOnly) usedFallbackCount += 1
+      else this.lastKnown.set(id, merged.state)
+
+      return toTabState(id, shellId, merged.state)
     })
+
+    const allDegradedToFallback = tabsSnapshot.length > 0 && usedFallbackCount === tabsSnapshot.length
+    if (
+      !shouldWriteSessionSnapshot({
+        snapshotReady: true,
+        tabCount: tabsSnapshot.length,
+        quitting,
+        allDegradedToFallback
+      })
+    ) {
+      return false
+    }
 
     const state: SessionState = { Tabs: tabs, ActiveIndex: activeIndex }
     try {
       atomicWriteFileSync(this.filePath, JSON.stringify(state, null, 2))
+      return true
     } catch (err) {
-      // Best-effort write — a failed save must not block quitting.
+      // Best-effort write — a failed save must not block quitting or the timer.
       console.error(`[SessionStateService] failed to persist ${this.filePath}`, err)
+      return false
     }
   }
 }

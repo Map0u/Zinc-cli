@@ -86,7 +86,8 @@ test('restore injects grok --continue for Grok tabs when resume is enabled', () 
     assert.ok(payload)
     assert.equal(payload.tabs[0].startupCommand, 'grok --continue')
     assert.equal(payload.tabs[1].startupCommand, 'claude --continue')
-    assert.equal(payload.tabs[2].startupCommand, 'codex resume --last')
+    // Active tab is Grok, so the Codex tab must not also run global --last.
+    assert.equal(payload.tabs[2].startupCommand, undefined)
     assert.equal(payload.tabs[3].startupCommand, undefined)
 
     const noResume = service.loadRestorePayload(true, false)

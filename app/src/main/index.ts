@@ -36,6 +36,8 @@ import type {
 import type { SettingsPatch, ZincSettings } from "../shared/settingsTypes";
 import { SessionTool } from "../shared/sessionState";
 import type { RendererSessionSnapshot } from "../shared/sessionState";
+import { extractCodexSessionId } from "../shared/sessionPersist";
+import type { AiCliTool } from "../shared/aiCliTools";
 import {
   MAIN_FALLBACK_ACCELERATORS,
   SHORTCUT_ACTIONS,
@@ -601,11 +603,47 @@ function resolveActiveTabId(): string | null {
 // and persisting it would stomp a perfectly good existing session-state.json
 // with an empty one. persistSessionState() below no-ops until this flips.
 let sessionSnapshotReady = false;
+const SESSION_SAVE_INTERVAL_MS = 20_000;
+const SESSION_SAVE_DEBOUNCE_MS = 1_000;
+let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let persistIntervalTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopSessionPersistTimers(): void {
+  if (persistDebounceTimer !== null) {
+    clearTimeout(persistDebounceTimer);
+    persistDebounceTimer = null;
+  }
+  if (persistIntervalTimer !== null) {
+    clearInterval(persistIntervalTimer);
+    persistIntervalTimer = null;
+  }
+}
+
+function scheduleDebouncedSessionPersist(): void {
+  if (isQuitting) return;
+  if (persistDebounceTimer !== null) clearTimeout(persistDebounceTimer);
+  persistDebounceTimer = setTimeout(() => {
+    persistDebounceTimer = null;
+    persistSessionState({ scanTools: false });
+  }, SESSION_SAVE_DEBOUNCE_MS);
+}
+
+function ensurePeriodicSessionPersist(): void {
+  if (persistIntervalTimer !== null || isQuitting) return;
+  persistIntervalTimer = setInterval(() => {
+    persistSessionState({ scanTools: true });
+  }, SESSION_SAVE_INTERVAL_MS);
+  persistIntervalTimer.unref();
+}
+
 ipcMain.on(
   "session:tabsChanged",
   (_event: IpcMainEvent, snapshot: RendererSessionSnapshot) => {
     latestSessionSnapshot = snapshot;
     sessionSnapshotReady = true;
+    sessionStateService.pruneLastKnown(snapshot.tabs.map((tab) => tab.id));
+    ensurePeriodicSessionPersist();
+    scheduleDebouncedSessionPersist();
   },
 );
 
@@ -715,17 +753,32 @@ function toSessionTool(tool: "codex" | "claude" | "grok" | null): SessionTool {
   return SessionTool.None;
 }
 
+function toAiCliTool(tool: SessionTool): AiCliTool | null {
+  if (tool === SessionTool.Codex) return "codex";
+  if (tool === SessionTool.Claude) return "claude";
+  if (tool === SessionTool.Grok) return "grok";
+  return null;
+}
+
 /**
- * Best-effort session snapshot + write, budgeted to `SESSION_SAVE_BUDGET_MS`
- * (parity §1.4). Reads `latestSessionSnapshot` (kept warm by the renderer's
- * `session:tabsChanged` pushes) rather than asking the renderer live — see
- * that variable's doc comment for why.
+ * Best-effort session snapshot + write. Tab-list changes debounce a cheap
+ * rewrite of last-known rows; the 20s timer and `before-quit` also scan the
+ * process tree (budgeted to `SESSION_SAVE_BUDGET_MS`). Reads
+ * `latestSessionSnapshot` rather than asking the renderer live — see that
+ * variable's doc comment for why.
  */
-function persistSessionState(): void {
+function persistSessionState(
+  options: { scanTools?: boolean; quitting?: boolean } = {},
+): void {
+  const scanTools = options.scanTools !== false;
+  const quitting = options.quitting === true;
+  // A second persist after `before-quit` already ran would observe dead PTYs
+  // and must not replace the quit-time snapshot.
+  if (isQuitting && !quitting) return;
   // Disabling restore is also a persistence/privacy decision: do not write a
-  // fresh list of working directories at shutdown, and remove any snapshot
-  // left by an earlier run. This only touches the on-disk restore file; live
-  // tabs and PTYs remain intact until the normal shutdown cleanup below.
+  // fresh list of working directories, and remove any snapshot left by an
+  // earlier run. This only touches the on-disk restore file; live tabs and
+  // PTYs remain intact until the normal shutdown cleanup below.
   if (!settingsService.get().RestoreSessionsOnStartup) {
     sessionStateService.clear();
     return;
@@ -734,44 +787,50 @@ function persistSessionState(): void {
   // leave any existing session-state.json exactly as-is rather than
   // overwriting it with the empty startup default.
   if (!sessionSnapshotReady) return;
-  // Deadline recorded up front, covering snapshotProcesses() too (final-review
-  // fix): it used to run *outside* SessionStateService.persist()'s own
-  // internal budget tracking, so a slow/throwing snapshot could blow past
-  // SESSION_SAVE_BUDGET_MS entirely before the per-tab degrade-to-shell-cwd
-  // logic ever got a chance to kick in. The remaining time (which may be ~0)
-  // is what gets handed to persist() below, instead of always handing it a
-  // fresh SESSION_SAVE_BUDGET_MS regardless of how long the snapshot took.
-  const deadline = Date.now() + SESSION_SAVE_BUDGET_MS;
+  const deadline = Date.now() + (scanTools ? SESSION_SAVE_BUDGET_MS : 0);
   // One Toolhelp32Snapshot + full process-table walk, reused for every tab's
-  // detectActiveToolMatch() call below instead of paying that cost per tab
-  // (codex review of m6-session-restore: N tabs previously meant N full
-  // snapshots stacked inside the same 2s budget, the dominant way a single
-  // slow persist() could blow past SESSION_SAVE_BUDGET_MS). Per-descendant
-  // PEB command-line reads still happen lazily per tab as before; only the
-  // system-wide enumeration itself is shared. Guarded on its own: a throw here
-  // (native call error, etc.) degrades to "no tool detected for any tab" —
-  // exactly like a per-tab detection failure would — rather than aborting the
-  // whole persist and losing even the shell cwd fallback.
-  let processSnapshot: ReturnType<typeof snapshotProcesses>;
-  try {
-    processSnapshot = snapshotProcesses();
-  } catch (err) {
-    console.error("[persistSessionState] snapshotProcesses failed", err);
-    processSnapshot = [];
+  // detectActiveToolMatch() call below instead of paying that cost per tab.
+  // Cheap tab-list persists skip this entirely. Guarded on its own: a throw
+  // degrades to "no tool detected this pass" and last-known rows stay put.
+  let processSnapshot: ReturnType<typeof snapshotProcesses> = [];
+  if (scanTools) {
+    try {
+      processSnapshot = snapshotProcesses();
+    } catch (err) {
+      console.error("[persistSessionState] snapshotProcesses failed", err);
+      processSnapshot = [];
+    }
   }
   sessionStateService.persist(
     latestSessionSnapshot.tabs,
     latestSessionSnapshot.activeIndex,
     (id) => ptyManager.getCwd(id, activeRendererId()),
     (id) => {
+      const preferred = toAiCliTool(
+        sessionStateService.peekLastKnown(id)?.tool ?? SessionTool.None,
+      );
       const match = detectActiveToolMatch(
         ptyManager.getPid(id, activeRendererId()),
         processSnapshot,
+        preferred,
       );
-      return match ? { tool: toSessionTool(match.tool), pid: match.pid } : null;
+      if (!match) return null;
+      const sessionId =
+        match.tool === "codex"
+          ? extractCodexSessionId(match.commandLine)
+          : undefined;
+      return {
+        tool: toSessionTool(match.tool),
+        pid: match.pid,
+        ...(sessionId ? { sessionId } : {}),
+      };
     },
     (pid) => getProcessCwd(pid),
-    Math.max(0, deadline - Date.now()),
+    {
+      budgetMs: Math.max(0, deadline - Date.now()),
+      scanTools,
+      quitting,
+    },
   );
 }
 
@@ -792,8 +851,9 @@ app.on("before-quit", () => {
   // cwd would fall back to homedir) right over the first, good one.
   if (isQuitting) return;
   isQuitting = true;
+  stopSessionPersistTimers();
   try {
-    persistSessionState();
+    persistSessionState({ scanTools: true, quitting: true });
   } catch (err) {
     console.error("[before-quit] persistSessionState failed", err);
   }
