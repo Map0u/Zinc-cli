@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-08-23
+
 ### Fixed
 
 - Session restore now writes `session-state.json` on a running-app interval and

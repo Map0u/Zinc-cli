@@ -8,6 +8,20 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.5',
+    date: '2026-08-23',
+    zh: [
+      '会话恢复改为运行中定时落盘，并在标签变化后补写，断电或强杀不再只能靠上次干净退出。',
+      '记住已看到的工作目录和 AI 工具；扫不到进程时不再用错误目录或清成空工具。',
+      '多个 Codex 标签不再各自敲 codex resume --last；能识别到 session id 时按 id 恢复。'
+    ],
+    en: [
+      'Session restore now writes on a running-app interval and after tab changes, so a crash or power loss no longer depends on a clean quit.',
+      'Last-seen working directories and AI tools are kept when a later process scan misses.',
+      'Multiple Codex tabs no longer each run codex resume --last; a command-line session id is used when present.'
+    ]
+  },
+  {
     version: '0.6.4',
     date: '2026-08-02',
     zh: [

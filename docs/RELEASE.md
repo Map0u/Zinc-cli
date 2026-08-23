@@ -105,7 +105,7 @@ features that were removed again before shipping, and that page is what a
 first-time user reads before deciding to trust an unsigned binary. The workflow
 fails if the notes file for the tag is missing.
 
-For 0.6.1, pin the previous public release (`v0.6.0`) in the workflow `env` block
+For 0.6.5, pin the previous public release (`v0.6.4`) in the workflow `env` block
 when running the upgrade leg of the installer matrix. Clean install, overwrite,
 reinstall, and uninstall remain required regardless.
 
