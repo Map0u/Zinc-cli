@@ -44,6 +44,8 @@ export interface ZincSettings {
   DefaultShellId: string
   StartingDirectory: string
   Scrollback: number
+  /** When on, the mouse wheel pages (PgUp/PgDn) instead of line-scrolling inside Kimi's full-screen TUI. */
+  KimiFullscreenWheelPaging: boolean
   RestoreSessionsOnStartup: boolean
   /** When restoring tabs, auto-run claude/codex/grok resume commands if a tool was detected. */
   ResumeAiConversations: boolean

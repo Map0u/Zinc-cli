@@ -41,6 +41,8 @@
   "CardStartDirTitle": "起始目录",
   "CardStartDirDesc": "对新标签页生效",
   "CardScrollbackTitle": "滚动缓冲行数",
+  "CardKimiFullscreenWheelPagingTitle": "Kimi 全屏滚轮适配",
+  "CardKimiFullscreenWheelPagingDesc": "Kimi 全屏 TUI 时，滚轮按 PageUp / PageDown 整页翻对话，不再一行行滚",
   "CardRestoreTitle": "启动时恢复会话",
   "CardRestoreDesc": "按上次的工作目录重新打开标签页",
   "CardResumeTitle": "恢复时继续 AI 对话",

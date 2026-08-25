@@ -31,7 +31,8 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   colorScheme: DEFAULT_COLOR_SCHEME_ID,
   themeMode: 'auto',
   // Match SettingsService: 0 = raw Acrylic through the terminal card.
-  terminalOpacity: 0
+  terminalOpacity: 0,
+  kimiFullscreenWheelPaging: true
 }
 
 /**
@@ -60,6 +61,8 @@ interface HostEntry {
   port: MessagePort | null
   /** Active CSI/OSC handlers that rewrite black TUI backgrounds; disposed when mode flips off. */
   transparentBgHandlers: IDisposable[]
+  /** Capture-phase wheel listener that pages Kimi's full-screen TUI; removed on destroy. */
+  wheelListener: ((event: WheelEvent) => void) | null
 }
 
 /**
@@ -231,12 +234,22 @@ export class TerminalHostRegistry {
       resizeTimer: null,
       contextMenuListener: null,
       port: null,
-      transparentBgHandlers: []
+      transparentBgHandlers: [],
+      wheelListener: null
     }
     this.syncTransparentBackgroundHandlers(entry)
 
     entry.contextMenuListener = (event) => this.handleContextMenu(entry, event)
     container.addEventListener('contextmenu', entry.contextMenuListener)
+
+    // Kimi's full-screen TUI enables SGR mouse tracking and switches to the
+    // alternate buffer. When this setting is on, intercept the wheel on the
+    // container (capture phase, before xterm's own viewport scroller) and send
+    // PgUp/PgDn so the conversation pages instead of line-scrolling. The three
+    // guards (setting, alternate buffer, mouse tracking) make this a no-op for
+    // ordinary shells and non-Kimi TUIs.
+    entry.wheelListener = (event: WheelEvent) => this.handleWheel(entry, event)
+    container.addEventListener('wheel', entry.wheelListener, true)
 
     // Single resize path: the ResizeObserver is the *only* thing that reacts to
     // the container changing size. When the host is still `idle` a size change
@@ -451,6 +464,7 @@ export class TerminalHostRegistry {
     entry.resizeObserver.disconnect()
     if (entry.resizeTimer !== null) window.clearTimeout(entry.resizeTimer)
     if (entry.contextMenuListener) entry.container.removeEventListener('contextmenu', entry.contextMenuListener)
+    if (entry.wheelListener) entry.container.removeEventListener('wheel', entry.wheelListener, true)
     this.clearTransparentBackgroundHandlers(entry)
     this.closePort(entry)
     entry.term.dispose()
@@ -540,6 +554,26 @@ export class TerminalHostRegistry {
         // Silent on failure per spec — a failed read just means the paste
         // has no visible effect.
       })
+  }
+
+  /**
+   * While Kimi's full-screen TUI is active (alternate buffer + SGR mouse
+   * tracking) and the setting is on, the wheel pages the conversation instead
+   * of line-scrolling. Stops the event before xterm's own viewport scroller
+   * runs, then writes a raw PgUp/PgDn sequence into the pty.
+   */
+  private handleWheel(entry: HostEntry, event: WheelEvent): void {
+    const enabled = this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging
+    if (!enabled) return
+    if (entry.state !== 'ready') return
+    const term = entry.term
+    if (term.buffer.active.type !== 'alternate') return
+    if (term.modes.mouseTrackingMode === 'none' || term.modes.mouseTrackingMode === undefined) return
+
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    const sequence = event.deltaY < 0 ? '\x1b[5~' : '\x1b[6~'
+    window.zinc.pty.write(entry.id, new TextEncoder().encode(sequence))
   }
 
   private handleContextMenu(entry: HostEntry, event: MouseEvent): void {

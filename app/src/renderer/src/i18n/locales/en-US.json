@@ -41,6 +41,8 @@
   "CardStartDirTitle": "Starting directory",
   "CardStartDirDesc": "Applies to new tabs",
   "CardScrollbackTitle": "Scrollback lines",
+  "CardKimiFullscreenWheelPagingTitle": "Kimi full-screen wheel paging",
+  "CardKimiFullscreenWheelPagingDesc": "In Kimi's full-screen TUI, the wheel pages (PgUp/PgDn) through the conversation instead of scrolling one line at a time",
   "CardRestoreTitle": "Restore sessions on startup",
   "CardRestoreDesc": "Reopen tabs with their last working directories",
   "CardResumeTitle": "Resume AI chats on restore",

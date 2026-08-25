@@ -228,6 +228,7 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     ),
     StartingDirectory: normalizeString(raw.StartingDirectory, base.StartingDirectory),
     Scrollback: clampNumber(raw.Scrollback, base.Scrollback, NUMERIC_BOUNDS.Scrollback),
+    KimiFullscreenWheelPaging: normalizeBoolean(raw.KimiFullscreenWheelPaging, base.KimiFullscreenWheelPaging),
     RestoreSessionsOnStartup: normalizeBoolean(raw.RestoreSessionsOnStartup, base.RestoreSessionsOnStartup),
     ResumeAiConversations: normalizeBoolean(raw.ResumeAiConversations, base.ResumeAiConversations),
     Language: normalizeLanguage(raw.Language, base.Language),
@@ -261,6 +262,7 @@ function defaultSettings(): ZincSettings {
     // current user's profile dir instead (Windows' %USERPROFILE%).
     StartingDirectory: homedir(),
     Scrollback: 10000,
+    KimiFullscreenWheelPaging: true,
     RestoreSessionsOnStartup: true,
     ResumeAiConversations: true,
     Language: 'auto',
@@ -288,7 +290,10 @@ export class SettingsService {
   private load(): ZincSettings {
     try {
       if (existsSync(this.filePath)) {
-        const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as unknown
+        // Windows PowerShell `Set-Content -Encoding utf8` prefixes EF BB BF.
+        // JSON.parse treats that U+FEFF as a syntax error and the catch below
+        // would discard the whole file (including stored `false` flags).
+        const parsed = JSON.parse(readFileSync(this.filePath, 'utf8').replace(/^\uFEFF/, '')) as unknown
         const raw: StoredSettings =
           parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as StoredSettings) : {}
         const normalized = normalizeSettings(raw, defaultSettings())

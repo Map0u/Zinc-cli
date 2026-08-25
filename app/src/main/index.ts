@@ -132,6 +132,7 @@ function terminalOptionsFrom(settings: ZincSettings): TerminalOptionsPush {
     colorScheme: settings.ColorScheme,
     themeMode: settings.ThemePreference,
     terminalOpacity: settings.TerminalOpacity,
+    kimiFullscreenWheelPaging: settings.KimiFullscreenWheelPaging,
   };
 }
 

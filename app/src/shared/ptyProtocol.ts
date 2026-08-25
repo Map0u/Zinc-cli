@@ -36,6 +36,8 @@ export interface TerminalOptionsPush {
    * do not paint an opaque black panel over the material.
    */
   terminalOpacity?: number
+  /** When true, the mouse wheel pages (PgUp/PgDn) instead of line-scrolling inside Kimi's full-screen TUI. */
+  kimiFullscreenWheelPaging?: boolean
 }
 
 /**
