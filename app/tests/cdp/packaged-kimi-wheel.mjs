@@ -72,12 +72,30 @@ try {
     'Kimi TUI did not appear'
   )
 
-  // Workspace trust / first-run prompts: Enter accepts the default.
-  await page.keyboard.press('Enter')
-  await page.waitForTimeout(800)
+  const promptText = (await visibleRows(page)).join('\n').toLowerCase()
+  // 0.38 defaults the trust dialog to "Don't trust" / Exit. Enter would leave
+  // fullscreen and dump into PowerShell. Move onto "Trust this folder" first.
+  if (promptText.includes('trust this folder') || promptText.includes("don't trust")) {
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(800)
+  }
 
-  // Fill the transcript without calling a model.
-  await page.keyboard.insertText("! 1..160 | ForEach-Object { 'WHEEL-LINE-' + $_.ToString().PadLeft(3,'0') + ' ' + ('x' * 24) }")
+  await waitForRows(
+    page,
+    (rows) => {
+      const text = rows.join('\n').toLowerCase()
+      return text.includes('/help') || text.includes('shift-tab') || text.includes('plan')
+    },
+    'Kimi TUI did not appear after workspace trust'
+  )
+
+  // Fill the transcript without calling a model. Kimi's shell is bash here,
+  // and the composer often needs a second Enter to submit.
+  await page.keyboard.insertText('! seq -f WHEEL-LINE-%03g 1 160')
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(400)
   await page.keyboard.press('Enter')
   await page.waitForTimeout(2000)
   await page.keyboard.press('Control+o')
@@ -88,20 +106,46 @@ try {
     'Shell dump did not appear in the Kimi transcript'
   )
 
+  const pagingHost = page.locator('[data-zinc-wheel-paging="1"]').first()
+  try {
+    await pagingHost.waitFor({ state: 'attached', timeout: 20_000 })
+  } catch {
+    const viewport = await page.evaluate(() => {
+      const vp = document.querySelector('.xterm-viewport')
+      return vp
+        ? { top: vp.scrollTop, height: vp.scrollHeight, client: vp.clientHeight }
+        : null
+    })
+    throw new Error(
+      `Kimi never entered the alternate buffer (data-zinc-wheel-paging=1). viewport=${JSON.stringify(viewport)}`
+    )
+  }
+
   const terminalBox = await page.locator('.xterm').first().boundingBox()
   if (!terminalBox) throw new Error('xterm bounding box missing')
   await page.mouse.move(terminalBox.x + terminalBox.width / 2, terminalBox.y + terminalBox.height / 2)
 
+  const viewportBefore = await page.evaluate(() => {
+    const viewport = document.querySelector('.xterm-viewport')
+    return viewport ? { top: viewport.scrollTop, height: viewport.scrollHeight } : null
+  })
+
   const before = await visibleRows(page)
   const expectLine = process.env.ZINC_KIMI_WHEEL_EXPECT === 'line'
-  // Off-switch contrast: one notch (-100) so xterm does not split a -1200
-  // burst into many SGR line-scrolls that can still trip the page threshold.
-  const deltaY = Number(process.env.ZINC_KIMI_WHEEL_DELTA_Y || (expectLine ? -100 : -1200))
+  // One Windows notch. A -1200 burst used to PASS as long as any PgUp landed,
+  // even when the same gesture also line-scrolled.
+  const deltaY = Number(process.env.ZINC_KIMI_WHEEL_DELTA_Y || (expectLine ? -100 : -120))
   await page.mouse.wheel(0, deltaY)
   await page.waitForTimeout(400)
   const after = await visibleRows(page)
+  const viewportAfter = await page.evaluate(() => {
+    const viewport = document.querySelector('.xterm-viewport')
+    return viewport ? { top: viewport.scrollTop, height: viewport.scrollHeight } : null
+  })
   const changed = changedRowCount(before, after)
-  const minChanged = Math.max(8, Math.min(before.length, after.length) - 8)
+  // Transcript chrome (composer/footer) eats rows, so a page is a bit less
+  // than the full xterm. Line-scroll is still ~3–6; keep the split above that.
+  const minChanged = Math.max(12, Math.min(before.length, after.length) - 16)
   const beforeLine = firstWheelLine(before)
   const afterLine = firstWheelLine(after)
   // Unique dump lines rewrite every visible row on any ≥1-line scroll, so
@@ -125,8 +169,17 @@ try {
         `wheel did not page the transcript: jump=${jump} changed=${changed} min=${minChanged} rows=${before.length} before=${beforeLine} after=${afterLine} sample=${JSON.stringify(filled.filter((row) => /WHEEL-LINE/.test(row)).slice(0, 3))}`
       )
     }
+    if (
+      viewportBefore &&
+      viewportAfter &&
+      viewportAfter.top !== viewportBefore.top
+    ) {
+      throw new Error(
+        `viewport moved while paging: before=${viewportBefore.top} after=${viewportAfter.top}`
+      )
+    }
     console.log(
-      `PASS: Kimi full-screen wheel paged the transcript (jump=${jump}, changed=${changed}, min=${minChanged}).`
+      `PASS: Kimi full-screen wheel paged the transcript (jump=${jump}, changed=${changed}, pageMin=${minChanged}, viewport=${viewportAfter?.top ?? 'n/a'}).`
     )
   }
 } catch (error) {

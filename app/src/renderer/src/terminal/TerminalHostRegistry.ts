@@ -12,6 +12,12 @@ import {
   rewriteSgrParamsForTransparentBg,
   shouldTransparentizeTerminalBackgrounds
 } from './transparentTerminalBackground'
+import {
+  createWheelPagerState,
+  decideKimiFullscreenWheel,
+  shouldInterceptKimiFullscreenWheel,
+  type WheelPagerState
+} from './kimiFullscreenWheelPaging'
 import type { IDisposable } from '@xterm/xterm'
 
 // CJK aliases sit after the Latin monospace fallbacks, before the generic
@@ -63,6 +69,8 @@ interface HostEntry {
   transparentBgHandlers: IDisposable[]
   /** Capture-phase wheel listener that pages Kimi's full-screen TUI; removed on destroy. */
   wheelListener: ((event: WheelEvent) => void) | null
+  /** Accumulates sub-notch wheel movement while the host is paging. */
+  wheelPager: WheelPagerState
 }
 
 /**
@@ -77,6 +85,7 @@ export type TerminalNotice = 'copyFailed' | 'pasteFailed' | 'startFailed'
 
 export class TerminalHostRegistry {
   private readonly hosts = new Map<string, HostEntry>()
+  private readonly consumedWheels = new WeakSet<WheelEvent>()
   private readonly titleHandlers = new Set<(id: string, title: string) => void>()
   private readonly noticeHandlers = new Set<(notice: TerminalNotice) => void>()
   private currentOptions: TerminalOptionsPush = { ...DEFAULT_OPTIONS }
@@ -235,21 +244,27 @@ export class TerminalHostRegistry {
       contextMenuListener: null,
       port: null,
       transparentBgHandlers: [],
-      wheelListener: null
+      wheelListener: null,
+      wheelPager: createWheelPagerState()
     }
     this.syncTransparentBackgroundHandlers(entry)
 
     entry.contextMenuListener = (event) => this.handleContextMenu(entry, event)
     container.addEventListener('contextmenu', entry.contextMenuListener)
 
-    // Kimi's full-screen TUI enables SGR mouse tracking and switches to the
-    // alternate buffer. When this setting is on, intercept the wheel on the
-    // container (capture phase, before xterm's own viewport scroller) and send
-    // PgUp/PgDn so the conversation pages instead of line-scrolling. The three
-    // guards (setting, alternate buffer, mouse tracking) make this a no-op for
-    // ordinary shells and non-Kimi TUIs.
-    entry.wheelListener = (event: WheelEvent) => this.handleWheel(entry, event)
-    container.addEventListener('wheel', entry.wheelListener, true)
+    // Full-screen TUIs (Kimi's alt screen among them) must own the wheel
+    // exclusively: if xterm also turns the same tick into ↑/↓ or a viewport
+    // scroll, the TUI pages and line-scrolls at once. Capture + non-passive
+    // stops the compositor; attachCustomWheelEventHandler is xterm's own
+    // join so SGR mouse / alt-buffer arrows / viewport scroll all stand down.
+    // Mouse tracking is not a guard — Kimi toggles it around redraws.
+    entry.wheelListener = (event: WheelEvent) => {
+      this.handleWheel(entry, event)
+    }
+    container.addEventListener('wheel', entry.wheelListener, { capture: true, passive: false })
+    term.attachCustomWheelEventHandler((event) => this.handleWheel(entry, event))
+    term.buffer.onBufferChange(() => this.syncWheelPagingFlag(entry))
+    this.syncWheelPagingFlag(entry)
 
     // Single resize path: the ResizeObserver is the *only* thing that reacts to
     // the container changing size. When the host is still `idle` a size change
@@ -343,6 +358,7 @@ export class TerminalHostRegistry {
           return
         }
         entry.state = 'ready'
+        this.syncWheelPagingFlag(entry)
         if (entry.container.clientWidth > 0 && entry.container.clientHeight > 0) {
           this.fitTerminal(entry)
           entry.term.focus()
@@ -449,6 +465,7 @@ export class TerminalHostRegistry {
       // scheme change must visibly apply to whatever's already running.
       if (options.colorScheme !== undefined || options.themeMode !== undefined) this.retheme(entry)
       if (options.terminalOpacity !== undefined) this.syncTransparentBackgroundHandlers(entry)
+      this.syncWheelPagingFlag(entry)
       // Only ready hosts have an opened terminal to fit; the fit's own
       // onResize reports the new size to the pty (single resize path — no
       // separate report here). A font-size change that alters cell geometry
@@ -464,7 +481,9 @@ export class TerminalHostRegistry {
     entry.resizeObserver.disconnect()
     if (entry.resizeTimer !== null) window.clearTimeout(entry.resizeTimer)
     if (entry.contextMenuListener) entry.container.removeEventListener('contextmenu', entry.contextMenuListener)
-    if (entry.wheelListener) entry.container.removeEventListener('wheel', entry.wheelListener, true)
+    if (entry.wheelListener) {
+      entry.container.removeEventListener('wheel', entry.wheelListener, { capture: true })
+    }
     this.clearTransparentBackgroundHandlers(entry)
     this.closePort(entry)
     entry.term.dispose()
@@ -557,23 +576,47 @@ export class TerminalHostRegistry {
   }
 
   /**
-   * While Kimi's full-screen TUI is active (alternate buffer + SGR mouse
-   * tracking) and the setting is on, the wheel pages the conversation instead
-   * of line-scrolling. Stops the event before xterm's own viewport scroller
-   * runs, then writes a raw PgUp/PgDn sequence into the pty.
+   * While the setting is on and the host is on the alternate buffer, steal
+   * the wheel from xterm and page with PgUp/PgDn. Returns false when xterm
+   * must not process the event (attachCustomWheelEventHandler contract).
    */
-  private handleWheel(entry: HostEntry, event: WheelEvent): void {
-    const enabled = this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging
-    if (!enabled) return
-    if (entry.state !== 'ready') return
-    const term = entry.term
-    if (term.buffer.active.type !== 'alternate') return
-    if (term.modes.mouseTrackingMode === 'none' || term.modes.mouseTrackingMode === undefined) return
+  private handleWheel(entry: HostEntry, event: WheelEvent): boolean {
+    // Capture on the container and xterm's custom handler can both see the
+    // same tick. Dedup before accumulating a notch.
+    if (this.consumedWheels.has(event)) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      return false
+    }
+
+    const decision = decideKimiFullscreenWheel(
+      {
+        enabled: this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging,
+        hostReady: entry.state === 'ready',
+        bufferType: entry.term.buffer.active.type
+      },
+      entry.wheelPager,
+      event.deltaY,
+      event.deltaMode
+    )
+    if (!decision.consume) return true
 
     event.preventDefault()
     event.stopImmediatePropagation()
-    const sequence = event.deltaY < 0 ? '\x1b[5~' : '\x1b[6~'
-    window.zinc.pty.write(entry.id, new TextEncoder().encode(sequence))
+    this.consumedWheels.add(event)
+    if (decision.sequence) {
+      window.zinc.pty.write(entry.id, new TextEncoder().encode(decision.sequence))
+    }
+    return false
+  }
+
+  private syncWheelPagingFlag(entry: HostEntry): void {
+    const on = shouldInterceptKimiFullscreenWheel({
+      enabled: this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging,
+      hostReady: entry.state === 'ready',
+      bufferType: entry.term.buffer.active.type
+    })
+    entry.container.dataset.zincWheelPaging = on ? '1' : '0'
   }
 
   private handleContextMenu(entry: HostEntry, event: MouseEvent): void {
@@ -698,15 +741,27 @@ export class TerminalHostRegistry {
     this.restoreScrollPosition(entry, before)
   }
 
-  private captureScrollPosition(entry: HostEntry): { viewportY: number; wasAtBottom: boolean } {
+  private captureScrollPosition(entry: HostEntry): {
+    viewportY: number
+    wasAtBottom: boolean
+    alternate: boolean
+  } {
     const buffer = entry.term.buffer.active
     return {
       viewportY: buffer.viewportY,
-      wasAtBottom: buffer.viewportY >= buffer.baseY
+      wasAtBottom: buffer.viewportY >= buffer.baseY,
+      alternate: buffer.type === 'alternate'
     }
   }
 
-  private restoreScrollPosition(entry: HostEntry, before: { viewportY: number; wasAtBottom: boolean }): void {
+  private restoreScrollPosition(
+    entry: HostEntry,
+    before: { viewportY: number; wasAtBottom: boolean; alternate: boolean }
+  ): void {
+    // Alternate buffer has no scrollback. Forcing "at bottom" on every PTY
+    // chunk fights a paging TUI redraw and any leftover native wheel scroll.
+    if (before.alternate) return
+
     const restore = (): void => {
       if (before.wasAtBottom) {
         entry.term.scrollToBottom()
