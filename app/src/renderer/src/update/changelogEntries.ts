@@ -8,6 +8,18 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.7',
+    date: '2026-08-25',
+    zh: [
+      '新增可选开关「Kimi 全屏滚轮适配」：Kimi 全屏 TUI 时滚轮按 PageUp/PageDown 整页翻对话，不再一行行滚。',
+      '带 UTF-8 BOM 的 settings.json（Windows PowerShell 默认写法）会正常加载，不再整份回落到默认值。'
+    ],
+    en: [
+      'New optional "Kimi full-screen wheel paging" setting: the wheel sends PageUp/PageDown inside Kimi\u2019s full-screen TUI instead of line-scrolling.',
+      'settings.json files with a UTF-8 BOM load again instead of being discarded as corrupt.'
+    ]
+  },
+  {
     version: '0.6.6',
     date: '2026-08-23',
     zh: [

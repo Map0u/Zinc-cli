@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-08-25
+
+### Added
+
+- Optional "Kimi full-screen wheel paging" terminal setting: when on, the mouse
+  wheel sends PageUp/PageDown to Kimi's full-screen TUI (alternate buffer with
+  SGR mouse tracking) instead of line-scrolling, paging through the conversation.
+
+### Fixed
+
+- Settings files that start with a UTF-8 BOM (Windows PowerShell
+  `Set-Content -Encoding utf8`) load again instead of being treated as
+  corrupt and replaced by defaults.
+
 ## [0.6.6] - 2026-08-23
 
 ### Fixed

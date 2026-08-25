@@ -51,7 +51,7 @@ Zinc 的构建遵循一套明确的原则：
 ## 安装
 
 1.  访问 [**官方网站**](https://zincli.org) 或 [**Releases 页面**](https://github.com/Map0u/Zinc-cli/releases/latest)。
-2.  下载 `Zinc-0.6.6-Setup.exe` 安装包。
+2.  下载 `Zinc-0.6.7-Setup.exe` 安装包。
 3.  运行安装程序。
 
 > **关于 Windows SmartScreen 的说明：**
@@ -60,7 +60,7 @@ Zinc 的构建遵循一套明确的原则：
 > 为验证安装包的完整性，你可以将其 SHA256 哈希值与发布页面上 `SHA256SUMS` 文件中提供的值进行比较。打开 PowerShell 并运行以下命令：
 >
 > ```powershell
-> Get-FileHash .\Zinc-0.6.6-Setup.exe -Algorithm SHA256
+> Get-FileHash .\Zinc-0.6.7-Setup.exe -Algorithm SHA256
 > ```
 
 ## 隐私与安全
