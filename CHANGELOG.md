@@ -6,6 +6,13 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-08-25
+
+### Fixed
+
+- Kimi full-screen wheel paging now owns the wheel exclusively: one Windows
+  notch is one page, and xterm no longer also line-scrolls the conversation.
+
 ## [0.6.7] - 2026-08-25
 
 ### Added

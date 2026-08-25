@@ -8,6 +8,16 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.8',
+    date: '2026-08-25',
+    zh: [
+      '修好 Kimi 全屏滚轮：独占滚轮，一格翻一页，不再跟终端行滚抢同一个手势。'
+    ],
+    en: [
+      'Kimi full-screen wheel paging now owns the wheel: one notch is one page, without fighting terminal line-scroll.'
+    ]
+  },
+  {
     version: '0.6.7',
     date: '2026-08-25',
     zh: [
