@@ -46,17 +46,30 @@ test('identifyToolFromCommandLine recognizes Grok Build CLI process lines', () =
   assert.equal(identifyToolFromCommandLine('C:\\tools\\grokhelper.exe'), null)
 })
 
-test('AI CLI priority list includes grok after codex and claude', () => {
-  assert.deepEqual([...AI_CLI_TOOLS], ['codex', 'claude', 'grok'])
+test('identifyToolFromCommandLine recognizes Kimi Code process lines', () => {
+  assert.equal(identifyToolFromCommandLine('C:\\Users\\x\\.kimi-code\\bin\\kimi.exe'), 'kimi')
+  assert.equal(identifyToolFromCommandLine('"C:\\Users\\x\\.kimi-code\\bin\\kimi.exe" -c'), 'kimi')
+  assert.equal(identifyToolFromCommandLine('kimi --continue'), 'kimi')
+  // Must not confuse substrings inside other executable names
+  assert.equal(identifyToolFromCommandLine('C:\\tools\\akimi.exe'), null)
+  assert.equal(identifyToolFromCommandLine('C:\\tools\\kimihelper.exe'), null)
+})
+
+test('AI CLI priority list appends kimi after codex, claude and grok', () => {
+  assert.deepEqual([...AI_CLI_TOOLS], ['codex', 'claude', 'grok', 'kimi'])
   assert.equal(identifyToolFromCommandLine('codex resume --last'), 'codex')
   assert.equal(identifyToolFromCommandLine('claude --continue'), 'claude')
   assert.equal(identifyToolFromCommandLine('grok -c'), 'grok')
+  assert.equal(identifyToolFromCommandLine('kimi -c'), 'kimi')
 })
 
-test('SessionTool.Grok is a stable persisted enum value', () => {
+test('SessionTool values are stable once persisted', () => {
   assert.equal(SessionTool.Grok, 3)
   assert.equal(SessionTool.Codex, 1)
   assert.equal(SessionTool.Claude, 2)
+  // Appended in 0.6.9 — old session files must keep reading back correctly,
+  // so this value may never be reused or reordered either.
+  assert.equal(SessionTool.Kimi, 4)
 })
 
 test('restore injects grok --continue for Grok tabs when resume is enabled', () => {

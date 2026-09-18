@@ -488,11 +488,44 @@ ipcMain.on(
 
 ipcMain.on("pty:kill", (event: IpcMainEvent, id: string) => {
   if (!isTrustedIpcSender(event)) return;
+  foregroundToolCache.delete(id);
   ptyManager.kill(id, event.sender.id);
 });
 
 ipcMain.handle("pty:getCwd", (event: IpcMainInvokeEvent, id: string) =>
   isTrustedIpcSender(event) ? ptyManager.getCwd(id, event.sender.id) : null,
+);
+
+// Which AI CLI is in this tab right now. The renderer asks on every switch
+// into the alternate buffer so full-screen wheel paging can apply to Kimi
+// only; entering a TUI is rare, but a quick vim in/out would still pay for a
+// full process-table walk each time, hence the short TTL. Deliberately not
+// routed through SessionStateService: that layer's sticky-tool merge exists
+// to keep a good persisted snapshot, while this needs the raw current value.
+const FOREGROUND_TOOL_TTL_MS = 1000;
+const foregroundToolCache = new Map<
+  string,
+  { at: number; tool: AiCliTool | null }
+>();
+
+ipcMain.handle(
+  "pty:getForegroundTool",
+  (event: IpcMainInvokeEvent, id: string): AiCliTool | null => {
+    if (!isTrustedIpcSender(event)) return null;
+    const cached = foregroundToolCache.get(id);
+    if (cached && Date.now() - cached.at < FOREGROUND_TOOL_TTL_MS)
+      return cached.tool;
+    let tool: AiCliTool | null = null;
+    try {
+      // No preferredTool: a tab's last-known tool must not colour the answer.
+      tool = detectActiveToolMatch(ptyManager.getPid(id, event.sender.id))?.tool ?? null;
+    } catch (err) {
+      console.warn("[pty:getForegroundTool] detection failed", err);
+      tool = null;
+    }
+    foregroundToolCache.set(id, { at: Date.now(), tool });
+    return tool;
+  },
 );
 
 // Clipboard image paste (parity §1.5): saves the bytes, decides Windows vs.
@@ -747,10 +780,11 @@ ipcMain.handle("window:close", () => {
 
 const SESSION_SAVE_BUDGET_MS = 2000;
 
-function toSessionTool(tool: "codex" | "claude" | "grok" | null): SessionTool {
+function toSessionTool(tool: AiCliTool | null): SessionTool {
   if (tool === "codex") return SessionTool.Codex;
   if (tool === "claude") return SessionTool.Claude;
   if (tool === "grok") return SessionTool.Grok;
+  if (tool === "kimi") return SessionTool.Kimi;
   return SessionTool.None;
 }
 
@@ -758,6 +792,7 @@ function toAiCliTool(tool: SessionTool): AiCliTool | null {
   if (tool === SessionTool.Codex) return "codex";
   if (tool === SessionTool.Claude) return "claude";
   if (tool === SessionTool.Grok) return "grok";
+  if (tool === SessionTool.Kimi) return "kimi";
   return null;
 }
 

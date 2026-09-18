@@ -2,15 +2,18 @@
 // detection. Kept free of electron/node/koffi so unit tests can load it without
 // native bindings.
 
-export type AiCliTool = 'codex' | 'claude' | 'grok'
+export type AiCliTool = 'codex' | 'claude' | 'grok' | 'kimi'
 
 // Order is priority when multiple CLIs appear under one shell (Codex first,
-// then Claude, then Grok Build). First matching tool in this list wins.
+// then Claude, then Grok Build, then Kimi Code). First matching tool in this
+// list wins; append new tools so existing priorities do not shift.
 const TOOL_PATTERNS: ReadonlyArray<readonly [AiCliTool, RegExp]> = [
   ['codex', /(?:^|[\\/\s"'])codex(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
   ['claude', /(?:^|[\\/\s"'])claude(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
   // Grok Build TUI ships as `grok` / `grok.exe` (and shell wrappers).
-  ['grok', /(?:^|[\\/\s"'])grok(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i]
+  ['grok', /(?:^|[\\/\s"'])grok(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
+  // Kimi Code ships as `kimi` / `kimi.exe` (@moonshot-ai/kimi-code).
+  ['kimi', /(?:^|[\\/\s"'])kimi(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i]
 ]
 
 /**

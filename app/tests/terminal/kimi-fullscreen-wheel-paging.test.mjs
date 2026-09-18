@@ -38,6 +38,7 @@ function decide(overrides, state, deltaY, deltaMode = 0) {
       enabled: true,
       hostReady: true,
       bufferType: 'alternate',
+      tool: 'kimi',
       ...overrides
     },
     state,
@@ -51,7 +52,8 @@ test('intercepts alternate-buffer wheel without mouse tracking', () => {
     shouldInterceptKimiFullscreenWheel({
       enabled: true,
       hostReady: true,
-      bufferType: 'alternate'
+      bufferType: 'alternate',
+      tool: 'kimi'
     }),
     true
   )
@@ -59,17 +61,57 @@ test('intercepts alternate-buffer wheel without mouse tracking', () => {
 
 test('does not intercept primary buffer, idle host, or a disabled setting', () => {
   assert.equal(
-    shouldInterceptKimiFullscreenWheel({ enabled: true, hostReady: true, bufferType: 'normal' }),
+    shouldInterceptKimiFullscreenWheel({
+      enabled: true,
+      hostReady: true,
+      bufferType: 'normal',
+      tool: 'kimi'
+    }),
     false
   )
   assert.equal(
-    shouldInterceptKimiFullscreenWheel({ enabled: true, hostReady: false, bufferType: 'alternate' }),
+    shouldInterceptKimiFullscreenWheel({
+      enabled: true,
+      hostReady: false,
+      bufferType: 'alternate',
+      tool: 'kimi'
+    }),
     false
   )
   assert.equal(
-    shouldInterceptKimiFullscreenWheel({ enabled: false, hostReady: true, bufferType: 'alternate' }),
+    shouldInterceptKimiFullscreenWheel({
+      enabled: false,
+      hostReady: true,
+      bufferType: 'alternate',
+      tool: 'kimi'
+    }),
     false
   )
+})
+
+test('leaves every other full-screen TUI to xterm', () => {
+  // vim / less / htop detect as no AI CLI at all; Codex and Grok have their
+  // own TUIs on the same alternate buffer. None of them may be paged.
+  for (const tool of [null, 'codex', 'claude', 'grok']) {
+    assert.equal(
+      shouldInterceptKimiFullscreenWheel({
+        enabled: true,
+        hostReady: true,
+        bufferType: 'alternate',
+        tool
+      }),
+      false,
+      `tool ${tool} must keep xterm's native wheel`
+    )
+  }
+})
+
+test('an unanswered or failed tool lookup never consumes the wheel', () => {
+  const state = createWheelPagerState()
+  state.acc = 90
+  const decision = decide({ tool: null }, state, -PIXEL_NOTCH)
+  assert.deepEqual(decision, { consume: false, sequence: null })
+  assert.equal(state.acc, 0)
 })
 
 test('setting off never consumes and clears leftover accumulation', () => {

@@ -124,29 +124,112 @@ test('shouldWriteSessionSnapshot blocks unready, empty-live, and all-fallback wr
 
 test('startupCommandForRestore gives --last to only the active Codex tab', () => {
   assert.equal(
-    startupCommandForRestore(SessionTool.Codex, { resumeAi: true, allowCodexLast: true }),
+    startupCommandForRestore(SessionTool.Codex, {
+      resumeAi: true,
+      allowCodexLast: true,
+      allowContinue: false
+    }),
     'codex resume --last'
   )
   assert.equal(
-    startupCommandForRestore(SessionTool.Codex, { resumeAi: true, allowCodexLast: false }),
+    startupCommandForRestore(SessionTool.Codex, {
+      resumeAi: true,
+      allowCodexLast: false,
+      allowContinue: true
+    }),
     undefined
   )
   assert.equal(
     startupCommandForRestore(SessionTool.Codex, {
       resumeAi: true,
       allowCodexLast: true,
+      allowContinue: false,
       sessionId: 'sess-abcd-1234'
     }),
     'codex resume sess-abcd-1234'
   )
   assert.equal(
-    startupCommandForRestore(SessionTool.Claude, { resumeAi: true, allowCodexLast: false }),
+    startupCommandForRestore(SessionTool.Claude, {
+      resumeAi: true,
+      allowCodexLast: false,
+      allowContinue: true
+    }),
     'claude --continue'
   )
   assert.equal(
-    startupCommandForRestore(SessionTool.Grok, { resumeAi: false, allowCodexLast: true }),
+    startupCommandForRestore(SessionTool.Grok, {
+      resumeAi: false,
+      allowCodexLast: true,
+      allowContinue: true
+    }),
     undefined
   )
+})
+
+test('startupCommandForRestore withholds --continue from every loser in a cwd group', () => {
+  for (const [tool, command] of [
+    [SessionTool.Claude, 'claude --continue'],
+    [SessionTool.Grok, 'grok --continue'],
+    [SessionTool.Kimi, 'kimi --continue']
+  ]) {
+    assert.equal(
+      startupCommandForRestore(tool, {
+        resumeAi: true,
+        allowCodexLast: false,
+        allowContinue: true
+      }),
+      command
+    )
+    assert.equal(
+      startupCommandForRestore(tool, {
+        resumeAi: true,
+        allowCodexLast: false,
+        allowContinue: false
+      }),
+      undefined,
+      `${command} must not be handed to a second tab in the same directory`
+    )
+  }
+})
+
+test('restore elects one --continue tab per (tool, cwd) group', () => {
+  const { dir, filePath } = tempSessionFile()
+  const service = new SessionStateService(filePath)
+  writeFileSync(
+    filePath,
+    JSON.stringify({
+      Tabs: [
+        // Three Grok tabs in one directory: only one may resume.
+        { WorkingDirectory: 'D:\\game\\fatality', Tool: SessionTool.Grok },
+        { WorkingDirectory: 'D:\\game\\fatality', Tool: SessionTool.Grok },
+        { WorkingDirectory: 'D:\\game\\fatality', Tool: SessionTool.Grok },
+        // Different directories are independent groups.
+        { WorkingDirectory: 'E:\\video\\HVH', Tool: SessionTool.Grok },
+        // Same directory, different tool: its own group.
+        { WorkingDirectory: 'E:\\video\\HVH', Tool: SessionTool.Claude },
+        { WorkingDirectory: 'E:\\video\\HVH', Tool: SessionTool.Claude },
+        { WorkingDirectory: 'E:\\ps', Tool: SessionTool.Kimi }
+      ],
+      ActiveIndex: 2
+    })
+  )
+
+  const payload = service.loadRestorePayload(true, true)
+  const commands = payload.tabs.map((t) => t.startupCommand)
+
+  // The active tab (index 2) wins its group, not the leftmost one.
+  assert.deepEqual(commands, [
+    undefined,
+    undefined,
+    'grok --continue',
+    'grok --continue',
+    'claude --continue',
+    undefined,
+    'kimi --continue'
+  ])
+  // Losers still reopen in the right directory, just without resuming.
+  assert.equal(payload.tabs[0].cwd, 'D:\\game\\fatality')
+  rmSync(dir, { recursive: true, force: true })
 })
 
 function tempSessionFile() {

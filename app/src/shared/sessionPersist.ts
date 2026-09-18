@@ -111,13 +111,26 @@ export function shouldWriteSessionSnapshot(input: {
 /**
  * Restore startup command for one saved tab.
  *
- * Multiple Codex tabs must not each run `codex resume --last` (that collapses
- * every tab onto the global last session). A stored session id wins; otherwise
- * only the last-active Codex tab may use `--last`.
+ * Two different collapses have to be avoided, and they need different guards:
+ *
+ * - `codex resume --last` picks the globally most recent session, so at most
+ *   one tab in the whole window may use it (`allowCodexLast`). A stored
+ *   session id wins over it.
+ * - `--continue` (Claude/Grok/Kimi) picks the most recent session *for the
+ *   working directory*, so it collapses only among tabs that share a cwd.
+ *   `allowContinue` lets one tab per (tool, cwd) group keep it; the rest get
+ *   no startup command and just open a shell in that directory. An active-only
+ *   guard would be far too blunt here - three Grok tabs in three different
+ *   directories can all be restored correctly.
  */
 export function startupCommandForRestore(
   tool: unknown,
-  options: { resumeAi: boolean; sessionId?: string; allowCodexLast: boolean }
+  options: {
+    resumeAi: boolean
+    sessionId?: string
+    allowCodexLast: boolean
+    allowContinue: boolean
+  }
 ): string | undefined {
   if (!options.resumeAi) return undefined
   if (tool === SessionTool.Codex) {
@@ -126,7 +139,9 @@ export function startupCommandForRestore(
     }
     return options.allowCodexLast ? 'codex resume --last' : undefined
   }
+  if (!options.allowContinue) return undefined
   if (tool === SessionTool.Claude) return 'claude --continue'
   if (tool === SessionTool.Grok) return 'grok --continue'
+  if (tool === SessionTool.Kimi) return 'kimi --continue'
   return undefined
 }

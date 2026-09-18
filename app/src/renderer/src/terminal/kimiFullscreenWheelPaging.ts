@@ -1,3 +1,5 @@
+import type { AiCliTool } from '../../../shared/aiCliTools'
+
 /** CSI sequences Kimi (and most full-screen TUIs) treat as PageUp / PageDown. */
 export const PAGE_UP = '\x1b[5~'
 export const PAGE_DOWN = '\x1b[6~'
@@ -20,12 +22,26 @@ export function createWheelPagerState(): WheelPagerState {
   return { acc: 0 }
 }
 
-export function shouldInterceptKimiFullscreenWheel(options: {
+export interface WheelInterceptOptions {
   enabled: boolean
   hostReady: boolean
   bufferType: string
-}): boolean {
-  return options.enabled && options.hostReady && options.bufferType === 'alternate'
+  /**
+   * AI CLI detected in this tab's process tree, or null when nothing was
+   * detected / the lookup failed / it has not answered yet. Only `'kimi'`
+   * intercepts: vim, less, htop and the Codex/Grok TUIs all use the alternate
+   * buffer too and must keep xterm's native line scrolling.
+   */
+  tool: AiCliTool | null
+}
+
+export function shouldInterceptKimiFullscreenWheel(options: WheelInterceptOptions): boolean {
+  return (
+    options.enabled &&
+    options.hostReady &&
+    options.bufferType === 'alternate' &&
+    options.tool === 'kimi'
+  )
 }
 
 export type WheelDecision = {
@@ -43,7 +59,7 @@ export type WheelDecision = {
  * xterm turns the leftover into ↑/↓ or a viewport twitch.
  */
 export function decideKimiFullscreenWheel(
-  options: { enabled: boolean; hostReady: boolean; bufferType: string },
+  options: WheelInterceptOptions,
   state: WheelPagerState,
   deltaY: number,
   deltaMode: number
