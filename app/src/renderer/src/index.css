@@ -292,6 +292,20 @@ body {
   overflow: hidden;
 }
 
+/* xterm.js's `.composition-view` (the IME preview) is absolutely positioned
+   with `white-space: nowrap` and no max-width or right-edge constraint - a
+   long Pinyin composition just keeps extending rightwards. Worse, xterm sizes
+   the *focused* `.xterm-helper-textarea` to match it, so Chromium performs a
+   scroll-into-view on the ancestors to keep the caret visible and the whole
+   terminal slides left. `html, body { overflow: hidden }` above does not stop
+   that: `hidden` only hides the scrollbar, the box is still a scroll
+   container. `clip` does stop it - a clip box is not scrollable at all, and
+   the clipped content no longer contributes to any ancestor's scrollable
+   overflow either, so one rule covers both the textarea and the preview. */
+.xterm {
+  overflow: clip;
+}
+
 /* xterm.js's own CSS sets `.xterm-viewport { overflow-y: scroll }` with no
    overflow-x — which the UA then computes as `auto` (the "visible paired
    with a scrolling value becomes auto" rule), so any 1px rounding between
