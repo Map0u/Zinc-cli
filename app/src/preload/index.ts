@@ -4,6 +4,7 @@ import type { SettingsPatch, ZincSettings } from '../shared/settingsTypes'
 import type { UpdateState } from '../shared/updateProtocol'
 import type { RendererSessionSnapshot, RestorePayload } from '../shared/sessionState'
 import type { ShortcutAction } from '../shared/keybindings'
+import type { AiCliTool } from '../shared/aiCliTools'
 
 export interface ShellProfile {
   id: string
@@ -39,6 +40,13 @@ export interface ZincApi {
     onExit: (callback: (id: string, exitCode: number) => void) => () => void
     /** Best-effort current cwd of `id`'s shell (live PEB read, falling back to its spawn cwd). */
     getCwd: (id: string) => Promise<string | null>
+    /**
+     * Which AI CLI is running under `id`'s shell right now, or null when none
+     * is / the scan failed. Unlike the persisted tool this is the raw current
+     * signal with no sticky-tool merge — the renderer asks once per switch
+     * into the alternate buffer.
+     */
+    getForegroundTool: (id: string) => Promise<AiCliTool | null>
     /** Saves a clipboard-pasted image's raw bytes and types its resolved path into the pty (parity §1.5). */
     pasteImage: (id: string, data: Uint8Array, mime: string) => void
   }
@@ -148,6 +156,7 @@ const api: ZincApi = {
       return () => ipcRenderer.removeListener('pty:exit', listener)
     },
     getCwd: (id) => ipcRenderer.invoke('pty:getCwd', id),
+    getForegroundTool: (id) => ipcRenderer.invoke('pty:getForegroundTool', id),
     pasteImage: (id, data, mime) => ipcRenderer.send('pty:pasteImage', id, data, mime)
   },
   onTerminalOptions: (callback) => {

@@ -5,6 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { PTY_PORT_MESSAGE_TYPE, type PtySpawnOptions, type TerminalOptionsPush } from '../../../shared/ptyProtocol'
+import type { AiCliTool } from '../../../shared/aiCliTools'
 import { DEFAULT_COLOR_SCHEME_ID, getColorScheme, resolveVariant, type ThemeMode } from '../colorSchemes'
 import { getSystemThemeMode, onSystemThemeModeChange } from '../themeMode'
 import {
@@ -69,6 +70,17 @@ interface HostEntry {
   transparentBgHandlers: IDisposable[]
   /** Capture-phase wheel listener that pages Kimi's full-screen TUI; removed on destroy. */
   wheelListener: ((event: WheelEvent) => void) | null
+  /**
+   * AI CLI detected under this tab's shell, refreshed once per switch into
+   * the alternate buffer (null until the answer arrives, when nothing is
+   * detected, or in the normal buffer). Gates wheel paging to Kimi.
+   */
+  tool: AiCliTool | null
+  /**
+   * Bumped on every buffer switch. A tool lookup that returns after another
+   * switch has already happened is stale and must be dropped.
+   */
+  toolLookupSeq: number
   /** Accumulates sub-notch wheel movement while the host is paging. */
   wheelPager: WheelPagerState
 }
@@ -245,6 +257,8 @@ export class TerminalHostRegistry {
       port: null,
       transparentBgHandlers: [],
       wheelListener: null,
+      tool: null,
+      toolLookupSeq: 0,
       wheelPager: createWheelPagerState()
     }
     this.syncTransparentBackgroundHandlers(entry)
@@ -263,7 +277,7 @@ export class TerminalHostRegistry {
     }
     container.addEventListener('wheel', entry.wheelListener, { capture: true, passive: false })
     term.attachCustomWheelEventHandler((event) => this.handleWheel(entry, event))
-    term.buffer.onBufferChange(() => this.syncWheelPagingFlag(entry))
+    term.buffer.onBufferChange(() => this.refreshToolForBuffer(entry))
     this.syncWheelPagingFlag(entry)
 
     // Single resize path: the ResizeObserver is the *only* thing that reacts to
@@ -593,7 +607,8 @@ export class TerminalHostRegistry {
       {
         enabled: this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging,
         hostReady: entry.state === 'ready',
-        bufferType: entry.term.buffer.active.type
+        bufferType: entry.term.buffer.active.type,
+        tool: entry.tool
       },
       entry.wheelPager,
       event.deltaY,
@@ -614,9 +629,44 @@ export class TerminalHostRegistry {
     const on = shouldInterceptKimiFullscreenWheel({
       enabled: this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging,
       hostReady: entry.state === 'ready',
-      bufferType: entry.term.buffer.active.type
+      bufferType: entry.term.buffer.active.type,
+      tool: entry.tool
     })
     entry.container.dataset.zincWheelPaging = on ? '1' : '0'
+  }
+
+  /**
+   * Entering the alternate buffer means *some* full-screen TUI started — vim,
+   * less, htop, Codex and Grok all land here too, and only Kimi may have the
+   * wheel. The renderer cannot see which CLI is running, so ask main once per
+   * switch (rare event, so no polling) and cache it on the entry.
+   *
+   * Everything about this is deliberately fail-open: until the answer lands,
+   * and whenever it is null or the call throws, `entry.tool` stays null and no
+   * wheel is intercepted — which is exactly xterm's pre-0.6.7 behaviour.
+   */
+  private refreshToolForBuffer(entry: HostEntry): void {
+    const seq = ++entry.toolLookupSeq
+    if (entry.term.buffer.active.type !== 'alternate') {
+      entry.tool = null
+      this.syncWheelPagingFlag(entry)
+      return
+    }
+    entry.tool = null
+    this.syncWheelPagingFlag(entry)
+    void window.zinc.pty
+      .getForegroundTool(entry.id)
+      .then((tool) => {
+        // Dropped when the buffer switched again while we were waiting (a
+        // quick `vim` in and out) or the host was destroyed meanwhile.
+        if (seq !== entry.toolLookupSeq) return
+        if (!this.hosts.has(entry.id)) return
+        entry.tool = tool
+        this.syncWheelPagingFlag(entry)
+      })
+      .catch(() => {
+        // Detection is best-effort; a failure just leaves paging off.
+      })
   }
 
   private handleContextMenu(entry: HostEntry, event: MouseEvent): void {
