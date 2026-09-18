@@ -6,6 +6,21 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-09-19
+
+### Fixed
+
+- A long IME composition (for example continuous Pinyin typing) no longer
+  pushes the terminal off to the left with no way to scroll back.
+- Restoring a session no longer collapses several tabs onto one conversation:
+  `--continue` resumes the newest session for a working directory, so only one
+  tab per tool and directory now uses it and the rest reopen as a plain shell
+  in the right place.
+- Kimi Code is detected and restored like the other CLIs instead of being saved
+  as "no tool".
+- Full-screen wheel paging applies to Kimi only. vim, less, htop and the Codex
+  and Grok TUIs keep xterm's native line scrolling.
+
 ## [0.6.8] - 2026-08-25
 
 ### Fixed

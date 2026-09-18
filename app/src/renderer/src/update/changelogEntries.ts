@@ -8,6 +8,22 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.9',
+    date: '2026-09-19',
+    zh: [
+      '中文输入法连打长串时，终端不会再被推到左边、左侧文字被裁掉。',
+      '恢复对话不再塌缩：同一个目录下的多个 tab 只有一个接着上次的对话，其余回到该目录起一个干净的终端。',
+      '认得 Kimi Code 了，Kimi 的 tab 不再存成「没有工具」、下次打开也能接着聊。',
+      '滚轮翻页只在 Kimi 全屏界面生效，vim、less、htop 和 Codex / Grok 的界面恢复正常行滚。'
+    ],
+    en: [
+      'A long IME composition no longer pushes the terminal off to the left with no way to scroll back.',
+      'Session restore no longer collapses several tabs onto one conversation: only one tab per tool and directory resumes, the rest reopen as a plain shell there.',
+      'Kimi Code is now detected and restored like the other CLIs.',
+      'Full-screen wheel paging applies to Kimi only; vim, less, htop and the Codex/Grok TUIs keep native line scrolling.'
+    ]
+  },
+  {
     version: '0.6.8',
     date: '2026-08-25',
     zh: [
