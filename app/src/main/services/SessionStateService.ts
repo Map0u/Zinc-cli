@@ -75,14 +75,33 @@ export class SessionStateService {
           ? raw.ActiveIndex
           : 0
 
+      const cwdFor = (t: Partial<SessionTabState> | undefined): string =>
+        typeof t?.WorkingDirectory === 'string' && t.WorkingDirectory.length > 0 ? t.WorkingDirectory : homedir()
+
+      // `<tool> --continue` resumes the newest session *for the working
+      // directory*, so several tabs sharing a cwd would all reopen the same
+      // conversation. Elect one tab per (tool, cwd) group — the active tab
+      // when it is in the group, otherwise the leftmost one — and start the
+      // rest as a plain shell in that directory.
+      const continueWinners = new Set<number>()
+      const groupWinner = new Map<string, number>()
+      tabsRaw.forEach((t, index) => {
+        if (t?.Tool === undefined || t.Tool === SessionTool.None || t.Tool === SessionTool.Codex) return
+        const key = `${t.Tool}\u0000${cwdFor(t).toLowerCase()}`
+        const current = groupWinner.get(key)
+        if (current === undefined || index === activeIndex) groupWinner.set(key, index)
+      })
+      for (const index of groupWinner.values()) continueWinners.add(index)
+
       const tabs: RestoreTab[] = tabsRaw.map((t, index) => {
-        const cwd = typeof t?.WorkingDirectory === 'string' && t.WorkingDirectory.length > 0 ? t.WorkingDirectory : homedir()
+        const cwd = cwdFor(t)
         const shellId = typeof t?.ShellId === 'string' && t.ShellId.length > 0 ? t.ShellId : undefined
         const sessionId = typeof t?.SessionId === 'string' && t.SessionId.length > 0 ? t.SessionId : undefined
         const startupCommand = startupCommandForRestore(t?.Tool, {
           resumeAi: resumeAiConversations,
           sessionId,
-          allowCodexLast: t?.Tool === SessionTool.Codex && index === activeIndex
+          allowCodexLast: t?.Tool === SessionTool.Codex && index === activeIndex,
+          allowContinue: continueWinners.has(index)
         })
         return { cwd, shellId, ...(startupCommand ? { startupCommand } : {}) }
       })

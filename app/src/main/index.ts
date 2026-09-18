@@ -747,10 +747,11 @@ ipcMain.handle("window:close", () => {
 
 const SESSION_SAVE_BUDGET_MS = 2000;
 
-function toSessionTool(tool: "codex" | "claude" | "grok" | null): SessionTool {
+function toSessionTool(tool: AiCliTool | null): SessionTool {
   if (tool === "codex") return SessionTool.Codex;
   if (tool === "claude") return SessionTool.Claude;
   if (tool === "grok") return SessionTool.Grok;
+  if (tool === "kimi") return SessionTool.Kimi;
   return SessionTool.None;
 }
 
@@ -758,6 +759,7 @@ function toAiCliTool(tool: SessionTool): AiCliTool | null {
   if (tool === SessionTool.Codex) return "codex";
   if (tool === SessionTool.Claude) return "claude";
   if (tool === SessionTool.Grok) return "grok";
+  if (tool === SessionTool.Kimi) return "kimi";
   return null;
 }
 

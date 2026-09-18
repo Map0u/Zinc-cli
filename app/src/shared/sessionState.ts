@@ -8,7 +8,9 @@ export enum SessionTool {
   Codex = 1,
   Claude = 2,
   /** Grok Build CLI (`grok`). */
-  Grok = 3
+  Grok = 3,
+  /** Kimi Code CLI (`kimi`). */
+  Kimi = 4
 }
 
 /** One row of `session-state.json`'s `Tabs` array (parity §2.4 field names, kept for future WinUI-state import). */
