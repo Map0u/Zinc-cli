@@ -28,10 +28,10 @@ env:
   # agree — not that either is still the artifact we reviewed.
   # Reviewed public v0.6.9 baseline (SHA-256 from that release's SHA256SUMS.txt,
   # independently pinned here so a mutable release asset cannot self-vouch).
-  ZINC_PREVIOUS_RELEASE_TAG: "v0.6.9"
-  ZINC_PREVIOUS_SETUP_NAME: "Zinc-0.6.9-Setup.exe"
-  ZINC_PREVIOUS_VERSION: "0.6.9"
-  ZINC_PREVIOUS_SETUP_SHA256: "428873389b2e1356c35c2d74d0845da64085aad998c8c053fdcb32711bc8142c"
+  ZINC_PREVIOUS_RELEASE_TAG: "v0.6.10"
+  ZINC_PREVIOUS_SETUP_NAME: "Zinc-0.6.10-Setup.exe"
+  ZINC_PREVIOUS_VERSION: "0.6.10"
+  ZINC_PREVIOUS_SETUP_SHA256: "49c292d4a01daa93181b919ccb1b66824d1f396b2f3d11e70f19865b40a9ddac"
 
 jobs:
   public-tree:

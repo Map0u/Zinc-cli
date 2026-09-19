@@ -8,6 +8,16 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.11',
+    date: '2026-09-19',
+    zh: [
+      '新增可选开关「Grok 全屏配色适配」：Grok 全屏界面出现时，终端卡片底色改用 Grok 自己的灰，不再在它周围留一圈别的颜色，切换时平滑过渡。'
+    ],
+    en: [
+      'New optional "Grok full-screen surface tint" setting: the terminal card takes Grok’s own surface colour while its full-screen TUI is on screen, fading in and out instead of leaving a differently coloured frame around it.'
+    ]
+  },
+  {
     version: '0.6.10',
     date: '2026-09-19',
     zh: [

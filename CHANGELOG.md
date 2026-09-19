@@ -6,6 +6,18 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-09-19
+
+### Added
+
+- Optional "Grok full-screen surface tint" appearance setting: while Grok's
+  full-screen TUI is on screen, the terminal card (and xterm's own background)
+  takes Grok's surface colour instead of the selected scheme's, so Grok's
+  self-painted canvas no longer sits inside a differently coloured frame. The
+  rail, the ANSI palette and every other tab keep the selected scheme, and the
+  colour fades rather than snapping. No effect at terminal opacity 0, where
+  Grok's background is already rewritten to the transparent default.
+
 ## [0.6.10] - 2026-09-19
 
 ### Fixed
