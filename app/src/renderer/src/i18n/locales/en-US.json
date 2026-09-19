@@ -43,6 +43,8 @@
   "CardScrollbackTitle": "Scrollback lines",
   "CardKimiFullscreenWheelPagingTitle": "Kimi full-screen wheel paging",
   "CardKimiFullscreenWheelPagingDesc": "In Kimi's full-screen TUI, the wheel pages (PgUp/PgDn) through the conversation instead of scrolling one line at a time",
+  "CardGrokSurfaceTintTitle": "Grok full-screen surface tint",
+  "CardGrokSurfaceTintDesc": "While Grok's full-screen TUI is on screen, the terminal card takes Grok's own surface colour instead of leaving a differently coloured frame around it. Everything else keeps your scheme. No effect at terminal opacity 0",
   "CardRestoreTitle": "Restore sessions on startup",
   "CardRestoreDesc": "Reopen tabs with their last working directories",
   "CardResumeTitle": "Resume AI chats on restore",

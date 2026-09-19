@@ -20,6 +20,7 @@ import {
   shouldInterceptKimiFullscreenWheel,
   type WheelPagerState
 } from './kimiFullscreenWheelPaging'
+import { shouldTintSurfaceForGrok, surfaceBaseFor } from './grokFullscreenSurface'
 import type { IDisposable } from '@xterm/xterm'
 
 // CJK aliases sit after the Latin monospace fallbacks, before the generic
@@ -40,7 +41,8 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   themeMode: 'auto',
   // Match SettingsService: 0 = raw Acrylic through the terminal card.
   terminalOpacity: 0,
-  kimiFullscreenWheelPaging: true
+  kimiFullscreenWheelPaging: true,
+  grokFullscreenSurfaceTint: false
 }
 
 /**
@@ -84,6 +86,8 @@ interface HostEntry {
   toolLookupSeq: number
   /** Accumulates sub-notch wheel movement while the host is paging. */
   wheelPager: WheelPagerState
+  /** True while this tab wears Grok's surface color — see grokFullscreenSurface.ts. */
+  grokSurface: boolean
 }
 
 /**
@@ -101,6 +105,7 @@ export class TerminalHostRegistry {
   private readonly consumedWheels = new WeakSet<WheelEvent>()
   private readonly titleHandlers = new Set<(id: string, title: string) => void>()
   private readonly noticeHandlers = new Set<(notice: TerminalNotice) => void>()
+  private readonly surfaceHandlers = new Set<(id: string, tinted: boolean) => void>()
   private currentOptions: TerminalOptionsPush = { ...DEFAULT_OPTIONS }
   private systemMode: ThemeMode = getSystemThemeMode()
   /** Explicit user override from settings ('auto' defers to systemMode) — see themeMode.ts's ThemePreference. */
@@ -187,7 +192,7 @@ export class TerminalHostRegistry {
       // background (App.tsx's `terminalSurfaceBg`, see chromeBackground.ts)
       // sitting behind the canvas.
       allowTransparency: true,
-      theme: this.themeFor(),
+      theme: this.themeFor(false),
       linkHandler: {
         activate: openExternalLink
       }
@@ -260,7 +265,8 @@ export class TerminalHostRegistry {
       wheelListener: null,
       tool: null,
       toolLookupSeq: 0,
-      wheelPager: createWheelPagerState()
+      wheelPager: createWheelPagerState(),
+      grokSurface: false
     }
     this.syncTransparentBackgroundHandlers(entry)
 
@@ -279,7 +285,7 @@ export class TerminalHostRegistry {
     container.addEventListener('wheel', entry.wheelListener, { capture: true, passive: false })
     term.attachCustomWheelEventHandler((event) => this.handleWheel(entry, event))
     term.buffer.onBufferChange(() => this.refreshToolForBuffer(entry))
-    this.syncWheelPagingFlag(entry)
+    this.syncFullscreenState(entry)
 
     // Single resize path: the ResizeObserver is the *only* thing that reacts to
     // the container changing size. When the host is still `idle` a size change
@@ -373,7 +379,7 @@ export class TerminalHostRegistry {
           return
         }
         entry.state = 'ready'
-        this.syncWheelPagingFlag(entry)
+        this.syncFullscreenState(entry)
         if (entry.container.clientWidth > 0 && entry.container.clientHeight > 0) {
           this.fitTerminal(entry)
           entry.term.focus()
@@ -485,7 +491,7 @@ export class TerminalHostRegistry {
         this.retheme(entry)
         this.syncTransparentBackgroundHandlers(entry)
       }
-      this.syncWheelPagingFlag(entry)
+      this.syncFullscreenState(entry)
       // Only ready hosts have an opened terminal to fit; the fit's own
       // onResize reports the new size to the pty (single resize path — no
       // separate report here). A font-size change that alters cell geometry
@@ -642,6 +648,45 @@ export class TerminalHostRegistry {
   }
 
   /**
+   * Recomputes everything that depends on "which full-screen TUI is running in
+   * this tab": wheel paging and the Grok surface tint. Both read the same three
+   * signals (setting, buffer type, detected tool), so they are refreshed
+   * together at every point where one of those can have changed.
+   */
+  private syncFullscreenState(entry: HostEntry): void {
+    this.syncWheelPagingFlag(entry)
+    this.syncGrokSurface(entry)
+  }
+
+  private syncGrokSurface(entry: HostEntry): void {
+    const next = shouldTintSurfaceForGrok({
+      enabled: this.currentOptions.grokFullscreenSurfaceTint ?? DEFAULT_OPTIONS.grokFullscreenSurfaceTint,
+      hostReady: entry.state === 'ready',
+      bufferType: entry.term.buffer.active.type,
+      tool: entry.tool,
+      terminalOpacity: this.currentOptions.terminalOpacity ?? DEFAULT_OPTIONS.terminalOpacity
+    })
+    if (next === entry.grokSurface) return
+    entry.grokSurface = next
+    // xterm's own background has to move with the card's, or the canvas and
+    // the padding around it end up different colors — and inverse text would
+    // be derived from the wrong surface (the 0.6.10 bug, inside Grok).
+    this.retheme(entry)
+    for (const handler of this.surfaceHandlers) handler(entry.id, next)
+  }
+
+  /** Subscribes to per-tab Grok surface-tint changes so React can retint the card. Returns an unsubscribe function. */
+  onSurfaceTintChange(handler: (id: string, tinted: boolean) => void): () => void {
+    this.surfaceHandlers.add(handler)
+    return () => this.surfaceHandlers.delete(handler)
+  }
+
+  /** Whether `id` currently wears Grok's surface color (for a late subscriber / first render). */
+  isSurfaceTinted(id: string): boolean {
+    return this.hosts.get(id)?.grokSurface ?? false
+  }
+
+  /**
    * Entering the alternate buffer means *some* full-screen TUI started — vim,
    * less, htop, Codex and Grok all land here too, and only Kimi may have the
    * wheel. The renderer cannot see which CLI is running, so ask main once per
@@ -655,11 +700,11 @@ export class TerminalHostRegistry {
     const seq = ++entry.toolLookupSeq
     if (entry.term.buffer.active.type !== 'alternate') {
       entry.tool = null
-      this.syncWheelPagingFlag(entry)
+      this.syncFullscreenState(entry)
       return
     }
     entry.tool = null
-    this.syncWheelPagingFlag(entry)
+    this.syncFullscreenState(entry)
     void window.zinc.pty
       .getForegroundTool(entry.id)
       .then((tool) => {
@@ -668,7 +713,7 @@ export class TerminalHostRegistry {
         if (seq !== entry.toolLookupSeq) return
         if (!this.hosts.has(entry.id)) return
         entry.tool = tool
-        this.syncWheelPagingFlag(entry)
+        this.syncFullscreenState(entry)
       })
       .catch(() => {
         // Detection is best-effort; a failure just leaves paging off.
@@ -729,7 +774,7 @@ export class TerminalHostRegistry {
   // no opened terminal to refresh; the new theme option it's given here applies
   // when it opens.
   private retheme(entry: HostEntry): void {
-    entry.term.options.theme = this.themeFor()
+    entry.term.options.theme = this.themeFor(entry.grokSurface)
     if (entry.state !== 'idle') entry.term.refresh(0, entry.term.rows - 1)
   }
 
@@ -853,14 +898,17 @@ export class TerminalHostRegistry {
   // CSS layer already resolves to (Acrylic renders any alpha > 0 as fully
   // opaque, see chromeBackground.ts), so only the gap the canvas doesn't cover
   // is still CSS-only, and it matches.
-  private themeFor(): ITheme {
+  private themeFor(grokSurface: boolean): ITheme {
     const scheme = getColorScheme(this.currentOptions.colorScheme)
     const variant = resolveVariant(scheme, this.mode)
     return {
+      // Only the surface follows Grok. The ANSI palette stays the user's:
+      // Grok paints every cell of its canvas itself, so the 16 colors are not
+      // what clashes — only the frame around the canvas is.
       ...variant.ansi,
       background: terminalThemeBackground(
         this.currentOptions.terminalOpacity ?? DEFAULT_OPTIONS.terminalOpacity,
-        variant.surfaceBase
+        surfaceBaseFor(grokSurface, this.currentOptions.colorScheme, this.mode)
       )
     }
   }

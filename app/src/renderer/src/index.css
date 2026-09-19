@@ -316,6 +316,21 @@ body {
   overflow-x: hidden;
 }
 
+/* Grok's surface tint (GrokFullscreenSurfaceTint) changes xterm's own
+   theme.background, which xterm paints through its per-terminal stylesheet on
+   these elements. Without a matching transition the canvas area would snap
+   while the card around it fades — a visible seam for the length of the fade.
+
+   Scoped to the attribute App.tsx sets only while that specific change is in
+   flight. An unconditional rule would also catch a colour-scheme or light/dark
+   switch, and there it is wrong: retheme() repaints every row against the new
+   theme on the same frame, so the glyphs would sit on the previous scheme's
+   background until the fade finished. */
+[data-zinc-surface-fade='1'] .xterm .xterm-viewport,
+[data-zinc-surface-fade='1'] .xterm .xterm-screen {
+  transition: background-color 220ms ease;
+}
+
 /* Inverse text (SGR 7) that kept the default background — Claude Code styles
    whole message blocks that way.
 

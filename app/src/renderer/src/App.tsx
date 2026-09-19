@@ -6,6 +6,10 @@ import { SettingsRailBody, SettingsContentBody, type Category } from './settings
 import { shortcutManager } from './shortcuts/ShortcutManager'
 import { SegoeIcon } from './segoeFluentIcons'
 import { surfaceBackground } from './chromeBackground'
+import { surfaceBaseFor } from './terminal/grokFullscreenSurface'
+
+/** Length of the Grok surface-tint cross-fade; index.css uses the same value. */
+const SURFACE_FADE_MS = 220
 import { getColorScheme, harmonizeAccent, resolveVariant } from './colorSchemes'
 import { useResolvedThemeMode } from './themeMode'
 import zincIcon from './assets/zinc-icon.png'
@@ -777,6 +781,38 @@ export default function App() {
     if (activeId) terminalHostRegistry.fitOnShow(activeId)
   }, [activeId])
 
+  // Which tabs currently wear Grok's surface color. The registry owns the
+  // decision (it sees the buffer type and the detected tool); React only needs
+  // the answer for whichever tab is on screen, since the card is shared.
+  const [grokTintedIds, setGrokTintedIds] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => {
+    return terminalHostRegistry.onSurfaceTintChange((id, tinted) => {
+      setGrokTintedIds((prev) => {
+        if (prev.has(id) === tinted) return prev
+        const next = new Set(prev)
+        if (tinted) next.add(id)
+        else next.delete(id)
+        return next
+      })
+    })
+  }, [])
+
+  // The fade is armed only around a Grok tint change, never left on. xterm
+  // repaints its rows against a new theme immediately but its canvas colour
+  // would transition, so an always-on transition would show new-scheme glyphs
+  // over the old scheme's background for the length of the fade every time the
+  // colour scheme or light/dark mode changed.
+  const activeTabIsGrokTinted = activeId ? grokTintedIds.has(activeId) : false
+  const [surfaceFading, setSurfaceFading] = useState(false)
+  const lastGrokTintRef = useRef(activeTabIsGrokTinted)
+  useEffect(() => {
+    if (lastGrokTintRef.current === activeTabIsGrokTinted) return
+    lastGrokTintRef.current = activeTabIsGrokTinted
+    setSurfaceFading(true)
+    const timer = window.setTimeout(() => setSurfaceFading(false), SURFACE_FADE_MS + 40)
+    return () => window.clearTimeout(timer)
+  }, [activeTabIsGrokTinted])
+
   useEffect(() => {
     return terminalHostRegistry.onTitleChange((id, title) => {
       const clean = normalizeTabTitle(title)
@@ -959,7 +995,10 @@ export default function App() {
   const terminalOpacity = Math.max(0, Math.min(1, settings?.TerminalOpacity ?? 0))
   const colorVariant = resolveVariant(getColorScheme(settings?.ColorScheme), themeMode)
   const railBg = surfaceBackground(railOpacity, colorVariant.surfaceBase)
-  const terminalBg = surfaceBackground(terminalOpacity, colorVariant.surfaceBase)
+  // The rail keeps the scheme's own surface; only the terminal card follows
+  // Grok, and only while Grok's full-screen TUI is the visible tab.
+  const terminalSurfaceBase = surfaceBaseFor(activeTabIsGrokTinted, settings?.ColorScheme, themeMode)
+  const terminalBg = surfaceBackground(terminalOpacity, terminalSurfaceBase)
   const showWindowControls = windowState.platform === 'linux' || windowState.fullScreen
   const configuredShellId = settings?.DefaultShellId
   const defaultShellLabel =
@@ -1460,6 +1499,7 @@ export default function App() {
           shadow past it anyway. */}
       <div
         className="relative min-h-0 flex-1 overflow-hidden"
+        data-zinc-surface-fade={surfaceFading ? '1' : undefined}
         style={{
           background: terminalBg,
           // Colour for inverse (SGR 7) terminal text that kept the default
@@ -1468,7 +1508,12 @@ export default function App() {
           // is see-through, and its opaque() collapses transparency to black:
           // unreadable dark-on-dark. This variable gives the stylesheet the
           // scheme's real surface colour to use instead.
-          ['--zinc-terminal-inverse-fg' as string]: surfaceBackground(1, colorVariant.surfaceBase),
+          ['--zinc-terminal-inverse-fg' as string]: surfaceBackground(1, terminalSurfaceBase),
+          // Grok's tint fades in/out instead of snapping. index.css carries the
+          // matching transition for xterm's own background, which is painted by
+          // xterm's stylesheet rather than this style object, and keys off the
+          // same data attribute.
+          transition: surfaceFading ? `background-color ${SURFACE_FADE_MS}ms ease` : undefined,
           borderRadius: WINDOW_CORNER_RADIUS,
           boxShadow: 'inset 1px 0 0 rgba(255, 255, 255, 0.06), -12px 0 28px -6px rgba(0, 0, 0, 0.55)'
         }}

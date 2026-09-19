@@ -46,6 +46,13 @@ export interface ZincSettings {
   Scrollback: number
   /** When on, the mouse wheel pages (PgUp/PgDn) instead of line-scrolling inside Kimi's full-screen TUI. */
   KimiFullscreenWheelPaging: boolean
+  /**
+   * When on, the terminal card takes Grok's own surface color while Grok's
+   * full-screen TUI is on screen, instead of the selected scheme's. Lets the
+   * app keep its palette without a frame of a different color around Grok's
+   * self-painted canvas.
+   */
+  GrokFullscreenSurfaceTint: boolean
   RestoreSessionsOnStartup: boolean
   /** When restoring tabs, auto-run claude/codex/grok resume commands if a tool was detected. */
   ResumeAiConversations: boolean

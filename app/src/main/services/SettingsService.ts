@@ -229,6 +229,7 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     StartingDirectory: normalizeString(raw.StartingDirectory, base.StartingDirectory),
     Scrollback: clampNumber(raw.Scrollback, base.Scrollback, NUMERIC_BOUNDS.Scrollback),
     KimiFullscreenWheelPaging: normalizeBoolean(raw.KimiFullscreenWheelPaging, base.KimiFullscreenWheelPaging),
+    GrokFullscreenSurfaceTint: normalizeBoolean(raw.GrokFullscreenSurfaceTint, base.GrokFullscreenSurfaceTint),
     RestoreSessionsOnStartup: normalizeBoolean(raw.RestoreSessionsOnStartup, base.RestoreSessionsOnStartup),
     ResumeAiConversations: normalizeBoolean(raw.ResumeAiConversations, base.ResumeAiConversations),
     Language: normalizeLanguage(raw.Language, base.Language),
@@ -263,6 +264,9 @@ function defaultSettings(): ZincSettings {
     StartingDirectory: homedir(),
     Scrollback: 10000,
     KimiFullscreenWheelPaging: true,
+    // Off by default: it deliberately overrides the palette the user picked,
+    // so it has to be asked for.
+    GrokFullscreenSurfaceTint: false,
     RestoreSessionsOnStartup: true,
     ResumeAiConversations: true,
     Language: 'auto',

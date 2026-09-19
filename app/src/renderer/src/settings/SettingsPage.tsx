@@ -588,6 +588,13 @@ function AppearanceSection() {
           onDebouncedChange={(v) => updateDebounced({ TerminalOpacity: v })}
         />
       </Card>
+      <Card title={t('CardGrokSurfaceTintTitle')} desc={t('CardGrokSurfaceTintDesc')}>
+        <Toggle
+          testId="setting-grokFullscreenSurfaceTint"
+          checked={settings.GrokFullscreenSurfaceTint}
+          onChange={(v) => updateImmediate({ GrokFullscreenSurfaceTint: v })}
+        />
+      </Card>
       <GroupHeading>{t('GroupScale')}</GroupHeading>
       <Card title={t('UiZoomLabel')} desc={t('UiZoomHint')}>
         <Dropdown
