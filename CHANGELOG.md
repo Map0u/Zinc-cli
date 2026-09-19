@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.10] - 2026-09-19
+
+### Fixed
+
+- Inverse (reverse-video) terminal text is readable again on light colour
+  schemes. Blocks that a TUI draws that way — Claude Code styles whole
+  messages like this — rendered as a solid dark bar with the text invisible
+  inside it.
+
 ## [0.6.9] - 2026-09-19
 
 ### Fixed

@@ -8,6 +8,16 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.6.10',
+    date: '2026-09-19',
+    zh: [
+      '浅色配色下，终端里的反白文字（Claude Code 会整块这样画）不再变成一条纯色块、字全看不见。'
+    ],
+    en: [
+      'Inverse terminal text is readable again on light colour schemes instead of rendering as a solid bar with the text invisible inside it.'
+    ]
+  },
+  {
     version: '0.6.9',
     date: '2026-09-19',
     zh: [

@@ -1,6 +1,6 @@
 {
   "name": "zinc",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "private": true,
   "description": "A lightweight multi-shell Windows terminal launcher with a modern UI",
   "license": "AGPL-3.0-only",
@@ -35,7 +35,8 @@
     "verify:cdp:m3": "node ./zinc-m3-verify.mjs",
     "verify:cdp:shells": "node ./zinc-multishell-verify.mjs",
     "verify:cdp:shortcuts": "node ./zinc-shortcuts-verify.mjs",
-    "verify:cdp": "npm run verify:cdp:m1 && npm run verify:cdp:m3 && npm run verify:cdp:shells && npm run verify:cdp:shortcuts && npm run verify:cdp:m2"
+    "verify:cdp:inverse": "node ./zinc-inverse-verify.mjs",
+    "verify:cdp": "npm run verify:cdp:m1 && npm run verify:cdp:m3 && npm run verify:cdp:shells && npm run verify:cdp:shortcuts && npm run verify:cdp:inverse && npm run verify:cdp:m2"
   },
   "build": {
     "appId": "space.457workshop.zinc",
