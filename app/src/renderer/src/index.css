@@ -316,6 +316,29 @@ body {
   overflow-x: hidden;
 }
 
+/* Inverse text (SGR 7) that kept the default background — Claude Code styles
+   whole message blocks that way.
+
+   xterm paints such a cell with theme.foreground as its background and emits
+   `.xterm-fg-257 { color: opaque(theme.background) }` for the glyphs. Its
+   `opaque()` composites onto black, so the fully transparent background Zinc
+   must use while the terminal card is see-through (TerminalOpacity 0, Acrylic
+   behind — see TerminalHostRegistry.themeFor) turns that text pure #000000 on
+   a near-black cell: a solid, unreadable colour bar. Shipping default is
+   TerminalOpacity 0, so the transparent branch is the common case, not an edge
+   one.
+
+   xterm's own rule is `.xterm-dom-renderer-owner-N .xterm-fg-257` — two
+   classes. Three here wins on specificity without `!important`, and the
+   variable comes from the terminal card in App.tsx, so it always carries the
+   active scheme's real surface colour. */
+.xterm .xterm-rows .xterm-fg-257 {
+  color: var(--zinc-terminal-inverse-fg);
+}
+.xterm .xterm-rows .xterm-fg-257.xterm-dim {
+  color: color-mix(in srgb, var(--zinc-terminal-inverse-fg) 50%, transparent);
+}
+
 /* Terminal scrollbar: the old app's terminal.html sets `scrollbar-color:
    #3A424C transparent` (standard CSS Scrollbars Level 1 - WebView2's
    Chromium honors it too), but that property alone can't draw a pill

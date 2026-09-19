@@ -1462,6 +1462,13 @@ export default function App() {
         className="relative min-h-0 flex-1 overflow-hidden"
         style={{
           background: terminalBg,
+          // Colour for inverse (SGR 7) terminal text that kept the default
+          // background — see index.css. xterm derives that colour from
+          // theme.background, which must stay fully transparent while the card
+          // is see-through, and its opaque() collapses transparency to black:
+          // unreadable dark-on-dark. This variable gives the stylesheet the
+          // scheme's real surface colour to use instead.
+          ['--zinc-terminal-inverse-fg' as string]: surfaceBackground(1, colorVariant.surfaceBase),
           borderRadius: WINDOW_CORNER_RADIUS,
           boxShadow: 'inset 1px 0 0 rgba(255, 255, 255, 0.06), -12px 0 28px -6px rgba(0, 0, 0, 0.55)'
         }}

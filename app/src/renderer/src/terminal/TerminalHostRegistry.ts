@@ -11,7 +11,8 @@ import { getSystemThemeMode, onSystemThemeModeChange } from '../themeMode'
 import {
   formatSgrParams,
   rewriteSgrParamsForTransparentBg,
-  shouldTransparentizeTerminalBackgrounds
+  shouldTransparentizeTerminalBackgrounds,
+  terminalThemeBackground
 } from './transparentTerminalBackground'
 import {
   createWheelPagerState,
@@ -478,7 +479,12 @@ export class TerminalHostRegistry {
       // switch — unlike ShellPath/StartingDirectory (new-tab-only), a color
       // scheme change must visibly apply to whatever's already running.
       if (options.colorScheme !== undefined || options.themeMode !== undefined) this.retheme(entry)
-      if (options.terminalOpacity !== undefined) this.syncTransparentBackgroundHandlers(entry)
+      // TerminalOpacity now also decides whether themeFor() hands xterm a real
+      // background color (see themeFor), so an opacity change must re-theme.
+      if (options.terminalOpacity !== undefined) {
+        this.retheme(entry)
+        this.syncTransparentBackgroundHandlers(entry)
+      }
       this.syncWheelPagingFlag(entry)
       // Only ready hosts have an opened terminal to fit; the fit's own
       // onResize reports the new size to the pty (single resize path — no
@@ -828,22 +834,35 @@ export class TerminalHostRegistry {
     return `"${this.currentOptions.fontFamily ?? DEFAULT_OPTIONS.fontFamily}", ${FONT_FALLBACK}`
   }
 
-  // Always fully transparent, regardless of TerminalOpacity: xterm's own
-  // canvas paints ON TOP of the host div's CSS background (App.tsx's
-  // `terminalSurfaceBg`, see chromeBackground.ts, which already carries the
-  // real rgba(12,12,12,opacity) tint). If this theme background were ALSO an opaque-ish rgba, both
-  // layers would blend against the true window backdrop independently and
-  // stack (e.g. two 0.4-alpha layers compose to ~0.64, not 0.4) - measured
-  // via direct pixel sampling: canvas showed A=255 with the WebGL addon
-  // (which additionally ignores theme alpha outright) and A=163 without it
-  // (the double-blend math: 0.4 + 0.4*(1-0.4) = 0.64 ≈ 163/255), while the
-  // surrounding CSS-only padding gap correctly showed A=102 (0.4). Only one
-  // layer should ever paint the tint - the CSS one, since it's the whole
-  // rectangle including the gap the canvas doesn't cover.
+  // Fully transparent ONLY while the card itself is see-through
+  // (TerminalOpacity 0); otherwise the scheme's own surface color, opaque.
+  // terminalThemeBackground() carries the reason: xterm also derives the color
+  // of inverse (SGR 7) text from theme.background, and a transparent value
+  // collapses to pure black there — the invisible-text "solid bar" bug.
+  //
+  // The transparent branch stays because xterm paints ON TOP of the host div's
+  // CSS background (App.tsx's `terminalSurfaceBg`, see chromeBackground.ts,
+  // which already carries the real rgba(12,12,12,opacity) tint). A *partially*
+  // transparent theme background would make both layers blend against the
+  // window backdrop independently and stack (two 0.4-alpha layers compose to
+  // ~0.64, not 0.4) - measured via direct pixel sampling: canvas showed A=255
+  // with the WebGL addon (which additionally ignores theme alpha outright) and
+  // A=163 without it (0.4 + 0.4*(1-0.4) = 0.64 ≈ 163/255), while the
+  // surrounding CSS-only padding gap correctly showed A=102 (0.4). An *opaque*
+  // theme background does not stack - it simply repaints the same color the
+  // CSS layer already resolves to (Acrylic renders any alpha > 0 as fully
+  // opaque, see chromeBackground.ts), so only the gap the canvas doesn't cover
+  // is still CSS-only, and it matches.
   private themeFor(): ITheme {
     const scheme = getColorScheme(this.currentOptions.colorScheme)
     const variant = resolveVariant(scheme, this.mode)
-    return { ...variant.ansi, background: 'rgba(0, 0, 0, 0)' }
+    return {
+      ...variant.ansi,
+      background: terminalThemeBackground(
+        this.currentOptions.terminalOpacity ?? DEFAULT_OPTIONS.terminalOpacity,
+        variant.surfaceBase
+      )
+    }
   }
 }
 

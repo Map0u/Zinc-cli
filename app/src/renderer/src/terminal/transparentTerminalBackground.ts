@@ -152,3 +152,31 @@ export function formatSgrParams(params: ReadonlyArray<number | number[]>): strin
 export function shouldTransparentizeTerminalBackgrounds(terminalOpacity: number): boolean {
   return terminalOpacity <= 0
 }
+
+/**
+ * The `background` Zinc hands xterm's theme.
+ *
+ * xterm does not only paint cells with this — it also derives the color of
+ * *inverse* text (SGR 7) that kept the default background from it:
+ *
+ *   .xterm-fg-257 { color: opaque(theme.background) }
+ *
+ * and xterm's `opaque()` composites onto black, so a fully transparent
+ * background collapses to #000000. Such a cell simultaneously takes
+ * theme.foreground as its *background* — on a light scheme that is a solid
+ * dark bar with pure-black, unreadable glyphs inside it. So whenever the
+ * terminal card is opaque we must hand xterm the scheme's real surface color;
+ * only a see-through card (TerminalOpacity 0, Acrylic behind) needs the
+ * transparent value, and there xterm's foreground/background are close enough
+ * in tone that inverse stays legible.
+ */
+export function terminalThemeBackground(
+  terminalOpacity: number,
+  surfaceBase: readonly [number, number, number]
+): string {
+  if (shouldTransparentizeTerminalBackgrounds(terminalOpacity)) return 'rgba(0, 0, 0, 0)'
+  const [r, g, b] = surfaceBase.map((n) =>
+    Math.round(Math.max(0, Math.min(255, Number.isFinite(n) ? n : 0)))
+  )
+  return `rgb(${r}, ${g}, ${b})`
+}

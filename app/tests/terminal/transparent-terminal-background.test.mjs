@@ -24,7 +24,8 @@ const {
   formatSgrParams,
   isNearBlackRgb,
   isNearBlackIndexed,
-  shouldTransparentizeTerminalBackgrounds
+  shouldTransparentizeTerminalBackgrounds,
+  terminalThemeBackground
 } = await import(pathToFileURL(outFile).href)
 
 test.after(() => {
@@ -83,4 +84,25 @@ test('formatSgrParams flattens to semicolon form for re-injection', () => {
   assert.equal(formatSgrParams([1, 49, 37]), '1;49;37')
   assert.equal(formatSgrParams([48, [2, 80, 80, 80]]), '48;2;80;80;80')
   assert.equal(formatSgrParams([49]), '49')
+})
+
+// Regression: an opaque terminal card must never hand xterm a transparent
+// theme background. xterm turns it into the color of inverse (SGR 7) text via
+// opaque(background) — which composites onto black — so inverse runs render
+// pure-black glyphs on a theme.foreground cell: the invisible "solid bar".
+test('opaque card gets the scheme surface color, not a transparent background', () => {
+  // Vesper light surfaceBase — the scheme the bug was reported on.
+  assert.equal(terminalThemeBackground(1, [250, 246, 236]), 'rgb(250, 246, 236)')
+  assert.equal(terminalThemeBackground(0.5, [250, 246, 236]), 'rgb(250, 246, 236)')
+  assert.equal(terminalThemeBackground(0.01, [12, 11, 10]), 'rgb(12, 11, 10)')
+})
+
+test('a fully see-through card keeps the transparent background', () => {
+  assert.equal(terminalThemeBackground(0, [250, 246, 236]), 'rgba(0, 0, 0, 0)')
+  assert.equal(terminalThemeBackground(-1, [250, 246, 236]), 'rgba(0, 0, 0, 0)')
+})
+
+test('surface channels are rounded and clamped into a valid rgb()', () => {
+  assert.equal(terminalThemeBackground(1, [249.6, 245.4, 236]), 'rgb(250, 245, 236)')
+  assert.equal(terminalThemeBackground(1, [-5, 300, Number.NaN]), 'rgb(0, 255, 0)')
 })
