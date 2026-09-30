@@ -76,15 +76,16 @@ test('restore injects grok --continue for Grok tabs when resume is enabled', () 
   const dir = mkdtempSync(join(tmpdir(), 'zinc-session-'))
   const filePath = join(dir, 'session-state.json')
   try {
+    const cwd = mkdtempSync(join(dir, 'project-'))
     writeFileSync(
       filePath,
       JSON.stringify(
         {
           Tabs: [
-            { WorkingDirectory: 'C:\\proj', Tool: SessionTool.Grok, ShellId: 'pwsh' },
-            { WorkingDirectory: 'C:\\proj', Tool: SessionTool.Claude, ShellId: 'pwsh' },
-            { WorkingDirectory: 'C:\\proj', Tool: SessionTool.Codex, ShellId: 'pwsh' },
-            { WorkingDirectory: 'C:\\proj', Tool: SessionTool.None, ShellId: 'pwsh' }
+            { WorkingDirectory: cwd, Tool: SessionTool.Grok, ShellId: 'pwsh' },
+            { WorkingDirectory: cwd, Tool: SessionTool.Claude, ShellId: 'pwsh' },
+            { WorkingDirectory: cwd, Tool: SessionTool.Codex, ShellId: 'pwsh' },
+            { WorkingDirectory: cwd, Tool: SessionTool.None, ShellId: 'pwsh' }
           ],
           ActiveIndex: 0
         },

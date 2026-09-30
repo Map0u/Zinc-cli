@@ -8,6 +8,18 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.7.0',
+    date: '2026-09-29',
+    zh: [
+      '同一项目目录的多个 Claude 标签可按各自的会话 ID 精确恢复，不再都接到最新一条。Zinc 通过进程专属设置中的会话钩子记录 ID；交互提示符直接输入 claude 可被包装捕获，全路径、脚本和 WSL 手动启动不在覆盖范围内。身份不确定时保守地打开终端，避免误接他人的对话。',
+      '改进退出保存、终端进程识别、Shell 探测与失败恢复；更新检查、贴图与外链出错时不再默默忽略。'
+    ],
+    en: [
+      'Claude tabs in one project directory can resume their own conversation IDs instead of all attaching to the newest one. A per-process SessionStart hook records each ID; typing claude directly at an interactive prompt is covered, while full-path launches, scripts and manual WSL launches are not. Unknown identities reopen conservatively to avoid joining another tab’s conversation.',
+      'Improves shutdown persistence, terminal process detection, shell discovery and error handling for updates, image paste and external links.'
+    ]
+  },
+  {
     version: '0.6.11',
     date: '2026-09-19',
     zh: [

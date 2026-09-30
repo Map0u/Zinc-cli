@@ -66,14 +66,7 @@ export class UpdaterService {
         error: null
       })
     })
-    autoUpdater.on('error', (err) => {
-      this.patch({
-        status: 'error',
-        error: err.message || String(err),
-        percent: null,
-        bytesPerSecond: null
-      })
-    })
+    autoUpdater.on('error', (err) => this.setError(err))
   }
 
   getState(): UpdateState {
@@ -99,7 +92,7 @@ export class UpdaterService {
     }
     this.backgroundCheckStarted = true
     void this.check().catch(() => {
-      // error event already patched state
+      // check() records updater failures; never leave a background rejection unhandled.
     })
   }
 
@@ -109,7 +102,19 @@ export class UpdaterService {
     this.checkInFlight = true
     this.patch({ status: 'checking', error: null })
     try {
-      await autoUpdater.checkForUpdates()
+      const result = await autoUpdater.checkForUpdates()
+      // autoDownload starts a separate promise; the check itself can succeed while it rejects.
+      if (result?.downloadPromise) {
+        void result.downloadPromise.catch((error) => {
+          try {
+            this.setError(error)
+          } catch {
+            // State was patched even if notifying the renderer failed.
+          }
+        })
+      }
+    } catch (error) {
+      this.setError(error)
     } finally {
       this.checkInFlight = false
     }
@@ -121,18 +126,35 @@ export class UpdaterService {
     if (!this.ensureEnabled()) return this.getState()
     if (this.state.status !== 'available' && this.state.status !== 'error') return this.getState()
     this.patch({ status: 'downloading', percent: 0, bytesPerSecond: null, error: null })
-    await autoUpdater.downloadUpdate()
+    try {
+      await autoUpdater.downloadUpdate()
+    } catch (error) {
+      this.setError(error)
+    }
     return this.getState()
   }
 
   install(win: BrowserWindow | null): UpdateState {
     if (!this.ensureEnabled()) return this.getState()
     if (this.state.status !== 'downloaded') return this.getState()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('update:state', this.getState())
+    try {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('update:state', this.getState())
+      }
+      autoUpdater.quitAndInstall(false, true)
+    } catch (error) {
+      this.setError(error)
     }
-    autoUpdater.quitAndInstall(false, true)
     return this.getState()
+  }
+
+  private setError(error: unknown): void {
+    this.patch({
+      status: 'error',
+      error: errorMessage(error),
+      percent: null,
+      bytesPerSecond: null
+    })
   }
 
   private ensureEnabled(): boolean {
@@ -145,6 +167,15 @@ export class UpdaterService {
     Object.assign(this.state, patch)
     this.pushState(this.getState())
   }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message || String(error)
+  if (error !== null && typeof error === 'object' && 'message' in error) {
+    const message = error.message
+    if (typeof message === 'string' && message) return message
+  }
+  return String(error)
 }
 
 function versionFrom(info: UpdateInfo): string {

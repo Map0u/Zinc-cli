@@ -75,6 +75,13 @@ function windowsPathCandidates(env: NodeJS.ProcessEnv, fileName: string): string
   return candidates
 }
 
+function safeComSpec(env: NodeJS.ProcessEnv): string | null {
+  const value = env.ComSpec?.trim()
+  // ComSpec is an executable path, not a command line. Accept a local absolute
+  // cmd.exe path (including spaces), but never arguments or another program.
+  return value && /^[a-z]:[\\/]/i.test(value) && win32.basename(value).toLowerCase() === 'cmd.exe' ? value : null
+}
+
 function registryValueFromRegOutput(stdout: string | Buffer, expectedValue: string): string | null {
   const text = Buffer.isBuffer(stdout) ? stdout.toString('utf8') : stdout
   const escapedValue = expectedValue.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
@@ -130,7 +137,7 @@ async function discoverWindowsShells(deps: Required<Omit<ShellDiscoveryDependenc
     addOnce(shells, { id: 'windows-powershell', label: 'Windows PowerShell', command: windowsPowerShell, kind: 'powershell', args: ['-NoLogo'] })
   }
 
-  const cmd = firstExisting([env.ComSpec ?? '', ...(systemRoot ? [win32.join(systemRoot, 'System32', 'cmd.exe')] : []), ...windowsPathCandidates(env, 'cmd.exe')], fileExists)
+  const cmd = firstExisting([safeComSpec(env) ?? '', ...(systemRoot ? [win32.join(systemRoot, 'System32', 'cmd.exe')] : []), ...windowsPathCandidates(env, 'cmd.exe')], fileExists)
   if (cmd) addOnce(shells, { id: 'cmd', label: 'Command Prompt', command: cmd, kind: 'cmd', args: [] })
 
   const gitInstallPath = await readGitInstallPath(deps)
@@ -168,13 +175,13 @@ function discoverPosixShells(deps: Required<Omit<ShellDiscoveryDependencies, 're
   } catch {
     // Minimal containers may not have /etc/shells; $SHELL still has value.
   }
-  const candidates = [deps.env.SHELL, ...[...allowed].filter((entry) => /\/(?:bash|zsh|fish)$/.test(entry))]
+  const candidates = [deps.env.SHELL, ...[...allowed].filter((entry) => /\/(?:bash|zsh|fish|sh)$/.test(entry))]
   const shells: DiscoveredShell[] = []
   for (const command of candidates) {
     // `$SHELL` is deliberately retained even if it is a less common shell
     // (e.g. dash): it is the documented first Linux fallback. /etc/shells is
     // otherwise restricted to bash/zsh/fish/sh to keep the picker compact.
-    if (!command || (command !== deps.env.SHELL && !/(?:^|\/)(?:bash|zsh|fish)$/.test(command))) continue
+    if (!command || (command !== deps.env.SHELL && !/(?:^|\/)(?:bash|zsh|fish|sh)$/.test(command))) continue
     if (!firstExisting([command], deps.fileExists)) continue
     const id = command.split('/').pop()!
     addOnce(shells, { id, label: posixLabel(id), command, kind: 'posix', args: [] })
@@ -222,17 +229,18 @@ export function buildShellSpawnArgs(shell: DiscoveredShell, startupCommand?: str
   if (shell.kind === 'powershell') return [...shell.args, '-NoExit', '-Command', startup]
   if (shell.kind === 'cmd') return [...shell.args, '/K', startup]
   if (shell.kind === 'wsl') {
-    // `wsl.exe -d <distro>` normally starts the distro's configured shell.
-    // For a restore command, use POSIX sh then exec the user's login shell so
-    // the terminal remains open and has the expected profile/environment.
-    return [...shell.args, '--', 'sh', '-lc', `${startup}; exec \"${'$'}{SHELL:-/bin/sh}\" -l`]
+    // Run startup inside the user's interactive login shell, after its profile
+    // loads. The outer sh only selects $SHELL and reopens it when startup ends.
+    // Quote startup as one argument so apostrophes and compound commands survive.
+    const script = `user_shell="${'$'}{SHELL:-/bin/sh}"; "$user_shell" -lic ${quotePosixArg(startup)}; exec "$user_shell" -l`
+    return [...shell.args, '--', 'sh', '-c', script]
   }
   const reexec = [quotePosixArg(shell.command), ...shell.args.map(quotePosixArg)].join(' ')
   return ['-c', `${startup}; exec ${reexec}`]
 }
 
 function emergencyShell(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): DiscoveredShell {
-  if (platform === 'win32') return { id: 'cmd', label: 'Command Prompt', command: env.ComSpec || 'cmd.exe', kind: 'cmd', args: [] }
+  if (platform === 'win32') return { id: 'cmd', label: 'Command Prompt', command: safeComSpec(env) ?? 'cmd.exe', kind: 'cmd', args: [] }
   return { id: 'sh', label: 'Sh', command: '/bin/sh', kind: 'posix', args: [] }
 }
 
@@ -271,7 +279,18 @@ export class ShellDiscoveryService {
   }
 
   getShells(): Promise<DiscoveredShell[]> {
-    if (!this.cached) this.cached = discoverShells(this.dependencies).catch(() => [])
+    if (!this.cached) {
+      this.cached = discoverShells(this.dependencies).then(
+        (shells) => {
+          if (shells.length === 0) this.cached = null
+          return shells
+        },
+        () => {
+          this.cached = null
+          return []
+        }
+      )
+    }
     return this.cached
   }
 }

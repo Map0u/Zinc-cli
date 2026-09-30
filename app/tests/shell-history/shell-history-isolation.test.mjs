@@ -23,6 +23,7 @@ const {
   isShellHistoryIsolationEnabled,
   resolveShellHistoryDir,
   powerShellHistoryIsolationPrelude,
+  powerShellCwdPrelude,
   buildIsolatedShellSpawn
 } = await import(pathToFileURL(outFile).href)
 
@@ -64,6 +65,15 @@ test('history dir lives under the isolated userData tree', () => {
   assert.equal(dir.replace(/\//g, '\\'), 'C:\\tmp\\zinc-cdp-run\\shell-history')
 })
 
+test('PowerShell prompt reports its current filesystem location without changing the displayed prompt', () => {
+  const prelude = powerShellCwdPrelude()
+  assert.match(prelude, /CurrentFileSystemLocation\.Path/)
+  assert.match(prelude, /\]7;file:\/\/\//)
+  assert.match(prelude, /ZincOriginalPrompt/)
+  const { args } = buildIsolatedShellSpawn(pwsh, undefined, {})
+  assert.match(args[args.indexOf('-Command') + 1], /ZincOriginalPrompt/)
+})
+
 test('PowerShell prelude forces SaveNothing and an isolated HistorySavePath', () => {
   const prelude = powerShellHistoryIsolationPrelude('C:\\tmp\\hist')
   assert.match(prelude, /HistorySaveStyle SaveNothing/)
@@ -78,7 +88,8 @@ test('non-isolated spawn keeps default env and plain shell args', () => {
   })
   assert.equal(env.HISTFILE, undefined)
   assert.equal(env.ZINC_SHELL_HISTORY_DIR, undefined)
-  assert.deepEqual(args, ['-NoLogo'])
+  assert.deepEqual(args.slice(0, 3), ['-NoLogo', '-NoExit', '-Command'])
+  assert.match(args[3], /ZincOriginalPrompt/)
 })
 
 test('isolated PowerShell spawn injects history prelude and HISTFILE env', () => {
@@ -115,6 +126,23 @@ test('isolated PowerShell preserves an existing startup command after the prelud
   } finally {
     rmSync(userData, { recursive: true, force: true })
   }
+})
+
+test('cmd hook and resume use a quoted environment value instead of escaped /K quotes', () => {
+  const settingsPath = 'C:/Users/Example Person/AppData/Roaming/zinc/session-hooks/settings.json'
+  const cmd = { id: 'cmd', label: 'Command Prompt', command: 'cmd.exe', kind: 'cmd', args: [] }
+  const { env, args } = buildIsolatedShellSpawn(
+    cmd,
+    `claude --resume aaaaaaaa-1111-4111-8111-111111111111 --settings "${settingsPath}"`,
+    { PATH: 'C:\\Windows' },
+    { tabId: 'tab-1', runId: 'run-1', claudeSettingsPath: settingsPath }
+  )
+  assert.equal(env.ZINC_CLAUDE_SETTINGS_ARG, `"${settingsPath}"`)
+  assert.deepEqual(args, [
+    '/K',
+    'doskey claude=claude --settings %ZINC_CLAUDE_SETTINGS_ARG% $* & ' +
+      'claude --resume aaaaaaaa-1111-4111-8111-111111111111 --settings %ZINC_CLAUDE_SETTINGS_ARG%'
+  ])
 })
 
 test('isolated posix spawn points HISTFILE at the test tree', () => {

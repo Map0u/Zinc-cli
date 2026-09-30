@@ -4,28 +4,96 @@
 
 export type AiCliTool = 'codex' | 'claude' | 'grok' | 'kimi'
 
-// Order is priority when multiple CLIs appear under one shell (Codex first,
-// then Claude, then Grok Build, then Kimi Code). First matching tool in this
-// list wins; append new tools so existing priorities do not shift.
-const TOOL_PATTERNS: ReadonlyArray<readonly [AiCliTool, RegExp]> = [
-  ['codex', /(?:^|[\\/\s"'])codex(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
-  ['claude', /(?:^|[\\/\s"'])claude(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
-  // Grok Build TUI ships as `grok` / `grok.exe` (and shell wrappers).
-  ['grok', /(?:^|[\\/\s"'])grok(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i],
-  // Kimi Code ships as `kimi` / `kimi.exe` (@moonshot-ai/kimi-code).
-  ['kimi', /(?:^|[\\/\s"'])kimi(?:\.cmd|\.ps1|\.exe)?(?=$|[\\/\s"'])/i]
-]
+// Stable priority only for otherwise indistinguishable process matches.
+export const AI_CLI_TOOLS: readonly AiCliTool[] = ['codex', 'claude', 'grok', 'kimi']
 
-/**
- * Pure command-line classifier used by process-tree detection and unit tests.
- * TOOL_PATTERNS order is the priority (first match wins).
- */
-export function identifyToolFromCommandLine(commandLine: string): AiCliTool | null {
-  for (const [tool, pattern] of TOOL_PATTERNS) {
-    if (pattern.test(commandLine)) return tool
+function argumentsOf(commandLine: string): string[] {
+  // A quoted Windows executable path (or a shell -c argument) is one token.
+  // Only invocation positions are examined below; quoted prompts are not CLIs.
+  const args: string[] = []
+  const pattern = /"([^"]*)"|'([^']*)'|([^\s"']+)/g
+  for (const match of commandLine.matchAll(pattern)) args.push(match[1] ?? match[2] ?? match[3])
+  return args
+}
+
+function imageName(path: string): string {
+  return path.split(/[\\/]/).at(-1)?.toLowerCase() ?? ''
+}
+
+function executableTool(path: string): AiCliTool | null {
+  const image = imageName(path)
+  for (const tool of AI_CLI_TOOLS) {
+    const name = tool === 'claude' ? 'claude(?:-code)?' : tool
+    if (new RegExp(`^${name}(?:\\.(?:exe|cmd|ps1|js|mjs|cjs))?$`).test(image)) return tool
   }
   return null
 }
 
-/** Every AI CLI Zinc can detect and resume, in detection priority order. */
-export const AI_CLI_TOOLS: readonly AiCliTool[] = TOOL_PATTERNS.map(([tool]) => tool)
+function entrypointTool(path: string): AiCliTool | null {
+  const direct = executableTool(path)
+  if (direct) return direct
+  // Node-based CLIs often run a generic cli.js inside their own package.
+  const packageName = path.toLowerCase().replace(/\\/g, '/')
+  if (/(?:^|\/)@anthropic-ai\/claude-code\/(?:[^\s]+\/)*cli\.(?:c?js|mjs)$/.test(packageName)) return 'claude'
+  if (/(?:^|\/)@openai\/codex\/(?:[^\s]+\/)*cli\.(?:c?js|mjs)$/.test(packageName)) return 'codex'
+  if (/(?:^|\/)@moonshot-ai\/kimi-code\/(?:[^\s]+\/)*cli\.(?:c?js|mjs)$/.test(packageName)) return 'kimi'
+  if (/(?:^|\/)(?:@anthropic-ai\/)?claude-code\/bin\/claude\.js$/.test(packageName)) return 'claude'
+  return null
+}
+
+/** Identify an executable or a wrapper's explicit entrypoint, never arbitrary arguments. */
+export function identifyToolFromCommandLine(commandLine: string): AiCliTool | null {
+  function invocation(args: string[], depth: number): AiCliTool | null {
+    if (depth > 3 || args.length === 0) return null
+    const executable = imageName(args[0])
+    const direct = executableTool(args[0])
+    if (direct) return direct
+
+    if (/^(?:node|nodejs|bun|deno)(?:\.exe)?$/.test(executable)) {
+      for (let i = 1; i < args.length; i++) {
+        const arg = args[i]
+        if (/^(?:-e|--eval|-p|--print)$/.test(arg) || /^(?:-e|-p)=?/.test(arg)) return null
+        if (/^(?:-r|--require|--loader|--import)$/.test(arg)) { i++; continue }
+        if (arg.startsWith('-')) continue
+        return entrypointTool(arg)
+      }
+    }
+
+    // npm/PowerShell shims keep the entrypoint inside the wrapper command.
+    if (/^(?:npx|bunx|npm)(?:\.(?:exe|cmd|ps1))?$/.test(executable)) {
+      const entry = args.slice(1).find((arg) => !arg.startsWith('-'))
+      if (!entry) return null
+      if (entry.toLowerCase() === '@anthropic-ai/claude-code') return 'claude'
+      if (entry.toLowerCase() === '@openai/codex') return 'codex'
+      if (entry.toLowerCase() === '@moonshot-ai/kimi-code') return 'kimi'
+      return executableTool(entry)
+    }
+
+    if (/^(?:cmd)(?:\.exe)?$/.test(executable)) {
+      const command = args.findIndex((arg, i) => i > 0 && /^\/(?:c|k)$/i.test(arg))
+      if (command >= 0) return invocation(argumentsOf(args.slice(command + 1).join(' ')), depth + 1)
+    }
+    if (/^(?:pwsh|powershell)(?:\.exe)?$/.test(executable)) {
+      const file = args.findIndex((arg, i) => i > 0 && /^(?:-file|-f)$/i.test(arg))
+      if (file >= 0) return entrypointTool(args[file + 1] ?? '')
+      const command = args.findIndex((arg, i) => i > 0 && /^(?:-command|-c)$/i.test(arg))
+      if (command >= 0) return invocation(argumentsOf(args.slice(command + 1).join(' ')), depth + 1)
+    }
+    if (/^(?:sh|bash|zsh|fish)(?:\.exe)?$/.test(executable)) {
+      const command = args.findIndex((arg, i) => i > 0 && /^-.*c$/.test(arg))
+      if (command >= 0) return invocation(argumentsOf(args.slice(command + 1).join(' ')), depth + 1)
+    }
+    if (/^wsl(?:\.exe)?$/.test(executable)) {
+      let i = 1
+      while (i < args.length) {
+        if (args[i] === '--') { i++; break }
+        if (/^(?:-d|--distribution|-u|--user|--cd)$/.test(args[i])) { i += 2; continue }
+        if (args[i].startsWith('-')) { i++; continue }
+        break
+      }
+      return invocation(args.slice(i), depth + 1)
+    }
+    return null
+  }
+  return invocation(argumentsOf(commandLine), 0)
+}

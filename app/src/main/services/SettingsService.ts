@@ -240,6 +240,33 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
 /** Continuous controls (font size / scrollback / opacity commit) debounce their save by this long (parity §1.2). */
 const DEBOUNCE_MS = 250
 
+function isJsonLeadingByte(byte: number): boolean {
+  return byte === 0x7b || byte === 0x5b || byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d
+}
+
+/** Accept UTF-8 (including BOM) and PowerShell/Windows UTF-16 JSON, with or without BOM. */
+function decodeSettingsFile(bytes: Buffer): string {
+  let encoding: 'utf-8' | 'utf-16le' | 'utf-16be' = 'utf-8'
+  let offset = 0
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    offset = 3
+  } else if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    encoding = 'utf-16le'
+    offset = 2
+  } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    encoding = 'utf-16be'
+    offset = 2
+  } else if (bytes.length >= 2 && isJsonLeadingByte(bytes[0]) && bytes[1] === 0) {
+    encoding = 'utf-16le'
+  } else if (bytes.length >= 2 && bytes[0] === 0 && isJsonLeadingByte(bytes[1])) {
+    encoding = 'utf-16be'
+  }
+
+  // A fatal decoder rejects truncated UTF-16 and invalid UTF-8 instead of
+  // replacing bad bytes and possibly treating a damaged file as valid JSON.
+  return new TextDecoder(encoding, { fatal: true }).decode(bytes.subarray(offset))
+}
+
 function defaultSettings(): ZincSettings {
   return {
     version: SETTINGS_VERSION,
@@ -285,6 +312,7 @@ function defaultSettings(): ZincSettings {
 export class SettingsService {
   private settings: ZincSettings
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
+  private canPersist = true
   private readonly listeners = new Set<(settings: ZincSettings) => void>()
 
   constructor(private readonly filePath: string) {
@@ -294,12 +322,11 @@ export class SettingsService {
   private load(): ZincSettings {
     try {
       if (existsSync(this.filePath)) {
-        // Windows PowerShell `Set-Content -Encoding utf8` prefixes EF BB BF.
-        // JSON.parse treats that U+FEFF as a syntax error and the catch below
-        // would discard the whole file (including stored `false` flags).
-        const parsed = JSON.parse(readFileSync(this.filePath, 'utf8').replace(/^\uFEFF/, '')) as unknown
-        const raw: StoredSettings =
-          parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as StoredSettings) : {}
+        const parsed = JSON.parse(decodeSettingsFile(readFileSync(this.filePath))) as unknown
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new TypeError('settings.json must contain an object')
+        }
+        const raw = parsed as StoredSettings
         const normalized = normalizeSettings(raw, defaultSettings())
 
         if (
@@ -320,8 +347,13 @@ export class SettingsService {
         return normalized
       }
     } catch (err) {
-      // Corrupt/unreadable settings.json must never block startup — fall back silently.
-      console.warn(`[SettingsService] failed to load ${this.filePath}, falling back to defaults`, err)
+      // Use defaults in memory, but never overwrite an unreadable or malformed
+      // user file with them. JSON parse errors can quote secrets from the file,
+      // so report only the error category rather than the raw exception.
+      this.canPersist = false
+      const code = err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined
+      const reason = code ?? (err instanceof Error ? err.name : 'unknown error')
+      console.warn(`[SettingsService] failed to load ${this.filePath} (${reason}); using defaults without overwriting the file`)
     }
     return defaultSettings()
   }
@@ -376,6 +408,7 @@ export class SettingsService {
   }
 
   private persist(): void {
+    if (!this.canPersist) return
     try {
       atomicWriteFileSync(this.filePath, JSON.stringify(this.settings, null, 2))
     } catch (err) {

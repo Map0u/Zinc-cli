@@ -9,7 +9,7 @@ const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 }
 }).outputText
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(transpiled).toString('base64')}`
-const { buildShellSpawnArgs, discoverShells, parseWslDistroList, resolveShellId } = await import(moduleUrl)
+const { buildShellSpawnArgs, discoverShells, parseWslDistroList, resolveShellId, ShellDiscoveryService } = await import(moduleUrl)
 
 function windowsDeps({ files = [], registry = {}, wslOutput = null } = {}) {
   const existing = new Set(files)
@@ -65,21 +65,61 @@ test('MSIX PowerShell app execution alias is a discovery candidate', async () =>
   assert.deepEqual(shells.map((shell) => shell.id), ['pwsh'])
 })
 
+test('ComSpec accepts a local cmd.exe path with spaces, not a command line or unrelated executable', async () => {
+  const customCmd = 'C:\\Program Files\\Custom Shell\\cmd.exe'
+  const systemCmd = 'C:\\Windows\\System32\\cmd.exe'
+  const files = [customCmd, systemCmd, 'C:\\Tools\\other.exe', '\\\\server\\share\\cmd.exe']
+  const valid = windowsDeps({ files })
+  valid.env.ComSpec = customCmd
+  assert.equal((await discoverShells(valid)).find((shell) => shell.id === 'cmd')?.command, customCmd)
+
+  for (const comSpec of ['cmd.exe', `${customCmd} /K calc`, 'C:\\Tools\\other.exe', '\\\\server\\share\\cmd.exe']) {
+    const invalid = windowsDeps({ files })
+    invalid.env.ComSpec = comSpec
+    assert.equal((await discoverShells(invalid)).find((shell) => shell.id === 'cmd')?.command, systemCmd)
+    assert.equal(resolveShellId([], 'gone', 'win32', invalid.env).shell.command, 'cmd.exe')
+  }
+  assert.equal(resolveShellId([], 'gone', 'win32', valid.env).shell.command, customCmd)
+})
+
 test('WSL parser accepts UTF-16LE without BOM, UTF-8, blanks, and duplicate distro names', () => {
   assert.deepEqual(parseWslDistroList(Buffer.from('Ubuntu\r\n\r\nDebian\r\nUbuntu\r\n', 'utf16le')), ['Ubuntu', 'Debian'])
   assert.deepEqual(parseWslDistroList('Ubuntu\nDebian\n'), ['Ubuntu', 'Debian'])
 })
 
-test('Linux discovery uses $SHELL plus installed bash/zsh/fish entries only', async () => {
-  const present = new Set(['/usr/bin/zsh', '/bin/bash', '/usr/bin/fish'])
+test('Linux discovery uses $SHELL plus installed bash/zsh/fish/sh entries only', async () => {
+  const present = new Set(['/usr/bin/zsh', '/bin/bash', '/usr/bin/fish', '/bin/sh', '/bin/dash'])
   const shells = await discoverShells({
     platform: 'linux',
     env: { SHELL: '/usr/bin/zsh' },
     fileExists: (file) => present.has(file),
-    readFile: () => '# comment\n/bin/bash\n/usr/bin/zsh\n/usr/bin/fish\n/bin/dash\n',
+    readFile: () => '# /usr/bin/false\n/bin/bash\n/usr/bin/zsh\n/usr/bin/fish\n/bin/sh\n/bin/dash\n',
     execFile: async () => ({ stdout: '' })
   })
-  assert.deepEqual(shells.map((shell) => shell.id), ['zsh', 'bash', 'fish'])
+  assert.deepEqual(shells.map((shell) => shell.id), ['zsh', 'bash', 'fish', 'sh'])
+})
+
+test('empty and failed discovery probes are retried, but a nonempty result is cached', async () => {
+  let reads = 0
+  const service = new ShellDiscoveryService({
+    platform: 'linux',
+    env: { SHELL: '/missing' },
+    fileExists: (file) => file === '/bin/sh',
+    readFile: () => {
+      reads++
+      if (reads === 1) throw new Error('temporary /etc/shells failure')
+      return reads === 2 ? '# no installed candidates\n' : '/bin/sh\n'
+    }
+  })
+  service.start()
+  const first = service.getShells()
+  assert.equal(service.getShells(), first)
+  assert.deepEqual(await first, [])
+  assert.deepEqual(await service.getShells(), [])
+  const found = service.getShells()
+  assert.deepEqual((await found).map((shell) => shell.id), ['sh'])
+  assert.equal(service.getShells(), found)
+  assert.equal(reads, 3)
 })
 
 test('stable ID resolution returns the requested shell then follows Windows priority', () => {
@@ -116,6 +156,18 @@ test('spawn arguments preserve interactive startup behavior for every shell kind
   )
   assert.deepEqual(
     buildShellSpawnArgs({ id: 'wsl:Ubuntu', label: 'WSL: Ubuntu', command: 'wsl.exe', kind: 'wsl', args: ['-d', 'Ubuntu'] }, 'pwd'),
-    ['-d', 'Ubuntu', '--', 'sh', '-lc', 'pwd; exec "${SHELL:-/bin/sh}" -l']
+    ['-d', 'Ubuntu', '--', 'sh', '-c', 'user_shell="${SHELL:-/bin/sh}"; "$user_shell" -lic \'pwd\'; exec "$user_shell" -l']
   )
+})
+
+test('WSL keeps the configured shell and passes quoted compound startup as one post-initialization command', () => {
+  const shell = { id: 'wsl:Ubuntu', label: 'WSL: Ubuntu', command: 'wsl.exe', kind: 'wsl', args: ['-d', 'Ubuntu'] }
+  const startup = `printf '%s' "it's ready"; if true; then echo "a;b"; fi`
+  const quotedStartup = String.raw`'printf '\''%s'\'' "it'\''s ready"; if true; then echo "a;b"; fi'`
+  const args = buildShellSpawnArgs(shell, startup)
+  assert.deepEqual(args, [
+    '-d', 'Ubuntu', '--', 'sh', '-c',
+    `user_shell="${'$'}{SHELL:-/bin/sh}"; "$user_shell" -lic ${quotedStartup}; exec "$user_shell" -l`
+  ])
+  assert.deepEqual(buildShellSpawnArgs(shell), ['-d', 'Ubuntu'])
 })

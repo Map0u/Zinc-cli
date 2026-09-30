@@ -2,6 +2,7 @@
 // restore-command selection. Kept dependency-free so unit tests can load it
 // without Electron or native process inspection.
 
+import { identifyToolFromCommandLine } from './aiCliTools'
 import { SessionTool } from './sessionState'
 
 /** In-memory last-known-good row for one live tab id. */
@@ -17,6 +18,8 @@ export interface DetectedTabSignals {
   shellCwd: string | null
   match: { tool: SessionTool; sessionId?: string } | null
   aiCwd: string | null
+  /** A live PTY is required before an empty scan proves the AI process exited. */
+  ptyAlive?: boolean
   /** False on cheap (tab-list-only) persists and after the scan budget expires. */
   scannedTool: boolean
 }
@@ -37,10 +40,29 @@ export function isSafeSessionId(id: string): boolean {
 
 /** Best-effort Codex session id from a descendant command line. */
 export function extractCodexSessionId(commandLine: string): string | undefined {
-  const match = commandLine.match(
-    /(?:^|[\s"'])resume(?:\s+--session(?:-id)?\s+|\s+)(?!--)([A-Za-z0-9][A-Za-z0-9_-]{7,})(?=$|[\s"'])/i
+  if (identifyToolFromCommandLine(commandLine) !== 'codex') return undefined
+  // Search argv, not the raw line: prose inside a quoted prompt may contain
+  // `resume <id>` but is not a Codex subcommand.
+  const args = [...commandLine.matchAll(/"([^"]*)"|'([^']*)'|([^\s"']+)/g)].map(
+    (match) => match[1] ?? match[2] ?? match[3]
   )
-  const id = match?.[1]
+  const cliIndex = args.findIndex((arg) =>
+    /(?:^|[\\/])codex(?:\.(?:exe|cmd|ps1|js|mjs|cjs))?$/i.test(arg) ||
+    /(?:^|[\\/])@openai[\\/]codex[\\/](?:[^\\/]+[\\/])*cli\.(?:js|mjs|cjs)$/i.test(arg)
+  )
+  if (cliIndex < 0) {
+    // Shell wrappers can put the entire real command in one quoted argument.
+    const shell = args[0]?.split(/[\\/]/).at(-1)?.toLowerCase()
+    const commandIndex = args.findIndex((arg, index) => index > 0 && (
+      (/^cmd(?:\.exe)?$/.test(shell ?? '') && /^\/(?:c|k)$/i.test(arg)) ||
+      (/^(?:pwsh|powershell)(?:\.exe)?$/.test(shell ?? '') && /^(?:-command|-c)$/i.test(arg)) ||
+      (/^(?:sh|bash|zsh|fish)(?:\.exe)?$/.test(shell ?? '') && /^-.*c$/.test(arg))
+    ))
+    return commandIndex < 0 ? undefined : extractCodexSessionId(args.slice(commandIndex + 1).join(' '))
+  }
+  if (args[cliIndex + 1]?.toLowerCase() !== 'resume') return undefined
+  const next = args[cliIndex + 2]
+  const id = next === '--session' || next === '--session-id' ? args[cliIndex + 3] : next
   if (!id || /^(last|continue)$/i.test(id)) return undefined
   return isSafeSessionId(id) ? id : undefined
 }
@@ -76,10 +98,15 @@ export function mergeTabPersistState(
   if (detected.match) {
     const cwd = detected.aiCwd ?? detected.shellCwd ?? known?.cwd ?? fallbackCwd
     const usedFallbackOnly = !detected.aiCwd && !detected.shellCwd && !known?.cwd
+    // Only the id read from THIS process is persisted. A fresh same-tool
+    // process without a resolvable id (plain `codex`, or a `claude` launched
+    // through a path the hook did not cover) must NOT inherit the previous
+    // session's id — resuming the wrong conversation is worse than falling
+    // back to a plain shell.
     const sessionId =
-      (detected.match.sessionId && isSafeSessionId(detected.match.sessionId)
+      detected.match.sessionId && isSafeSessionId(detected.match.sessionId)
         ? detected.match.sessionId
-        : undefined) ?? (detected.match.tool === known?.tool ? known?.sessionId : undefined)
+        : undefined
     const state: LastKnownTab = {
       cwd,
       tool: detected.match.tool,
@@ -88,7 +115,14 @@ export function mergeTabPersistState(
     return { state, usedFallbackOnly }
   }
 
-  if (known) return { state: known, usedFallbackOnly: false }
+  if (known) {
+    // A completed scan proves the AI exited only when the tab's PTY is still
+    // alive. A dead PTY (or failed cwd read) can produce the same null match;
+    // keep the last good row instead of erasing its restore identity.
+    const ptyAlive = detected.ptyAlive ?? detected.shellCwd !== null
+    if (!ptyAlive || !detected.shellCwd) return { state: known, usedFallbackOnly: false }
+    return { state: { cwd: detected.shellCwd, tool: SessionTool.None }, usedFallbackOnly: false }
+  }
   if (detected.shellCwd) {
     return { state: { cwd: detected.shellCwd, tool: SessionTool.None }, usedFallbackOnly: false }
   }
@@ -130,17 +164,28 @@ export function startupCommandForRestore(
     sessionId?: string
     allowCodexLast: boolean
     allowContinue: boolean
+    /** Per-process `--settings` path that registers the SessionStart binding hook. */
+    claudeSettings?: string
   }
 ): string | undefined {
   if (!options.resumeAi) return undefined
+  const sid = options.sessionId && isSafeSessionId(options.sessionId) ? options.sessionId : undefined
   if (tool === SessionTool.Codex) {
-    if (options.sessionId && isSafeSessionId(options.sessionId)) {
-      return `codex resume ${options.sessionId}`
-    }
+    if (sid) return `codex resume ${sid}`
     return options.allowCodexLast ? 'codex resume --last' : undefined
   }
+  // `--settings` lets the SessionStart hook report this run's session id back
+  // to Zinc, so the NEXT restart can resume it exactly instead of --continue.
+  const claudeSettingsArg = options.claudeSettings ? ` --settings "${options.claudeSettings}"` : ''
+  // A known session id resumes exactly that conversation — this is what lets
+  // several Claude tabs in one directory each come back, where --continue
+  // could only ever restore the newest one.
+  if (sid) {
+    if (tool === SessionTool.Claude) return `claude --resume ${sid}${claudeSettingsArg}`
+    return undefined
+  }
   if (!options.allowContinue) return undefined
-  if (tool === SessionTool.Claude) return 'claude --continue'
+  if (tool === SessionTool.Claude) return `claude --continue${claudeSettingsArg}`
   if (tool === SessionTool.Grok) return 'grok --continue'
   if (tool === SessionTool.Kimi) return 'kimi --continue'
   return undefined

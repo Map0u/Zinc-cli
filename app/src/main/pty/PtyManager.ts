@@ -1,4 +1,5 @@
 import * as pty from "node-pty";
+import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { MessageChannelMain } from "electron";
@@ -7,12 +8,17 @@ import type { PtyCreateOptions } from "../../shared/ptyProtocol";
 import { getProcessCwd } from "../processCwd";
 import type { DiscoveredShell } from "../services/ShellDiscovery";
 import { buildIsolatedShellSpawn } from "../services/shellHistoryIsolation";
+import { createShellCwdReader } from "./shellCwdReport";
 
 interface Session {
   proc: pty.IPty;
   port: MessagePortMain;
   /** The cwd this shell was actually spawned with — the fallback when a live PEB read fails or is stale. */
   resolvedCwd: string;
+  /** The most recent PowerShell prompt report, which unlike the PEB follows Set-Location. */
+  reportedCwd: string | null;
+  /** Unique for this spawn, so stale hook reports from an earlier PTY cannot bind to a reused tab id. */
+  runId: string;
   /** `WebContents.id` of the renderer that owns this session, for lifecycle cleanup. */
   senderId: number;
   /** node-pty's onData/onExit registration handles — disposed in `kill()` so a just-killed session's proc can never fire either callback afterward (e.g. late buffered data racing a closed port). */
@@ -57,6 +63,17 @@ export class PtyManager {
   /** WebContents ids we've already attached a destroyed/render-process-gone listener to. */
   private readonly watchedSenders = new Set<number>();
 
+  /**
+   * Supplies the per-process `--settings` file that registers the Claude
+   * SessionStart binding hook. When it returns a path, every spawned shell
+   * gets a tab-local `claude` wrapper so a manually typed `claude` also
+   * reports its real session id — not only Zinc-generated startup commands.
+   */
+  constructor(
+    private readonly claudeSettingsProvider: () => string | null = () => null,
+    private readonly onSessionEnded: (id: string) => void = () => {},
+  ) {}
+
   /** Spawns a shell for `id` and hands the renderer its output port. Replaces any existing session for the same id. */
   create(id: string, options: PtyCreateOptions, sender: WebContents, shellProfile: DiscoveredShell): void {
     // The renderer that asked for this session may already be gone (dev
@@ -68,12 +85,15 @@ export class PtyManager {
     const cwd = resolveCwd(options.cwd);
     const cols = normalizeDimension(options.cols, 80);
     const rows = normalizeDimension(options.rows, 24);
+    const runId = randomUUID();
     // When CDP/smoke sets ZINC_TEST_*, redirect or disable shell history so
     // automated PowerShell/bash commands never append to the developer's
     // global PSReadLine / bash history files.
     const { env: ptyEnv, args } = buildIsolatedShellSpawn(
       shellProfile,
       options.startupCommand,
+      process.env,
+      { tabId: id, runId, claudeSettingsPath: this.claudeSettingsProvider() ?? undefined },
     );
 
     if (!isValidSessionId(id)) throw new Error("Invalid PTY session id");
@@ -86,9 +106,8 @@ export class PtyManager {
       throw new Error("PTY session is owned by another renderer");
     }
 
-    // Validate/resolve everything above before replacing a healthy session.
-    if (existing) this.terminate(id);
-
+    // Spawn before replacing a healthy session: a missing executable or a
+    // ConPTY creation error must not kill the still-working old terminal.
     const proc = pty.spawn(shellProfile.command, args, {
       name: "xterm-256color",
       cols,
@@ -113,6 +132,8 @@ export class PtyManager {
         proc,
         port: mainPort,
         resolvedCwd: cwd,
+        reportedCwd: null,
+        runId,
         senderId: sender.id,
         disposables: [],
         closed: false,
@@ -147,11 +168,15 @@ export class PtyManager {
         }
       };
 
+      const recordCwd = shellProfile.kind === "powershell"
+        ? createShellCwdReader((reported) => { session.reportedCwd = reported; })
+        : () => {};
       const dataDisposable = proc.onData((data: string) => {
         // A kill() may have already flipped `closed` and closed `port1` by the
         // time some already-buffered data drains through node-pty's pipe —
         // never buffer/post to a port we've torn down.
         if (session.closed) return;
+        recordCwd(data);
         const buf = Buffer.from(data, "utf8");
         session.pending.push(buf);
         session.pendingBytes += buf.byteLength;
@@ -174,6 +199,7 @@ export class PtyManager {
         // is no longer live.
         if (this.sessions.get(id) !== session) return;
         this.sessions.delete(id);
+        this.onSessionEnded(id);
         // Deliver any batched-but-unflushed output *before* closing the port and
         // sending `pty:exit`: exit travels a separate IPC channel from the data
         // port, so a still-buffered final frame would otherwise race behind the
@@ -202,6 +228,9 @@ export class PtyManager {
       });
 
       session.disposables.push(dataDisposable, exitDisposable);
+      if (sender.isDestroyed())
+        throw new Error("PTY renderer was destroyed during creation");
+      if (existing) this.terminate(id);
       this.sessions.set(id, session);
       this.watchSender(sender);
 
@@ -212,7 +241,7 @@ export class PtyManager {
       // Creation is transactional: an invoke resolves only after the PTY is
       // registered and its renderer port has been transferred. Any partial
       // failure tears down both native process and message channel.
-      if (this.sessions.has(id)) {
+      if (this.sessions.get(id)?.proc === proc) {
         this.terminate(id);
       } else {
         try {
@@ -244,8 +273,9 @@ export class PtyManager {
     sender.once("render-process-gone", cleanup);
   }
 
-  private killAllForSender(senderId: number): void {
-    this.watchedSenders.delete(senderId);
+  /** Called on renderer navigation as well as sender teardown. */
+  killAllForSender(senderId: number, senderDestroyed = true): void {
+    if (senderDestroyed) this.watchedSenders.delete(senderId);
     for (const [id, session] of this.sessions) {
       if (session.senderId === senderId) this.terminate(id);
     }
@@ -275,23 +305,42 @@ export class PtyManager {
     }
   }
 
-  /**
-   * Best-effort "current" cwd for `id`'s shell: a live PEB read of the shell
-   * process, falling back to the cwd it was actually spawned with if the
-   * read fails (process gone, unreadable live cwd, offsets don't apply). Note the
-   * PEB read only reflects what the shell's own Win32 CurrentDirectory says,
-   * which pwsh does not keep in sync with a plain `cd`/`Set-Location`
-   * (parity §3 known issue #4) — this mirrors the WinUI original exactly.
-   */
+  /** Prompt-reported PowerShell cwd takes precedence over its stale PEB value. */
   getCwd(id: string, senderId: number): string | null {
     const session = this.ownedSession(id, senderId);
-    if (!session) return null;
-    return getProcessCwd(session.proc.pid) ?? session.resolvedCwd;
+    return session ? this.cwdFor(session) : null;
   }
 
   /** The shell process's own pid for `id` — the AI tool detector's process-tree BFS root. */
   getPid(id: string, senderId: number): number | null {
     return this.ownedSession(id, senderId)?.proc.pid ?? null;
+  }
+
+  getRunId(id: string, senderId: number): string | null {
+    return this.ownedSession(id, senderId)?.runId ?? null;
+  }
+
+  /** Main-process-only reads used at shutdown after WebContents may have gone. */
+  getCwdInternal(id: string): string | null {
+    const session = this.sessions.get(id);
+    return session ? this.cwdFor(session) : null;
+  }
+
+  getPidInternal(id: string): number | null {
+    return this.sessions.get(id)?.proc.pid ?? null;
+  }
+
+  getRunIdInternal(id: string): string | null {
+    return this.sessions.get(id)?.runId ?? null;
+  }
+
+  /** A tab can spawn before the renderer's next tab-list snapshot reaches main. */
+  liveIdsInternal(): string[] {
+    return [...this.sessions.keys()];
+  }
+
+  private cwdFor(session: Session): string {
+    return session.reportedCwd ?? getProcessCwd(session.proc.pid) ?? session.resolvedCwd;
   }
 
   kill(id: string, senderId: number): void {
@@ -308,6 +357,7 @@ export class PtyManager {
     const session = this.sessions.get(id);
     if (!session) return;
     this.sessions.delete(id);
+    this.onSessionEnded(id);
     // Mark closed and dispose the node-pty callbacks *before* touching the
     // port/process, so any data event that was already queued on the
     // microtask/event-loop queue sees `closed` and skips its postMessage
@@ -365,7 +415,13 @@ function isValidSessionId(id: string): boolean {
 }
 
 function resolveCwd(cwd?: string): string {
-  if (cwd && existsSync(cwd) && statSync(cwd).isDirectory()) return cwd;
+  if (cwd) {
+    try {
+      if (existsSync(cwd) && statSync(cwd).isDirectory()) return cwd;
+    } catch {
+      // A directory can disappear or become inaccessible between checks.
+    }
+  }
   return homedir();
 }
 

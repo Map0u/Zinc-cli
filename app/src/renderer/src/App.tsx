@@ -141,6 +141,20 @@ interface AddTabOptions {
 
 export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
+  // Title events arrive through a once-registered listener; keep its no-op
+  // check current without resubscribing on every tab render.
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  const pendingCloneIdsRef = useRef(new Set<string>())
+  // A close can be queued before React commits tabsRef's next value.
+  const closingTabIdsRef = useRef(new Set<string>())
+  useEffect(() => {
+    // After the removal renders, tabsRef itself rejects late clones; the
+    // synchronous close marker is no longer needed.
+    for (const id of closingTabIdsRef.current) {
+      if (!tabs.some((tab) => tab.id === id)) closingTabIdsRef.current.delete(id)
+    }
+  }, [tabs])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState | null>(null)
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
@@ -151,7 +165,7 @@ export default function App() {
   const [view, setView] = useState<AppView>('terminal')
   const [category, setCategory] = useState<Category>('appearance')
   const { settings, updateDebounced, updateImmediate } = useSettings()
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const { showBadge, openDialog, state: updateState } = useUpdate()
   const themeMode = useResolvedThemeMode(settings?.ThemePreference ?? 'auto')
   const [windowState, setWindowState] = useState(window.zinc.window.getStateSync())
@@ -222,14 +236,21 @@ export default function App() {
   // is open.
   useEffect(() => {
     if (!settings) return
+    let cancelled = false
     if (settings.AccentSource === 'system') {
       window.zinc.window.getAccentColor().then((hex) => {
+        // A scheme/source/theme change can paint its new accent before this IPC
+        // reply arrives. Never let the old lookup replace that newer choice.
+        if (cancelled) return
         const harmonized = harmonizeAccent(hex, themeMode)
         document.documentElement.style.setProperty('--color-accent', harmonized)
       })
     } else {
       const variant = resolveVariant(getColorScheme(settings.ColorScheme), themeMode)
       document.documentElement.style.setProperty('--color-accent', variant.accent)
+    }
+    return () => {
+      cancelled = true
     }
   }, [settings?.AccentSource, settings?.ColorScheme, themeMode])
 
@@ -475,7 +496,9 @@ export default function App() {
   }
 
   function finishTabDragSession(session: TabDragSession): void {
-    if (tabDragRef.current === session) tabDragRef.current = null
+    // A delayed settle callback must not clear the UI of a newer drag.
+    if (tabDragRef.current !== session) return
+    tabDragRef.current = null
     unmountGhost(session)
     if (session.didReorder || session.active) {
       suppressTabClickRef.current = true
@@ -512,6 +535,7 @@ export default function App() {
 
     // After commit, measure the source row (same id) in its new slot.
     requestAnimationFrame(() => {
+      if (tabDragRef.current !== session) return
       const targetEl = tabRowElement(session.tabId)
       const target = targetEl?.getBoundingClientRect()
       if (!target || !session.ghost) {
@@ -552,6 +576,26 @@ export default function App() {
     }
     finishTabDragSession(session)
   }
+
+  function cancelTabDrag(): void {
+    const session = tabDragRef.current
+    if (!session) return
+    if (session.frame != null) {
+      window.cancelAnimationFrame(session.frame)
+      session.frame = null
+    }
+    // Blur/pointer loss is not a drop. If the order was already committed on
+    // pointerup, just remove the settling ghost and restore the source row.
+    finishTabDragSession(session)
+  }
+
+  useEffect(() => {
+    window.addEventListener('blur', cancelTabDrag)
+    return () => {
+      window.removeEventListener('blur', cancelTabDrag)
+      cancelTabDrag()
+    }
+  }, [])
 
   function onTabPointerDown(event: ReactPointerEvent<HTMLDivElement>, tabId: string): void {
     if (event.button !== 0) return
@@ -626,12 +670,21 @@ export default function App() {
   function onTabPointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
     const session = tabDragRef.current
     if (!session || session.pointerId !== event.pointerId) return
+    // Mark the drop as settled before release can emit lostpointercapture.
+    endTabDrag(event.pointerId)
     try {
       event.currentTarget.releasePointerCapture(event.pointerId)
     } catch {
       /* already released */
     }
-    endTabDrag(event.pointerId)
+  }
+
+  function onTabPointerCancel(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (tabDragRef.current?.pointerId === event.pointerId) cancelTabDrag()
+  }
+
+  function onTabLostPointerCapture(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (tabDragRef.current?.pointerId === event.pointerId && !tabDragRef.current.settling) cancelTabDrag()
   }
 
   function switchTab(id: string): void {
@@ -647,6 +700,7 @@ export default function App() {
   }
 
   function closeTab(id: string): void {
+    closingTabIdsRef.current.add(id)
     // Derive next-tabs/active-id/quit decision from the latest previous state
     // in one functional update, not the render-closure `tabs`/`activeId` —
     // rapid close gestures (e.g. mashing middle-click) can fire this handler
@@ -681,15 +735,28 @@ export default function App() {
   }
 
   async function cloneTab(sourceId: string): Promise<void> {
-    const cwd = await window.zinc.pty.getCwd(sourceId)
-    const source = tabs.find((tab) => tab.id === sourceId)
-    addTab({
-      spawnCwd: cwd ?? undefined,
-      initialTitle: source?.title,
-      customTitle: source?.customTitle,
-      shellId: source?.shellId,
-      shellLabel: source?.shellLabel
-    })
+    if (pendingCloneIdsRef.current.has(sourceId) || closingTabIdsRef.current.has(sourceId)) return
+    if (!tabsRef.current.some((tab) => tab.id === sourceId)) return
+    pendingCloneIdsRef.current.add(sourceId)
+    try {
+      const cwd = await window.zinc.pty.getCwd(sourceId)
+      // The source can close while getCwd is in flight (even before React
+      // commits its removal); never turn that late answer into a new tab.
+      if (closingTabIdsRef.current.has(sourceId)) return
+      const source = tabsRef.current.find((tab) => tab.id === sourceId)
+      if (!source) return
+      addTab({
+        spawnCwd: cwd ?? undefined,
+        initialTitle: source.title,
+        customTitle: source.customTitle,
+        shellId: source.shellId,
+        shellLabel: source.shellLabel
+      })
+    } catch (err) {
+      console.error(`[tabs] failed to read cwd for ${sourceId}:`, err)
+    } finally {
+      pendingCloneIdsRef.current.delete(sourceId)
+    }
   }
 
   function showTabContextMenu(tabId: string, x: number, y: number, returnFocus: HTMLElement): void {
@@ -816,13 +883,17 @@ export default function App() {
   useEffect(() => {
     return terminalHostRegistry.onTitleChange((id, title) => {
       const clean = normalizeTabTitle(title)
-      if (!clean) return
-      setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, title: clean } : tab)))
+      if (!clean || tabsRef.current.find((tab) => tab.id === id)?.title === clean) return
+      setTabs((prev) => {
+        // Another event may have queued the same title before React rendered.
+        if (!prev.some((tab) => tab.id === id && tab.title !== clean)) return prev
+        return prev.map((tab) => (tab.id === id ? { ...tab, title: clean } : tab))
+      })
     })
   }, [])
 
-  // Transient toast for terminal notices (currently only failed clipboard
-  // ops). The registry is plain TS with no access to i18n/React, so it emits a
+  // Transient toast for terminal notices. The registry is plain TS with no
+  // access to i18n/React, so it emits a
   // semantic code that we store and localize at render time (below) — keeping
   // the code, not the resolved string, in state means this effect never
   // depends on `t` and so subscribes/arms its dismiss timer exactly once.
@@ -1038,7 +1109,6 @@ export default function App() {
     if (!session || session.pointerId !== event.pointerId) return
     const next = clampRailWidth(session.startWidth + (event.clientX - session.startX))
     setRailWidthLive(next)
-    updateDebounced({ RailWidth: next })
   }
 
   function onRailResizePointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -1051,6 +1121,14 @@ export default function App() {
       /* already released */
     }
     endRailResize(event.pointerId, next)
+  }
+
+  function onRailResizePointerCancel(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (railResizeRef.current?.pointerId !== event.pointerId) return
+    railResizeRef.current = null
+    setRailWidthLive(null)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
   }
 
   return (
@@ -1168,7 +1246,8 @@ export default function App() {
                     onPointerDown={(e) => onTabPointerDown(e, tab.id)}
                     onPointerMove={onTabPointerMove}
                     onPointerUp={onTabPointerUp}
-                    onPointerCancel={onTabPointerUp}
+                    onPointerCancel={onTabPointerCancel}
+                    onLostPointerCapture={onTabLostPointerCapture}
                     onKeyDown={(event) => {
                       if (event.target !== event.currentTarget) return
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -1416,7 +1495,7 @@ export default function App() {
           onPointerDown={onRailResizePointerDown}
           onPointerMove={onRailResizePointerMove}
           onPointerUp={onRailResizePointerUp}
-          onPointerCancel={onRailResizePointerUp}
+          onPointerCancel={onRailResizePointerCancel}
           onDoubleClick={() => {
             setRailWidthLive(null)
             updateImmediate({ RailWidth: RAIL_WIDTH_DEFAULT })
@@ -1649,13 +1728,15 @@ export default function App() {
       >
         {shellFallbackVisible
           ? t('DefaultShellFallback')
-          : t(
-              terminalNotice === 'copyFailed'
-                ? 'ClipboardCopyFailed'
-                : terminalNotice === 'pasteFailed'
-                  ? 'ClipboardPasteFailed'
-                  : 'TerminalStartFailed'
-            )}
+          : terminalNotice === 'openExternalFailed'
+            ? language === 'zh' ? '无法打开链接' : 'Could not open link'
+            : t(
+                terminalNotice === 'copyFailed'
+                  ? 'ClipboardCopyFailed'
+                  : terminalNotice === 'pasteFailed'
+                    ? 'ClipboardPasteFailed'
+                    : 'TerminalStartFailed'
+              )}
       </div>
     )}
     <UpdateDialog />

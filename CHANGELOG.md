@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-29
+
+### Fixed
+
+- Claude conversations in separate tabs under the same directory resume by
+  their own session IDs, rather than all opening the newest conversation.
+  Zinc's per-process `--settings` SessionStart hook captures identities for
+  restored sessions and interactive, directly typed `claude` commands in
+  supported shells. Full-path launches, scripts, and manually started WSL
+  Claude sessions are not covered; unknown identities reopen conservatively
+  instead of attaching to another tab's conversation.
+- Shutdown persistence, process detection, shell discovery, update errors,
+  clipboard-image paths, and external-link errors are handled more reliably.
+
 ## [0.6.11] - 2026-09-19
 
 ### Added

@@ -98,7 +98,7 @@ interface HostEntry {
  * container div and toggles its visibility.
  */
 /** A transient user-facing notice the registry emits (e.g. a failed clipboard op). App maps these to localized toast text. */
-export type TerminalNotice = 'copyFailed' | 'pasteFailed' | 'startFailed'
+export type TerminalNotice = 'copyFailed' | 'pasteFailed' | 'startFailed' | 'openExternalFailed'
 
 export class TerminalHostRegistry {
   private readonly hosts = new Map<string, HostEntry>()
@@ -176,7 +176,15 @@ export class TerminalHostRegistry {
     // setWindowOpenHandler denies — so even "OK" never opens a browser. Route
     // both OSC 8 and plain-text WebLinksAddon clicks through shell.openExternal.
     const openExternalLink = (_event: MouseEvent, uri: string): void => {
-      void window.zinc.shell.openExternal(uri)
+      try {
+        void window.zinc.shell.openExternal(uri)
+          .then((opened) => {
+            if (!opened) this.notify('openExternalFailed')
+          })
+          .catch(() => this.notify('openExternalFailed'))
+      } catch {
+        this.notify('openExternalFailed')
+      }
     }
 
     const term = new Terminal({
@@ -469,35 +477,40 @@ export class TerminalHostRegistry {
     return () => this.titleHandlers.delete(handler)
   }
 
-  /** Applies a pushed settings change to every open terminal, then fits and reports the resulting size (parity §2.3). */
+  /** Applies only changed settings to open terminals; geometry changes alone trigger a fit (parity §2.3). */
   applyOptions(options: TerminalOptionsPush): void {
-    this.currentOptions = { ...this.currentOptions, ...options }
+    const previous = this.currentOptions
+    const changed = <K extends keyof TerminalOptionsPush>(key: K): boolean =>
+      options[key] !== undefined && options[key] !== previous[key]
+    const fontFamilyChanged = changed('fontFamily')
+    const fontSizeChanged = changed('fontSize')
+    const cursorBlinkChanged = changed('cursorBlink')
+    const cursorStyleChanged = changed('cursorStyle')
+    const scrollbackChanged = changed('scrollback')
+    const appearanceChanged = changed('colorScheme') || changed('themeMode')
+    const opacityChanged = changed('terminalOpacity')
+    const fullscreenChanged = changed('kimiFullscreenWheelPaging') || changed('grokFullscreenSurfaceTint')
+    this.currentOptions = { ...previous, ...options }
     if (options.themeMode !== undefined && (options.themeMode === 'auto' || options.themeMode === 'light' || options.themeMode === 'dark')) {
       this.themePreference = options.themeMode
     }
     for (const entry of this.hosts.values()) {
-      if (options.fontFamily !== undefined) entry.term.options.fontFamily = this.fontFamilyString()
-      if (options.fontSize !== undefined) entry.term.options.fontSize = options.fontSize
-      if (options.cursorBlink !== undefined) entry.term.options.cursorBlink = options.cursorBlink
-      if (options.cursorStyle !== undefined) entry.term.options.cursorStyle = options.cursorStyle
-      if (options.scrollback !== undefined) entry.term.options.scrollback = options.scrollback
-      // Re-theme already-open tabs live, not just tabs opened after the
-      // switch — unlike ShellPath/StartingDirectory (new-tab-only), a color
-      // scheme change must visibly apply to whatever's already running.
-      if (options.colorScheme !== undefined || options.themeMode !== undefined) this.retheme(entry)
-      // TerminalOpacity now also decides whether themeFor() hands xterm a real
-      // background color (see themeFor), so an opacity change must re-theme.
-      if (options.terminalOpacity !== undefined) {
-        this.retheme(entry)
-        this.syncTransparentBackgroundHandlers(entry)
+      if (fontFamilyChanged) entry.term.options.fontFamily = this.fontFamilyString()
+      if (fontSizeChanged) entry.term.options.fontSize = options.fontSize
+      if (cursorBlinkChanged) entry.term.options.cursorBlink = options.cursorBlink
+      if (cursorStyleChanged) entry.term.options.cursorStyle = options.cursorStyle
+      if (scrollbackChanged) entry.term.options.scrollback = options.scrollback
+      if (opacityChanged) this.syncTransparentBackgroundHandlers(entry)
+      const wasTinted = entry.grokSurface
+      if (fullscreenChanged || opacityChanged) this.syncFullscreenState(entry)
+      // A tint transition already re-themes in syncGrokSurface; otherwise
+      // repaint on an actual palette/opacity change, not on duplicate pushes.
+      if ((appearanceChanged || opacityChanged) && wasTinted === entry.grokSurface) this.retheme(entry)
+      // Font metrics or the scrollback scrollbar can change cols/rows. The
+      // fit's onResize is the sole pty report path; cosmetic settings don't fit.
+      if (entry.state === 'ready' && (fontFamilyChanged || fontSizeChanged || scrollbackChanged)) {
+        this.fitTerminal(entry)
       }
-      this.syncFullscreenState(entry)
-      // Only ready hosts have an opened terminal to fit; the fit's own
-      // onResize reports the new size to the pty (single resize path — no
-      // separate report here). A font-size change that alters cell geometry
-      // changes cols/rows and thus fires that report; an unchanged size
-      // correctly reports nothing.
-      if (entry.state === 'ready') this.fitTerminal(entry)
     }
   }
 

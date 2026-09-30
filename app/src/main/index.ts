@@ -20,6 +20,7 @@ import { applyWindowMaterial } from "./windowMaterial";
 import { PtyManager } from "./pty/PtyManager";
 import { SettingsService } from "./services/SettingsService";
 import { SessionStateService } from "./services/SessionStateService";
+import { ClaudeSessionBindings } from "./services/ClaudeSessionBindings";
 import { UpdaterService } from "./services/UpdaterService";
 import {
   detectActiveToolMatch,
@@ -27,7 +28,7 @@ import {
 } from "./services/ToolDetector";
 import { PasteImageService, toWslPath } from "./services/PasteImageService";
 import { resolveShellId, ShellDiscoveryService } from "./services/ShellDiscovery";
-import { getProcessCwd } from "./processCwd";
+import { getProcessCwd, getProcessStartedMs } from "./processCwd";
 import { getSystemAccentLight2 } from "./accentColor";
 import type {
   PtyCreateOptions,
@@ -78,16 +79,12 @@ const isTestSilent = isDev && process.env["ZINC_TEST_SILENT"] === "1";
 // ([12, 12, 12]) and Campbell black fallback.
 const LINUX_WINDOW_BACKGROUND = "#0C0C0C";
 
-// Single-instance lock: settings.json/session-state.json are plain
-// writeFileSync'd files with no locking of their own (see SettingsService /
-// SessionStateService's atomic-rename comments) — two instances racing to
-// persist concurrently could still interleave a torn write across process
-// boundaries even with atomic renames, and would definitely stomp each
-// other's in-memory state silently. A second launch attempt quits immediately
-// instead of spawning a second app.
+// A second process must not register IPC, construct state services or run
+// whenReady initialization after losing the lock: it would share the primary
+// process's settings and session-state files and could overwrite its snapshot.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
-}
+} else {
 
 app.on("second-instance", (_event, commandLine) => {
   // The custom installer launches this exact second instance request before
@@ -113,8 +110,10 @@ Menu.setApplicationMenu(null);
 const settingsService = new SettingsService(
   join(app.getPath("userData"), "settings.json"),
 );
+const claudeSessionBindings = new ClaudeSessionBindings(app.getPath("userData"));
 const sessionStateService = new SessionStateService(
   join(app.getPath("userData"), "session-state.json"),
+  () => claudeSessionBindings.settingsFilePath(),
 );
 // This cache is populated once after Electron is ready. The probe itself is
 // asynchronous and its registry/WSL failures are intentionally non-fatal.
@@ -180,11 +179,6 @@ function isTrustedIpcSender(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
   );
 }
 
-function activeRendererId(): number {
-  return mainWindow && !mainWindow.isDestroyed()
-    ? mainWindow.webContents.id
-    : -1;
-}
 let lastUiZoom = settingsService.get().UiZoom;
 
 // Set at the top of `before-quit`, before any cleanup runs. Guards the
@@ -319,6 +313,27 @@ function createWindow(): BrowserWindow {
   // through the validated shell:openExternal IPC route; renderer-controlled
   // navigation, popups and webviews are rejected at the WebContents boundary.
   win.webContents.on("will-navigate", (event) => event.preventDefault());
+  win.webContents.on("did-start-navigation", (details) => {
+    if (!details.isMainFrame || !sessionSnapshotReady || isQuitting) return;
+    // A reload reuses tab-1, tab-2, ... in a new renderer generation. Save
+    // the old generation while its PTYs are still alive, then drop its cached
+    // identity and processes before the new renderer can reuse those ids.
+    try {
+      persistSessionState({ scanTools: true });
+    } catch (err) {
+      console.error("[renderer reload] session persist failed", err);
+    }
+    stopSessionPersistTimers();
+    sessionSnapshotReady = false;
+    latestSessionSnapshot = { tabs: [], activeIndex: -1 };
+    sessionStateService.resetRendererGeneration();
+    shortcutRecordingActive = false;
+    foregroundToolCache.clear();
+    for (const pending of pendingPtyCreates.values()) {
+      if (pending.senderId === win.webContents.id) pending.cancelled = true;
+    }
+    ptyManager.killAllForSender(win.webContents.id, false);
+  });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-attach-webview", (event) => event.preventDefault());
   if (process.platform === "linux") {
@@ -414,6 +429,9 @@ function createWindow(): BrowserWindow {
           app.quit();
         }
       })
+      .catch((err: unknown) => {
+        console.error("[window] close confirmation failed", err);
+      })
       .finally(() => {
         closeConfirmationInProgress = false;
       });
@@ -433,6 +451,9 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
   });
+}).catch((error: unknown) => {
+  console.error("[app] initialization failed", error);
+  app.quit();
 });
 
 // Pushes both the terminal-relevant subset and the full settings object
@@ -447,18 +468,33 @@ settingsService.onChange((settings) => {
   mainWindow.webContents.send("settings:changed", settings);
 });
 
-const ptyManager = new PtyManager();
+const ptyManager = new PtyManager(
+  () => claudeSessionBindings.settingsFilePath(),
+  (id) => foregroundToolCache.delete(id),
+);
+const pendingPtyCreates = new Map<string, { senderId: number; cancelled: boolean }>();
 
 ipcMain.handle(
   "pty:create",
   async (event: IpcMainInvokeEvent, id: string, options: PtyCreateOptions) => {
     if (!isTrustedIpcSender(event)) throw new Error("Untrusted PTY sender");
-    const shells = await shellDiscoveryService.getShells();
-    const requestedId = typeof options?.shellId === "string" && options.shellId.trim()
-      ? options.shellId
-      : settingsService.get().DefaultShellId;
-    const resolution = resolveShellId(shells, requestedId);
-    ptyManager.create(id, options, event.sender, resolution.shell);
+    if (typeof id !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/.test(id)) throw new Error("Invalid PTY session id");
+    if (pendingPtyCreates.has(id)) throw new Error("PTY creation already in progress");
+    const pending = { senderId: event.sender.id, cancelled: false };
+    pendingPtyCreates.set(id, pending);
+    try {
+      const shells = await shellDiscoveryService.getShells();
+      // Closing a tab while discovery is pending must not spawn a shell after
+      // its host has been destroyed. An old renderer can also die during await.
+      if (pending.cancelled || !isTrustedIpcSender(event)) throw new Error("PTY tab closed during creation");
+      const requestedId = typeof options?.shellId === "string" && options.shellId.trim()
+        ? options.shellId
+        : settingsService.get().DefaultShellId;
+      const resolution = resolveShellId(shells, requestedId);
+      ptyManager.create(id, options, event.sender, resolution.shell);
+    } finally {
+      if (pendingPtyCreates.get(id) === pending) pendingPtyCreates.delete(id);
+    }
   },
 );
 
@@ -489,6 +525,8 @@ ipcMain.on(
 
 ipcMain.on("pty:kill", (event: IpcMainEvent, id: string) => {
   if (!isTrustedIpcSender(event)) return;
+  const pending = pendingPtyCreates.get(id);
+  if (pending?.senderId === event.sender.id) pending.cancelled = true;
   foregroundToolCache.delete(id);
   ptyManager.kill(id, event.sender.id);
 });
@@ -508,6 +546,18 @@ const foregroundToolCache = new Map<
   string,
   { at: number; tool: AiCliTool | null }
 >();
+let interactiveProcessSnapshot: { at: number; rows: ReturnType<typeof snapshotProcesses> } | null = null;
+
+function recentProcessSnapshot(): ReturnType<typeof snapshotProcesses> {
+  const now = Date.now();
+  if (interactiveProcessSnapshot && now - interactiveProcessSnapshot.at < FOREGROUND_TOOL_TTL_MS)
+    return interactiveProcessSnapshot.rows;
+  // Failed native snapshots must never become a cached "no tool" answer.
+  const rows = snapshotProcesses();
+  if (rows.length === 0) throw new Error("Process snapshot is unexpectedly empty");
+  interactiveProcessSnapshot = { at: now, rows };
+  return rows;
+}
 
 ipcMain.handle(
   "pty:getForegroundTool",
@@ -519,10 +569,11 @@ ipcMain.handle(
     let tool: AiCliTool | null = null;
     try {
       // No preferredTool: a tab's last-known tool must not colour the answer.
-      tool = detectActiveToolMatch(ptyManager.getPid(id, event.sender.id))?.tool ?? null;
+      const pid = ptyManager.getPid(id, event.sender.id);
+      if (pid !== null) tool = detectActiveToolMatch(pid, recentProcessSnapshot())?.tool ?? null;
     } catch (err) {
       console.warn("[pty:getForegroundTool] detection failed", err);
-      tool = null;
+      throw err;
     }
     foregroundToolCache.set(id, { at: Date.now(), tool });
     return tool;
@@ -532,29 +583,43 @@ ipcMain.handle(
 // Clipboard image paste (parity §1.5): saves the bytes, decides Windows vs.
 // WSL path form by checking whether this tab's shell has a codex/claude
 // child (M5's detector, reused here), then types the bare path string into
-// the pty — no trailing newline, matching the WinUI behavior. Silent on any
-// failure per spec (a null save just does nothing).
+// the pty — no trailing newline, matching the WinUI behavior. Failed saves
+// and detection are logged without printing clipboard data.
 ipcMain.on(
   "pty:pasteImage",
   (event: IpcMainEvent, id: string, data: Uint8Array, mime: string) => {
     if (!isTrustedIpcSender(event) || !(data instanceof Uint8Array)) return;
     try {
       const filePath = pasteImageService.save(data, mime);
-      if (!filePath) return;
+      if (!filePath) {
+        console.warn("[pty:pasteImage] clipboard image could not be saved");
+        return;
+      }
       let pathText = filePath;
+      let isWsl = false;
       try {
-        const match = detectActiveToolMatch(
+        isWsl = detectActiveToolMatch(
           ptyManager.getPid(id, event.sender.id),
-        );
-        if (match?.runtime === "wsl") pathText = toWslPath(filePath);
-      } catch {
-        // Detection failed (process tree query error, etc.) — degrade to the
-        // plain Windows path form silently, per spec.
+          recentProcessSnapshot(),
+        )?.runtime === "wsl";
+      } catch (err) {
+        // Keep the existing Windows-path fallback when the detector is unavailable.
+        console.warn("[pty:pasteImage] process detection failed", err);
+      }
+      if (isWsl) {
+        const wslPath = toWslPath(filePath);
+        if (wslPath === null) {
+          console.warn(
+            "[pty:pasteImage] unsupported Windows path for WSL; paste skipped",
+            filePath,
+          );
+          return;
+        }
+        pathText = wslPath;
       }
       ptyManager.write(id, new TextEncoder().encode(pathText), event.sender.id);
-    } catch {
-      // Any failure (save error, pty exit/close race, native call error) is
-      // silent per spec — the paste simply has no visible effect.
+    } catch (err) {
+      console.warn("[pty:pasteImage] failed to paste clipboard image", err);
     }
   },
 );
@@ -604,7 +669,8 @@ ipcMain.handle(
 
 // Session restore (parity §1.4): renderer pulls this once at startup instead
 // of always creating a single default tab.
-ipcMain.handle("session:getRestorePayload", () => {
+ipcMain.handle("session:getRestorePayload", (event: IpcMainInvokeEvent) => {
+  if (!isTrustedIpcSender(event)) return null;
   const settings = settingsService.get();
   return sessionStateService.loadRestorePayload(
     settings.RestoreSessionsOnStartup,
@@ -671,9 +737,28 @@ function ensurePeriodicSessionPersist(): void {
   persistIntervalTimer.unref();
 }
 
+function isValidRendererSnapshot(value: unknown): value is RendererSessionSnapshot {
+  if (!value || typeof value !== 'object') return false;
+  const snapshot = value as Partial<RendererSessionSnapshot>;
+  if (!Array.isArray(snapshot.tabs) || snapshot.tabs.length > 256) return false;
+  if (!Number.isInteger(snapshot.activeIndex) || snapshot.activeIndex! < -1 || snapshot.activeIndex! >= snapshot.tabs.length)
+    return false;
+  const ids = new Set<string>();
+  for (const tab of snapshot.tabs) {
+    if (!tab || typeof tab.id !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(tab.id)) return false;
+    if (tab.shellId !== undefined && (typeof tab.shellId !== 'string' || tab.shellId.length > 128)) return false;
+    if (ids.has(tab.id)) return false;
+    ids.add(tab.id);
+  }
+  return true;
+}
+
 ipcMain.on(
   "session:tabsChanged",
-  (_event: IpcMainEvent, snapshot: RendererSessionSnapshot) => {
+  (event: IpcMainEvent, value: unknown) => {
+    if (!isTrustedIpcSender(event) || !isValidRendererSnapshot(value)) return;
+    const snapshot = value;
+    if (!sessionSnapshotReady) sessionStateService.bindRestoredTabs(snapshot.tabs);
     latestSessionSnapshot = snapshot;
     sessionSnapshotReady = true;
     sessionStateService.pruneLastKnown(snapshot.tabs.map((tab) => tab.id));
@@ -824,38 +909,56 @@ function persistSessionState(
   // leave any existing session-state.json exactly as-is rather than
   // overwriting it with the empty startup default.
   if (!sessionSnapshotReady) return;
+  // A newly spawned tab can exist before React's next tabsChanged notification;
+  // writing the old tab list now would erase it on a fast close/restart.
+  const snapshotIds = new Set(latestSessionSnapshot.tabs.map((tab) => tab.id));
+  const closingLastTab = quitting && latestSessionSnapshot.tabs.length === 0;
+  if (!closingLastTab && (pendingPtyCreates.size > 0 || ptyManager.liveIdsInternal().some((id) => !snapshotIds.has(id)))) return;
   const deadline = Date.now() + (scanTools ? SESSION_SAVE_BUDGET_MS : 0);
   // One Toolhelp32Snapshot + full process-table walk, reused for every tab's
   // detectActiveToolMatch() call below instead of paying that cost per tab.
   // Cheap tab-list persists skip this entirely. Guarded on its own: a throw
   // degrades to "no tool detected this pass" and last-known rows stay put.
   let processSnapshot: ReturnType<typeof snapshotProcesses> = [];
+  let snapshotSucceeded = false;
   if (scanTools) {
     try {
       processSnapshot = snapshotProcesses();
+      snapshotSucceeded = processSnapshot.length > 0;
     } catch (err) {
       console.error("[persistSessionState] snapshotProcesses failed", err);
-      processSnapshot = [];
     }
   }
   sessionStateService.persist(
     latestSessionSnapshot.tabs,
     latestSessionSnapshot.activeIndex,
-    (id) => ptyManager.getCwd(id, activeRendererId()),
+    (id) => ptyManager.getCwdInternal(id),
     (id) => {
       const preferred = toAiCliTool(
         sessionStateService.peekLastKnown(id)?.tool ?? SessionTool.None,
       );
       const match = detectActiveToolMatch(
-        ptyManager.getPid(id, activeRendererId()),
+        ptyManager.getPidInternal(id),
         processSnapshot,
         preferred,
       );
       if (!match) return null;
+      // Codex carries `resume <id>` on the command line so it is greppable.
+      // Claude does not — its id is captured from the SessionStart hook Zinc
+      // injects, keyed by the tab's ZINC_TAB_ID (see ClaudeSessionBindings).
+      // The binding must also chain to THIS detected pid so a stale id from a
+      // previous claude in the same tab can't stick to a new one.
       const sessionId =
         match.tool === "codex"
           ? extractCodexSessionId(match.commandLine)
-          : undefined;
+          : match.tool === "claude"
+            ? claudeSessionBindings.sessionIdFor(
+                id,
+                ptyManager.getRunIdInternal(id),
+                match.pid,
+                getProcessStartedMs(match.pid),
+              )
+            : undefined;
       return {
         tool: toSessionTool(match.tool),
         pid: match.pid,
@@ -865,7 +968,7 @@ function persistSessionState(
     (pid) => getProcessCwd(pid),
     {
       budgetMs: Math.max(0, deadline - Date.now()),
-      scanTools,
+      scanTools: scanTools && snapshotSucceeded,
       quitting,
     },
   );
@@ -909,3 +1012,4 @@ app.on("before-quit", () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+} // Primary instance only.

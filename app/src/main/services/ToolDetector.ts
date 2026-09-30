@@ -1,7 +1,7 @@
 import koffi from "koffi";
 import { basename } from "node:path";
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
-import { getProcessCommandLine } from "../processCwd";
+import { getProcessCommandLine, getProcessStartedMs } from "../processCwd";
 import {
   AI_CLI_TOOLS,
   identifyToolFromCommandLine,
@@ -15,6 +15,8 @@ export interface ProcessRow {
   pid: number;
   ppid: number;
   exe: string;
+  /** /proc stat start ticks; Windows creation time is read only for matching CLIs. */
+  startedAt?: number;
 }
 
 export interface ActiveToolMatch {
@@ -83,10 +85,12 @@ export function snapshotProcesses(): ProcessRow[] {
 
 function snapshotWindowsProcesses(): ProcessRow[] {
   const api = loadWindowsProcessApi();
-  if (!api) return [];
+  if (!api) throw new Error("Windows process snapshot API unavailable");
 
   const handle = api.snapshot(PROCESS_SNAPSHOT, 0);
-  if (!handle) return [];
+  // CreateToolhelp32Snapshot returns INVALID_HANDLE_VALUE, not NULL, on failure.
+  if (!handle || BigInt.asUintN(64, koffi.address(handle)) === BigInt.asUintN(64, -1n))
+    throw new Error("CreateToolhelp32Snapshot failed");
 
   const result: ProcessRow[] = [];
   try {
@@ -98,6 +102,7 @@ function snapshotWindowsProcesses(): ProcessRow[] {
     } = { dwSize: koffi.sizeof(api.entryType) };
 
     let hasEntry = api.first(handle, entry);
+    if (!hasEntry) throw new Error("Process32FirstW failed");
     while (hasEntry) {
       const pid = entry.th32ProcessID ?? 0;
       if (pid > 0) {
@@ -109,8 +114,6 @@ function snapshotWindowsProcesses(): ProcessRow[] {
       }
       hasEntry = api.next(handle, entry);
     }
-  } catch {
-    return [];
   } finally {
     try {
       api.close(handle);
@@ -143,7 +146,11 @@ function snapshotProcfsProcesses(): ProcessRow[] {
         .split(/\s+/);
       const ppid = Number(fields[1]);
       if (!Number.isSafeInteger(ppid)) continue;
-      result.push({ pid, ppid, exe: procImageName(pid) });
+      const startTicks = Number(fields[19]); // /proc/<pid>/stat field 22
+      result.push({
+        pid, ppid, exe: procImageName(pid),
+        ...(Number.isSafeInteger(startTicks) ? { startedAt: startTicks } : {}),
+      });
     } catch {
       // Processes routinely exit during enumeration.
     }
@@ -187,7 +194,11 @@ function descendants(rows: ProcessRow[], rootPid: number): ProcessRow[] {
 function isWslLauncher(row: ProcessRow, commandLine: string): boolean {
   if (process.platform !== "win32") return false;
   if (/^(?:wsl|wslhost)(?:\.exe)?$/i.test(row.exe)) return true;
-  return /^\s*"?(?:[^"\r\n]*[\\/])?wsl(?:\.exe)?(?:"|\s|$)/i.test(commandLine);
+  const wsl = '"?(?:[^"\\r\\n]*[\\\\/])?wsl(?:\\.exe)?(?="|\\s|$)';
+  if (new RegExp(`^\\s*${wsl}`, 'i').test(commandLine)) return true;
+  // A cmd /c wsl wrapper may be the only visible Windows parent of the CLI.
+  return /^(?:cmd(?:\.exe)?)$/i.test(row.exe) &&
+    new RegExp(`^\\s*"?(?:[^"\\r\\n]*[\\\\/])?cmd(?:\\.exe)?"?\\s+(?:\\/[ds]\\s+)*\\/(?:c|k)\\s+"?${wsl}`, 'i').test(commandLine);
 }
 
 function belongsToWsl(
@@ -195,25 +206,21 @@ function belongsToWsl(
   commandLine: string,
   rowsByPid: ReadonlyMap<number, ProcessRow>,
   shellPid: number,
+  commandFor: (pid: number) => string | null,
 ): boolean {
   if (isWslLauncher(candidate, commandLine)) return true;
   let current = rowsByPid.get(candidate.ppid);
   const visited = new Set<number>();
   while (current && current.pid !== shellPid && !visited.has(current.pid)) {
     visited.add(current.pid);
-    if (/^(?:wsl|wslhost)(?:\.exe)?$/i.test(current.exe)) return true;
+    if (isWslLauncher(current, commandFor(current.pid) ?? '')) return true;
     current = rowsByPid.get(current.ppid);
   }
   return false;
 }
 
-/**
- * Finds a supported CLI below a terminal shell. Command lines are read only
- * for descendants and only until a match is found. AI_CLI_TOOLS order is the
- * priority when more than one tool is present under the same shell, except
- * that `preferredTool` (a tab's last-known tool) is searched first so a
- * leftover `claude` cannot hijack a Grok/Codex tab.
- */
+/** Find the most recently launched CLI below a terminal shell. A tab's saved
+ * tool is only a tie-breaker, never a reason to favor an older descendant. */
 export function detectActiveToolMatch(
   shellPid: number | null,
   rows = snapshotProcesses(),
@@ -235,27 +242,43 @@ export function detectActiveToolMatch(
     return commandLines.get(pid) ?? null;
   };
 
-  const tools = preferredTool
-    ? [preferredTool, ...AI_CLI_TOOLS.filter((tool) => tool !== preferredTool)]
-    : AI_CLI_TOOLS;
-
-  for (const tool of tools) {
-    for (const candidate of candidates) {
-      const commandLine = commandFor(candidate.pid);
-      if (!commandLine) continue;
-      if (identifyToolFromCommandLine(commandLine) === tool) {
-        return {
-          tool,
-          pid: candidate.pid,
-          runtime: belongsToWsl(candidate, commandLine, rowsByPid, shellPid!)
-            ? "wsl"
-            : "native",
-          commandLine,
-        };
-      }
+  let best: { row: ProcessRow; tool: AiCliTool; commandLine: string; depth: number; startedAt: number | null } | null = null;
+  for (const candidate of candidates) {
+    const commandLine = commandFor(candidate.pid);
+    if (!commandLine) continue;
+    const tool = identifyToolFromCommandLine(commandLine);
+    if (!tool) continue;
+    let depth = 0;
+    let parent = candidate;
+    const visited = new Set<number>();
+    while (parent.pid !== shellPid && !visited.has(parent.pid)) {
+      visited.add(parent.pid);
+      depth++;
+      parent = rowsByPid.get(parent.ppid) ?? { pid: shellPid!, ppid: 0, exe: '' };
     }
+    const startedAt = candidate.startedAt ?? getProcessStartedMs(candidate.pid);
+    // When creation times are unavailable, PID order is the best available
+    // recency signal. A known start time beats distance; distance breaks ties.
+    const newer = best && startedAt !== null && best.startedAt !== null && startedAt !== best.startedAt
+      ? startedAt > best.startedAt
+      : best && depth !== best.depth ? depth < best.depth
+      : best && (startedAt === null || best.startedAt === null) && candidate.pid !== best.row.pid
+        ? candidate.pid > best.row.pid
+        : best && tool === preferredTool && best.tool !== preferredTool
+          ? true
+          : best && tool !== preferredTool && best.tool === preferredTool
+            ? false
+            : best ? AI_CLI_TOOLS.indexOf(tool) < AI_CLI_TOOLS.indexOf(best.tool) : true;
+    if (newer) best = { row: candidate, tool, commandLine, depth, startedAt };
   }
-  return null;
+  if (!best) return null;
+  return {
+    tool: best.tool,
+    pid: best.row.pid,
+    runtime: belongsToWsl(best.row, best.commandLine, rowsByPid, shellPid!, commandFor)
+      ? 'wsl' : 'native',
+    commandLine: best.commandLine,
+  };
 }
 
 export function detectActiveTool(shellPid: number | null): DetectedTool {

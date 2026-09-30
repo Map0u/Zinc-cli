@@ -135,12 +135,13 @@ function asciiAt(data: Uint8Array, offset: number, value: string): boolean {
 /**
  * Converts a Windows absolute path to its WSL `/mnt/<drive>` equivalent
  * (parity §1.5/§2.2): lowercase drive letter, forward slashes, no trailing
- * slash normalization needed since `join()` never produces one. Returns the
- * original path unchanged if it doesn't look like `X:\...`.
+ * slash normalization needed since `join()` never produces one. Returns
+ * `null` for paths that cannot be safely mapped (including UNC and extended
+ * Windows paths) rather than passing a Windows path into a WSL shell.
  */
-export function toWslPath(windowsPath: string): string {
+export function toWslPath(windowsPath: string): string | null {
   const match = /^([A-Za-z]):[\\/](.*)$/.exec(windowsPath)
-  if (!match) return windowsPath
+  if (!match) return null
   const [, drive, rest] = match
   return `/mnt/${drive.toLowerCase()}/${rest.replace(/\\/g, '/')}`
 }
