@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-01
+
 ### Fixed
 
 - Tabs whose Claude conversation had already been quit still resume that

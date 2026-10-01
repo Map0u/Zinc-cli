@@ -8,6 +8,16 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.7.1',
+    date: '2026-10-01',
+    zh: [
+      '修复已退出 Claude 的标签不恢复：对话本身保存在磁盘上，没有正在运行的 Claude 进程不再清除该标签记录的会话 ID。此前只有仍在运行的标签会恢复对话，闲置数小时的标签重启后只是普通终端。'
+    ],
+    en: [
+      'Fixed tabs whose Claude had already quit not resuming: a conversation lives on disk, so the absence of a live Claude process no longer discards the tab’s saved session ID. Previously only tabs with Claude still running came back, and tabs left idle for hours reopened as plain shells.'
+    ]
+  },
+  {
     version: '0.7.0',
     date: '2026-09-29',
     zh: [
