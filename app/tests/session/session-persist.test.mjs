@@ -326,6 +326,107 @@ test('persist clears exited tool and updates cwd after a completed empty scan', 
   }
 })
 
+test('an idle tab keeps its conversation id after the AI process exits', () => {
+  // Regression: a tab whose Claude was quit hours ago must still resume on the
+  // next start. The conversation lives on disk, so a completed scan that finds
+  // no AI process is not evidence the identity went stale.
+  const known = {
+    cwd: 'C:\\proj-a',
+    tool: SessionTool.Claude,
+    sessionId: 'aaaaaaaa-1111-4111-8111-111111111111'
+  }
+  const afterQuit = mergeTabPersistState(
+    { shellCwd: 'C:\\proj-a', match: null, aiCwd: null, ptyAlive: true, scannedTool: true },
+    known,
+    'C:\\Users\\fallback'
+  )
+  assert.deepEqual(afterQuit.state, known)
+  assert.equal(afterQuit.usedFallbackOnly, false)
+
+  // Still resumable: the kept id produces an exact resume, not a bare shell.
+  assert.equal(
+    startupCommandForRestore(afterQuit.state.tool, {
+      resumeAi: true,
+      sessionId: afterQuit.state.sessionId,
+      allowCodexLast: false,
+      allowContinue: false
+    }),
+    'claude --resume aaaaaaaa-1111-4111-8111-111111111111'
+  )
+})
+
+test('a partly idle window restores every conversation on the next start', () => {
+  // The reported bug: of several tabs in one directory, only the ones whose
+  // Claude was still running came back. Idle tabs lost their id on the quit
+  // persist, so the next start reopened them as bare shells.
+  const { dir, filePath } = tempSessionFile()
+  try {
+    const project = mkdtempSync(join(dir, 'project-'))
+    const service = new SessionStateService(filePath)
+    const tabs = [
+      { id: 'tab-1', shellId: 'pwsh' },
+      { id: 'tab-2', shellId: 'pwsh' },
+      { id: 'tab-3', shellId: 'pwsh' },
+      { id: 'tab-4', shellId: 'pwsh' }
+    ]
+    const ids = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444'
+    ]
+    ids.forEach((sessionId, index) => {
+      service.persist(
+        tabs,
+        0,
+        () => project,
+        (id) => (id === tabs[index].id
+          ? { tool: SessionTool.Claude, pid: 100 + index, sessionId }
+          : null),
+        () => project,
+        { scanTools: true, budgetMs: 2000 }
+      )
+    })
+    // Quitting: tabs 1 and 4 still run Claude, 2 and 3 have been idle for hours.
+    service.persist(
+      tabs,
+      0,
+      () => project,
+      (id) => (id === 'tab-1' || id === 'tab-4'
+        ? { tool: SessionTool.Claude, pid: 1, sessionId: ids[Number(id.slice(-1)) - 1] }
+        : null),
+      (pid) => project,
+      { scanTools: true, budgetMs: 2000, quitting: true }
+    )
+
+    const saved = JSON.parse(readFileSync(filePath, 'utf8'))
+    assert.deepEqual(saved.Tabs.map((t) => t.Tool), [2, 2, 2, 2])
+    assert.deepEqual(saved.Tabs.map((t) => t.SessionId), ids)
+
+    // A fresh service reads it exactly as a restart would.
+    const restored = new SessionStateService(filePath).loadRestorePayload(true, true)
+    restored.tabs.forEach((tab, index) => {
+      assert.equal(
+        tab.startupCommand,
+        `claude --resume ${ids[index]}`,
+        `tab ${index + 1} did not resume its own conversation`
+      )
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('an exited tool without a session id is still cleared', () => {
+  // No id means nothing exact to resume; the sticky tool would be a guess.
+  const cleared = mergeTabPersistState(
+    { shellCwd: 'C:\\proj-a', match: null, aiCwd: null, ptyAlive: true, scannedTool: true },
+    { cwd: 'C:\\proj-a', tool: SessionTool.Grok },
+    'C:\\Users\\fallback'
+  )
+  assert.deepEqual(cleared.state, { cwd: 'C:\\proj-a', tool: SessionTool.None })
+})
+
 test('cheap and throwing scans retain sticky tool, cwd and session id', () => {
   const { dir, filePath } = tempSessionFile()
   try {

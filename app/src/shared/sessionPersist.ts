@@ -121,6 +121,14 @@ export function mergeTabPersistState(
     // keep the last good row instead of erasing its restore identity.
     const ptyAlive = detected.ptyAlive ?? detected.shellCwd !== null
     if (!ptyAlive || !detected.shellCwd) return { state: known, usedFallbackOnly: false }
+    // A conversation outlives its process: the CLI stores it on disk, so a tab
+    // whose Claude was quit hours ago still resumes exactly with its id. No
+    // AI process at all is therefore NOT evidence that the identity is stale —
+    // drop it only when a live process reported an unusable id, which the
+    // `detected.match` branch above already handles. Keep `known.cwd` too: the
+    // conversation belongs to the directory it ran in, and resuming it from a
+    // directory the user later cd'd into would attach it to the wrong project.
+    if (known.sessionId) return { state: known, usedFallbackOnly: false }
     return { state: { cwd: detected.shellCwd, tool: SessionTool.None }, usedFallbackOnly: false }
   }
   if (detected.shellCwd) {

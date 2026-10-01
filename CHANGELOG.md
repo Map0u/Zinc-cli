@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Tabs whose Claude conversation had already been quit still resume that
+  conversation on the next start. A conversation lives on disk, so the absence
+  of a live Claude process no longer discards the tab's saved session ID — only
+  a live process that reports an unusable ID drops the old one. Previously
+  only the tabs whose Claude was still running came back, and tabs left idle
+  for hours reopened as plain shells.
+
 ## [0.7.0] - 2026-09-29
 
 ### Fixed
