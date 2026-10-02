@@ -7,6 +7,7 @@ import {
   mergeTabPersistState,
   shouldWriteSessionSnapshot,
   startupCommandForRestore,
+  type ClaudeRestoreTarget,
   type LastKnownTab
 } from '../../shared/sessionPersist'
 import { atomicWriteFileSync } from './atomicWrite'
@@ -73,6 +74,18 @@ export class SessionStateService {
     private readonly claudeSettingsProvider: () => string | null = () => null
   ) {}
 
+  /** Cheap pre-check so restore only asks Claude about jobs when a tab needs it. */
+  hasClaudeSessionIds(): boolean {
+    try {
+      if (!existsSync(this.filePath)) return false
+      const parsed = JSON.parse(decodeSessionFile(readFileSync(this.filePath))) as Partial<SessionState>
+      return Array.isArray(parsed?.Tabs) &&
+        parsed.Tabs.some((t) => t?.Tool === SessionTool.Claude && typeof t.SessionId === 'string')
+    } catch {
+      return false
+    }
+  }
+
   /** Last-known row for a live tab, used to prefer that tool during detection. */
   peekLastKnown(id: string): LastKnownTab | undefined {
     return this.lastKnown.get(id)
@@ -118,7 +131,12 @@ export class SessionStateService {
    * single-default-tab behavior (restore disabled, first run, or the file is
    * missing/corrupt/empty).
    */
-  loadRestorePayload(restoreEnabled: boolean, resumeAiConversations: boolean): RestorePayload | null {
+  loadRestorePayload(
+    restoreEnabled: boolean,
+    resumeAiConversations: boolean,
+    /** Maps a saved Claude id to where that conversation lives now (background job, handoff). */
+    resolveClaude?: (sessionId: string, cwd: string) => ClaudeRestoreTarget
+  ): RestorePayload | null {
     if (!restoreEnabled) {
       this.clear()
       return null
@@ -173,6 +191,37 @@ export class SessionStateService {
         claimedIds.add(key)
         sessionIds.set(index, id)
       }
+
+      // The saved id can be stale: Claude may have moved the conversation to
+      // a background job. Re-point each tab at the current owner, keeping the
+      // one-tab-per-conversation rule on the resolved ids too.
+      const claudeAttach = new Map<number, string>()
+      // Tabs whose conversation another tab already took; they open as plain
+      // shells and must not fall into the --continue election below.
+      const duplicateClaude = new Set<number>()
+      if (resumeAiConversations && resolveClaude) {
+        const claimedTargets = new Set<string>()
+        for (const index of new Set(priority)) {
+          const id = sessionIds.get(index)
+          if (id === undefined || tabsRaw[index]?.Tool !== SessionTool.Claude) continue
+          let target: ClaudeRestoreTarget
+          try {
+            target = resolveClaude(id, cwdFor(tabsRaw[index]))
+          } catch (err) {
+            console.warn('[SessionStateService] Claude restore target lookup failed', err)
+            continue
+          }
+          const key = target.sessionId.toLowerCase()
+          if (claimedTargets.has(key)) {
+            sessionIds.delete(index)
+            duplicateClaude.add(index)
+            continue
+          }
+          claimedTargets.add(key)
+          sessionIds.set(index, target.sessionId)
+          if (target.kind === 'attach') claudeAttach.set(index, target.jobId)
+        }
+      }
       // `codex resume --last` might select a session already claimed by an
       // exact ID, depending on the CLI version's cwd filtering. Until the VM
       // test establishes its scope, give it to at most one unknown tab, and
@@ -192,7 +241,7 @@ export class SessionStateService {
       const groupWinner = new Map<string, number>()
       tabsRaw.forEach((t, index) => {
         if (t?.Tool === undefined || t.Tool === SessionTool.None || t.Tool === SessionTool.Codex) return
-        if (sessionIds.has(index)) return
+        if (sessionIds.has(index) || duplicateClaude.has(index)) return
         const groupCwd = groupCwdFor(cwdFor(t))
         if (t.Tool === SessionTool.Claude && exactClaudeGroups.has(groupCwd)) return
         const key = `${t.Tool}\u0000${groupCwd}`
@@ -223,7 +272,8 @@ export class SessionStateService {
               allowContinue: continueWinners.has(index),
               claudeSettings: t?.Tool === SessionTool.Claude && !shellId?.startsWith('wsl:')
                 ? claudeSettings
-                : undefined
+                : undefined,
+              claudeAttachJobId: claudeAttach.get(index)
             })
           : undefined
         return { cwd, shellId, ...(startupCommand ? { startupCommand } : {}) }

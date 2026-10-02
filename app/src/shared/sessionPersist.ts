@@ -150,6 +150,85 @@ export function shouldWriteSessionSnapshot(input: {
   return true
 }
 
+/** Job id of a `claude [--settings x] attach <job>` command line. */
+export function extractClaudeAttachJobId(commandLine: string): string | undefined {
+  const args = [...commandLine.matchAll(/"([^"]*)"|'([^']*)'|([^\s"']+)/g)].map(
+    (match) => match[1] ?? match[2] ?? match[3]
+  )
+  const index = args.indexOf('attach')
+  const id = index > 0 ? args[index + 1] : undefined
+  return id && /^[a-f0-9]{8}$/.test(id) ? id : undefined
+}
+
+/** A live Claude background job as reported by `claude agents --json`. */
+export interface ClaudeBackgroundJob {
+  id: string
+  sessionId: string
+}
+
+export type ClaudeRestoreTarget =
+  | { kind: 'attach'; jobId: string; sessionId: string }
+  | { kind: 'resume'; sessionId: string }
+
+/**
+ * Where a saved Claude conversation lives now.
+ *
+ * Claude can move a conversation to the background (the agents view, `←`):
+ * it forks the transcript into a new session run by its daemon and leaves a
+ * `continued-in` record in the original. The tab keeps showing that job, but
+ * the id Zinc captured is still the original one, so a plain `--resume`
+ * reopens a stale copy next to the live job — or, when the saved id is the
+ * job's own, Claude refuses with "is running in the background".
+ *
+ * Follow the `continued-in` chain; the first id owned by a live background job
+ * is attached, otherwise the newest conversation in the chain is resumed.
+ */
+export function resolveClaudeRestoreTarget(
+  sessionId: string,
+  jobs: readonly ClaudeBackgroundJob[],
+  continuedIn: (sessionId: string) => string | undefined
+): ClaudeRestoreTarget {
+  const seen = new Set<string>()
+  let current = sessionId
+  for (let hop = 0; hop < 16; hop++) {
+    const key = current.toLowerCase()
+    if (seen.has(key)) break
+    seen.add(key)
+    const job = jobs.find((j) => j.sessionId.toLowerCase() === key)
+    if (job && isSafeSessionId(job.id)) return { kind: 'attach', jobId: job.id, sessionId: current }
+    const next = continuedIn(current)
+    if (!next || !isSafeSessionId(next)) break
+    current = next
+  }
+  return { kind: 'resume', sessionId: current }
+}
+
+/**
+ * The session a transcript was handed off to, read from its tail. A handoff
+ * followed by more conversation in the original (it was resumed again in
+ * place) is not followed: that copy is the one the user kept using.
+ */
+export function continuedInFromTranscriptTail(tail: string, sessionId: string): string | undefined {
+  let target: string | undefined
+  for (const line of tail.split(/\r?\n/)) {
+    if (!line.includes('"type"')) continue
+    let entry: { type?: unknown; sessionId?: unknown; continuedInSessionId?: unknown }
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      continue // first line of a tail window is usually cut
+    }
+    if (entry.type === 'continued-in') {
+      const next = entry.continuedInSessionId
+      const own = typeof entry.sessionId !== 'string' || entry.sessionId.toLowerCase() === sessionId.toLowerCase()
+      target = own && typeof next === 'string' && isSafeSessionId(next) ? next : undefined
+    } else if (entry.type === 'user' || entry.type === 'assistant') {
+      target = undefined
+    }
+  }
+  return target
+}
+
 /**
  * Restore startup command for one saved tab.
  *
@@ -174,9 +253,16 @@ export function startupCommandForRestore(
     allowContinue: boolean
     /** Per-process `--settings` path that registers the SessionStart binding hook. */
     claudeSettings?: string
+    /** Background job that now owns this tab's conversation (see resolveClaudeRestoreTarget). */
+    claudeAttachJobId?: string
   }
 ): string | undefined {
   if (!options.resumeAi) return undefined
+  if (tool === SessionTool.Claude && options.claudeAttachJobId && isSafeSessionId(options.claudeAttachJobId)) {
+    // The tab's shell wrapper adds `--settings`; attach ignores it and
+    // reports no SessionStart, so nothing else is needed here.
+    return `claude attach ${options.claudeAttachJobId}`
+  }
   const sid = options.sessionId && isSafeSessionId(options.sessionId) ? options.sessionId : undefined
   if (tool === SessionTool.Codex) {
     if (sid) return `codex resume ${sid}`

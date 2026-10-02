@@ -6,6 +6,21 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-02
+
+### Fixed
+
+- Claude tabs whose conversation was moved to the background (the agents
+  view, `←`) come back to that live conversation on the next start. Claude
+  forks such a conversation into a background job under a new session ID, so
+  Zinc's saved ID went stale: restore either reopened an outdated copy next to
+  the still-running job, or failed with "is running in the background … stop
+  it there first to resume it here". Restore now follows Claude's hand-off
+  record and runs `claude attach` for a live job, or resumes the newest copy
+  when the job has ended. Background jobs are never started, stopped or
+  changed by Zinc; if `claude agents` is unavailable, restore falls back to
+  the previous behavior.
+
 ## [0.7.1] - 2026-10-01
 
 ### Fixed

@@ -37,7 +37,11 @@ import type {
 import type { SettingsPatch, ZincSettings } from "../shared/settingsTypes";
 import { SessionTool } from "../shared/sessionState";
 import type { RendererSessionSnapshot } from "../shared/sessionState";
-import { extractCodexSessionId } from "../shared/sessionPersist";
+import {
+  extractClaudeAttachJobId,
+  extractCodexSessionId,
+} from "../shared/sessionPersist";
+import { prepareClaudeRestoreResolver } from "./services/ClaudeBackgroundJobs";
 import type { AiCliTool } from "../shared/aiCliTools";
 import {
   MAIN_FALLBACK_ACCELERATORS,
@@ -669,14 +673,35 @@ ipcMain.handle(
 
 // Session restore (parity §1.4): renderer pulls this once at startup instead
 // of always creating a single default tab.
-ipcMain.handle("session:getRestorePayload", (event: IpcMainInvokeEvent) => {
-  if (!isTrustedIpcSender(event)) return null;
-  const settings = settingsService.get();
-  return sessionStateService.loadRestorePayload(
-    settings.RestoreSessionsOnStartup,
-    settings.ResumeAiConversations,
-  );
-});
+// Background job id → the conversation it carries, for tabs restored with
+// `claude attach`. Attach fires no SessionStart hook, so without this the
+// next persist would drop the tab's conversation id.
+const claudeAttachedSessions = new Map<string, string>();
+
+ipcMain.handle(
+  "session:getRestorePayload",
+  async (event: IpcMainInvokeEvent) => {
+    if (!isTrustedIpcSender(event)) return null;
+    const settings = settingsService.get();
+    const resolve =
+      settings.RestoreSessionsOnStartup &&
+      settings.ResumeAiConversations &&
+      sessionStateService.hasClaudeSessionIds()
+        ? await prepareClaudeRestoreResolver()
+        : undefined;
+    return sessionStateService.loadRestorePayload(
+      settings.RestoreSessionsOnStartup,
+      settings.ResumeAiConversations,
+      resolve &&
+        ((sessionId, cwd) => {
+          const target = resolve(sessionId, cwd);
+          if (target.kind === "attach")
+            claudeAttachedSessions.set(target.jobId, target.sessionId);
+          return target;
+        }),
+    );
+  },
+);
 
 // Live cache of "what tabs does the renderer currently have open, in what
 // order, with which one active" — pushed on every tab open/close/switch.
@@ -952,7 +977,10 @@ function persistSessionState(
         match.tool === "codex"
           ? extractCodexSessionId(match.commandLine)
           : match.tool === "claude"
-            ? claudeSessionBindings.sessionIdFor(
+            ? claudeAttachedSessions.get(
+                extractClaudeAttachJobId(match.commandLine) ?? "",
+              ) ??
+              claudeSessionBindings.sessionIdFor(
                 id,
                 ptyManager.getRunIdInternal(id),
                 match.pid,

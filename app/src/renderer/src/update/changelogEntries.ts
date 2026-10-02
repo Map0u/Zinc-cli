@@ -8,6 +8,16 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.7.2',
+    date: '2026-10-02',
+    zh: [
+      '修复 Claude 对话被移到后台（agents 视图、← 键）后，重启 Zinc 恢复错对话或报“is running in the background”：Claude 会把这类对话复制成新 ID 的后台任务，Zinc 记录的 ID 随之过时。现在恢复时沿 Claude 的交接记录找到当前对话，后台仍在运行就用 claude attach 接回，已结束则恢复最新副本。Zinc 不会启动、停止或改动任何后台任务；查不到后台信息时按原方式恢复。'
+    ],
+    en: [
+      'Fixed Claude tabs whose conversation was moved to the background (agents view, ←) restoring a stale copy or failing with “is running in the background”: Claude forks such a conversation into a background job with a new ID, which made Zinc’s saved ID stale. Restore now follows Claude’s hand-off record, attaches a live job with claude attach, and resumes the newest copy once the job has ended. Zinc never starts, stops or changes background jobs; without job information it restores as before.'
+    ]
+  },
+  {
     version: '0.7.1',
     date: '2026-10-01',
     zh: [
