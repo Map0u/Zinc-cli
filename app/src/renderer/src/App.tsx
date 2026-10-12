@@ -729,6 +729,12 @@ export default function App() {
       }
 
       terminalHostRegistry.destroyHost(id)
+      setGrokTintedIds((prev) => {
+        if (!prev.has(id)) return prev
+        const rest = new Set(prev)
+        rest.delete(id)
+        return rest
+      })
       setActiveId((prevActiveId) =>
         prevActiveId === id ? next[next.length - 1].id : prevActiveId
       )

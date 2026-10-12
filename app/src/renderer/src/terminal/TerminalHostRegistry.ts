@@ -5,7 +5,12 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
-import { PTY_PORT_MESSAGE_TYPE, type PtySpawnOptions, type TerminalOptionsPush } from '../../../shared/ptyProtocol'
+import {
+  PTY_PORT_MESSAGE_TYPE,
+  type PtyPortExitMessage,
+  type PtySpawnOptions,
+  type TerminalOptionsPush
+} from '../../../shared/ptyProtocol'
 import type { AiCliTool } from '../../../shared/aiCliTools'
 import { DEFAULT_COLOR_SCHEME_ID, getColorScheme, resolveVariant, type ThemeMode } from '../colorSchemes'
 import { getSystemThemeMode, onSystemThemeModeChange } from '../themeMode'
@@ -27,6 +32,9 @@ import type { IDisposable } from '@xterm/xterm'
 // same rationale as index.css's #root stack.
 const FONT_FALLBACK =
   '"Cascadia Mono", Consolas, "Source Han Sans SC", "Source Han Sans CN", "Noto Sans CJK SC", "Noto Sans SC", "思源黑体", monospace'
+
+/** How long handleExit waits for the port's own exit message before printing the notice itself. */
+const EXIT_NOTICE_FALLBACK_MS = 1000
 
 const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   fontFamily: 'JetBrains Mono',
@@ -91,6 +99,8 @@ interface HostEntry {
   geometryDirty: boolean
   /** GPU renderer, attached only while this host is the one on screen; null otherwise (DOM renderer). */
   webgl: WebglAddon | null
+  /** The "[process exited]" line has been written (from the port or the IPC fallback). */
+  exitNoticeShown: boolean
 }
 
 /**
@@ -294,7 +304,8 @@ export class TerminalHostRegistry {
       wheelPager: createWheelPagerState(),
       grokSurface: false,
       geometryDirty: false,
-      webgl: null
+      webgl: null,
+      exitNoticeShown: false
     }
     this.syncTransparentBackgroundHandlers(entry)
 
@@ -859,7 +870,19 @@ export class TerminalHostRegistry {
     // Write raw bytes straight into xterm's own streaming UTF-8 decoder —
     // do not TextDecoder.decode() to a string first, which can mangle a
     // multibyte character split across two chunks.
-    port.onmessage = (event: MessageEvent<ArrayBuffer>) => this.writePtyOutput(entry, new Uint8Array(event.data))
+    port.onmessage = (event: MessageEvent<ArrayBuffer | PtyPortExitMessage>) => {
+      const data = event.data
+      if (data instanceof ArrayBuffer) {
+        this.writePtyOutput(entry, new Uint8Array(data))
+        return
+      }
+      if (data?.type === 'exit') {
+        // Everything the process printed arrived before this on the same
+        // port, so the notice now lands after its final output.
+        this.closePort(entry)
+        this.showExitNotice(entry, data.exitCode)
+      }
+    }
   }
 
   private closePort(entry: HostEntry): void {
@@ -875,6 +898,24 @@ export class TerminalHostRegistry {
     // Unbind immediately: mark the host exited so onData/onResize stop routing
     // to the now-dead pty, then leave the final buffer on screen with a notice.
     entry.state = 'exited'
+    // The notice normally comes from the exit message on the output port,
+    // behind the process's last output (this IPC can overtake it). Without a
+    // port, or if that message never arrives, print it from here.
+    if (!entry.port) {
+      this.showExitNotice(entry, exitCode)
+      return
+    }
+    window.setTimeout(() => {
+      if (this.hosts.get(id) === entry) this.showExitNotice(entry, exitCode)
+    }, EXIT_NOTICE_FALLBACK_MS)
+  }
+
+  private showExitNotice(entry: HostEntry, exitCode: number): void {
+    if (entry.exitNoticeShown) return
+    entry.exitNoticeShown = true
+    // A partial escape sequence still held by the SGR stream goes out first.
+    const pending = entry.sgrStream?.reset()
+    if (pending && pending.length > 0) entry.term.write(pending)
     entry.term.write(`\r\n\x1b[31m[process exited with code ${exitCode}]\x1b[0m\r\n`)
   }
 

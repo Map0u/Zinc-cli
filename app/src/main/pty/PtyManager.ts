@@ -4,7 +4,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { MessageChannelMain } from "electron";
 import type { MessagePortMain, WebContents } from "electron";
-import type { PtyCreateOptions } from "../../shared/ptyProtocol";
+import type { PtyCreateOptions, PtyPortExitMessage } from "../../shared/ptyProtocol";
 import { getProcessCwd } from "../processCwd";
 import type { DiscoveredShell } from "../services/ShellDiscovery";
 import { buildIsolatedShellSpawn } from "../services/shellHistoryIsolation";
@@ -205,6 +205,12 @@ export class PtyManager {
         // port, so a still-buffered final frame would otherwise race behind the
         // renderer's "[process exited]" line.
         flush();
+        // Same ordered port as the data, so the exit notice cannot overtake it.
+        try {
+          mainPort.postMessage({ type: "exit", exitCode } satisfies PtyPortExitMessage);
+        } catch {
+          // Port already gone — the renderer falls back to the pty:exit IPC.
+        }
         session.closed = true;
         for (const disposable of session.disposables) {
           try {

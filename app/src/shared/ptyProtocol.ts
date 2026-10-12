@@ -51,3 +51,14 @@ export interface TerminalOptionsPush {
  * list is the documented workaround.
  */
 export const PTY_PORT_MESSAGE_TYPE = 'zinc:pty-port'
+
+/**
+ * The last message on a session's output port when its process exits on its
+ * own: posted after the final output chunk, on the same ordered port, so the
+ * renderer prints "[process exited]" only after that output. (The separate
+ * `pty:exit` IPC only stops input; it can overtake data still in the port.)
+ */
+export interface PtyPortExitMessage {
+  type: 'exit'
+  exitCode: number
+}
