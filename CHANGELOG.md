@@ -6,6 +6,33 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-12
+
+### Changed
+
+- Hidden tabs stop painting their output; it is still read and shown up to
+  date on return. With several busy tabs the visible one no longer stutters
+  (development-build benchmark, nine simulated redrawing background tabs:
+  interface thread 88% → 15% busy, p95 keystroke latency 80 ms → 32 ms).
+- The visible tab renders with the xterm.js WebGL addon, falling back to the
+  DOM renderer if WebGL is unavailable or its context is lost.
+- Animated tab titles are applied in batches, and the hidden Settings page no
+  longer re-renders on every title change.
+- Pasted images are saved without blocking the main process, and periodic
+  session saving reads the Claude session files once per round.
+
+### Fixed
+
+- A background tab that finished starting late no longer takes keyboard focus.
+- Transparent-background color rewriting no longer mistakes extended-color
+  operands (e.g. `38;2;40;40;40`) for a black background, recognises the
+  colon form with a color-space id, and applies in place instead of
+  re-queuing, so colors no longer depend on how output is split.
+- Scrolling up during output holds its position.
+- The "process exited" notice follows the program's final output; exited
+  tabs still re-fit on resize.
+- OSC 11 background-color queries are answered again.
+
 ## [0.7.2] - 2026-10-02
 
 ### Fixed

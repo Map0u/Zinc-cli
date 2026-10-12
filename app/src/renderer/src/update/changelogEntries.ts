@@ -8,6 +8,20 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.7.3',
+    date: '2026-10-12',
+    zh: [
+      '多个标签同时忙时窗口不再卡顿：切到后台的标签停止绘制（输出照常接收，切回来就是最新画面），不再和你的打字、滚动抢同一条线程。在开发版基准测试中（9 个后台标签模拟 Claude 式持续刷屏），界面线程占用从 88% 降到 15%，按键延迟 p95 从 80 毫秒降到 32 毫秒。',
+      '当前标签改用显卡绘制（WebGL），持续刷屏的开销降到约四分之一；显卡不可用时自动退回原来的绘制方式。标签标题动画改为批量更新（每秒最多 4 次），隐藏的设置页不再跟着重绘。',
+      '修复后台标签启动完成时抢走键盘焦点；修复透明背景下颜色错乱；滚动查看历史时不再被拉回；“进程已退出”提示总在最后一行输出之后；粘贴大图片不再卡住窗口。'
+    ],
+    en: [
+      'The window stays responsive when many tabs are busy: hidden tabs stop painting (their output is still read and is current when you switch back) instead of competing with your typing and scrolling. In a development-build benchmark with nine simulated Claude-style redrawing background tabs, the interface thread went from 88% to 15% busy and p95 keystroke latency from 80 ms to 32 ms.',
+      'The visible tab now draws with the GPU (WebGL), cutting the cost of a constantly redrawing tab to about a quarter, with automatic fallback. Animated tab titles are applied in batches (at most four times a second) and no longer re-render the hidden Settings page.',
+      'Fixed a background tab stealing keyboard focus when it finished starting, wrong colors with the transparent background, scroll position jumping during output, the exit notice appearing before final output, and large image pastes blocking the window.'
+    ]
+  },
+  {
     version: '0.7.2',
     date: '2026-10-02',
     zh: [

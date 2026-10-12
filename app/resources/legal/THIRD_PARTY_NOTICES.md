@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This notice is generated for Zinc 0.7.2 from `app/package-lock.json` and installed package metadata. Zinc itself is licensed under AGPL-3.0-only; see `LICENSE`. Third-party components remain under their own terms.
+This notice is generated for Zinc 0.7.3 from `app/package-lock.json` and installed package metadata. Zinc itself is licensed under AGPL-3.0-only; see `LICENSE`. Third-party components remain under their own terms.
 
 ## Runtime component inventory
 
@@ -9,6 +9,7 @@ This notice is generated for Zinc 0.7.2 from `app/package-lock.json` and install
 | `@xterm/addon-fit` | 0.10.0 | MIT | [source](https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit) | `LICENSE` |
 | `@xterm/addon-unicode11` | 0.8.0 | MIT | [source](https://github.com/xtermjs/xterm.js/tree/master/addons/addon-unicode11) | `LICENSE` |
 | `@xterm/addon-web-links` | 0.12.0 | MIT | [source](https://github.com/xtermjs/xterm.js/tree/master/addons/addon-web-links) | `LICENSE` |
+| `@xterm/addon-webgl` | 0.18.0 | MIT | [source](https://github.com/xtermjs/xterm.js/tree/master/addons/addon-webgl) | `LICENSE` |
 | `@xterm/xterm` | 5.5.0 | MIT | [source](https://github.com/xtermjs/xterm.js) | `LICENSE` |
 | `argparse` | 2.0.1 | Python-2.0 | [source](https://github.com/nodeca/argparse) | `LICENSE` |
 | `builder-util-runtime` | 9.7.0 | MIT | [source](https://github.com/electron-userland/electron-builder) | `LICENSE` |
@@ -96,6 +97,32 @@ THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
 OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
  ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### @xterm/addon-webgl@0.18.0
+
+License text SHA-256: `21b975c39532001d431dc3b2c29fbff691d83f370833a66b54698bda290fde0e`
+
+```text
+Copyright (c) 2018, The xterm.js authors (https://github.com/xtermjs/xterm.js)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### js-tokens@4.0.0
