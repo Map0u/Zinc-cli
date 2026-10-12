@@ -135,6 +135,7 @@ function terminalOptionsFrom(settings: ZincSettings): TerminalOptionsPush {
     colorScheme: settings.ColorScheme,
     themeMode: settings.ThemePreference,
     terminalOpacity: settings.TerminalOpacity,
+    gpuRendering: settings.GpuRendering,
     kimiFullscreenWheelPaging: settings.KimiFullscreenWheelPaging,
     grokFullscreenSurfaceTint: settings.GrokFullscreenSurfaceTint,
   };

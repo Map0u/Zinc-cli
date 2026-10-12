@@ -44,6 +44,12 @@ export interface ZincSettings {
   DefaultShellId: string
   StartingDirectory: string
   Scrollback: number
+  /**
+   * Draw the visible terminal on the GPU (xterm's WebGL renderer). Cheaper for a
+   * tab that redraws constantly, but glyphs are rasterised differently from the
+   * default DOM renderer, so it is opt-in.
+   */
+  GpuRendering: boolean
   /** When on, the mouse wheel pages (PgUp/PgDn) instead of line-scrolling inside Kimi's full-screen TUI. */
   KimiFullscreenWheelPaging: boolean
   /**

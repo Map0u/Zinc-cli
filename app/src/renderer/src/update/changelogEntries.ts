@@ -8,6 +8,18 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.7.4',
+    date: '2026-10-12',
+    zh: [
+      '终端默认改回原来的绘制方式：0.7.3 把当前标签改成显卡绘制（WebGL）后，文字比以前偏细偏淡。现在显卡绘制是设置里的可选项（“GPU 渲染”），默认关闭；打开后会把字重微调到 Medium，笔画浓度与默认绘制相差在 2% 以内（JetBrains Mono 17 px、150% 缩放下实测，浅色和深色主题都一致）。',
+      '隐藏标签停止绘制的改动保留，0.7.3 的流畅提升主要来自这一条。'
+    ],
+    en: [
+      'Terminals draw with the original DOM renderer by default again: after 0.7.3 moved the visible tab to GPU drawing (WebGL), text looked thinner and lighter than before. GPU drawing is now an optional "GPU rendering" setting, off by default; when on, the glyph weight is nudged to Medium so its ink coverage stays within 2% of the default renderer (measured with JetBrains Mono 17 px at 150% scaling, light and dark themes).',
+      'Hidden tabs still stop painting, which is where most of 0.7.3's responsiveness gain comes from.'
+    ]
+  },
+  {
     version: '0.7.3',
     date: '2026-10-12',
     zh: [

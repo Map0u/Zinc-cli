@@ -41,6 +41,8 @@
   "CardStartDirTitle": "Starting directory",
   "CardStartDirDesc": "Applies to new tabs",
   "CardScrollbackTitle": "Scrollback lines",
+  "CardGpuRenderingTitle": "GPU rendering",
+  "CardGpuRenderingDesc": "Draw the visible tab on the GPU, which is lighter for programs that redraw constantly; glyph anti-aliasing differs slightly from the default renderer",
   "CardKimiFullscreenWheelPagingTitle": "Kimi full-screen wheel paging",
   "CardKimiFullscreenWheelPagingDesc": "In Kimi's full-screen TUI, the wheel pages (PgUp/PgDn) through the conversation instead of scrolling one line at a time",
   "CardGrokSurfaceTintTitle": "Grok full-screen surface tint",

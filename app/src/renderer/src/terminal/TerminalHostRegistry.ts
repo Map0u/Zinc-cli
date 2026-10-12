@@ -33,6 +33,14 @@ import type { IDisposable } from '@xterm/xterm'
 const FONT_FALLBACK =
   '"Cascadia Mono", Consolas, "Source Han Sans SC", "Source Han Sans CN", "Noto Sans CJK SC", "Noto Sans SC", "思源黑体", monospace'
 
+/**
+ * The WebGL renderer rasterises glyphs into a texture atlas, which comes out
+ * about a fifth lighter than the DOM renderer's text (measured on ink coverage
+ * with JetBrains Mono 17px at 150% scaling, light and dark). A Medium weight
+ * brings the two to within 2%; fonts without a Medium simply render Regular.
+ */
+const WEBGL_FONT_WEIGHT = '500'
+
 /** How long handleExit waits for the port's own exit message before printing the notice itself. */
 const EXIT_NOTICE_FALLBACK_MS = 1000
 
@@ -46,6 +54,7 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   themeMode: 'auto',
   // Match SettingsService: 0 = raw Acrylic through the terminal card.
   terminalOpacity: 0,
+  gpuRendering: false,
   kimiFullscreenWheelPaging: true,
   grokFullscreenSurfaceTint: false
 }
@@ -540,7 +549,7 @@ export class TerminalHostRegistry {
    * back to xterm's DOM renderer for the rest of the session.
    */
   private attachWebgl(entry: HostEntry): void {
-    if (this.webglDisabled || entry.webgl || entry.state === 'idle' || entry.id !== this.activeId) return
+    if (!this.gpuRendering() || this.webglDisabled || entry.webgl || entry.state === 'idle' || entry.id !== this.activeId) return
     let addon: WebglAddon | null = null
     try {
       addon = new WebglAddon()
@@ -550,6 +559,7 @@ export class TerminalHostRegistry {
       })
       entry.term.loadAddon(addon)
       entry.webgl = addon
+      entry.term.options.fontWeight = WEBGL_FONT_WEIGHT
     } catch (err) {
       console.warn('[terminal] WebGL renderer unavailable, staying on DOM:', err)
       this.webglDisabled = true
@@ -562,10 +572,15 @@ export class TerminalHostRegistry {
     }
   }
 
+  private gpuRendering(): boolean {
+    return this.currentOptions.gpuRendering ?? DEFAULT_OPTIONS.gpuRendering
+  }
+
   private detachWebgl(entry: HostEntry): void {
     const addon = entry.webgl
     if (!addon) return
     entry.webgl = null
+    entry.term.options.fontWeight = 'normal'
     try {
       addon.dispose()
     } catch {
@@ -596,6 +611,7 @@ export class TerminalHostRegistry {
     const scrollbackChanged = changed('scrollback')
     const appearanceChanged = changed('colorScheme') || changed('themeMode')
     const opacityChanged = changed('terminalOpacity')
+    const gpuRenderingChanged = changed('gpuRendering')
     const fullscreenChanged = changed('kimiFullscreenWheelPaging') || changed('grokFullscreenSurfaceTint')
     this.currentOptions = { ...previous, ...options }
     if (options.themeMode !== undefined && (options.themeMode === 'auto' || options.themeMode === 'light' || options.themeMode === 'dark')) {
@@ -607,6 +623,7 @@ export class TerminalHostRegistry {
       if (cursorBlinkChanged) entry.term.options.cursorBlink = options.cursorBlink
       if (cursorStyleChanged) entry.term.options.cursorStyle = options.cursorStyle
       if (scrollbackChanged) entry.term.options.scrollback = options.scrollback
+      if (gpuRenderingChanged) this.applyGpuRendering(entry)
       if (opacityChanged) this.syncTransparentBackgroundHandlers(entry)
       const wasTinted = entry.grokSurface
       if (fullscreenChanged || opacityChanged) this.syncFullscreenState(entry)
@@ -620,6 +637,29 @@ export class TerminalHostRegistry {
         else entry.geometryDirty = true
       }
     }
+  }
+
+  /**
+   * The setting flipped: move this host to the other renderer. The two measure
+   * cells differently, so the host on screen re-fits once the swap has painted;
+   * hidden hosts re-fit when next shown.
+   */
+  private applyGpuRendering(entry: HostEntry): void {
+    if (this.gpuRendering()) {
+      // A deliberate opt-in gets a fresh try even after an earlier context loss.
+      this.webglDisabled = false
+      this.attachWebgl(entry)
+    } else {
+      this.detachWebgl(entry)
+    }
+    if (!this.canFit(entry)) return
+    if (entry.id !== this.activeId) {
+      entry.geometryDirty = true
+      return
+    }
+    requestAnimationFrame(() => {
+      if (this.hosts.get(entry.id) === entry && entry.id === this.activeId) this.fitTerminal(entry)
+    })
   }
 
   destroyHost(id: string): void {

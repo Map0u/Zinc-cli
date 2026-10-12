@@ -192,3 +192,35 @@ test('OSC 8 and plain-text links show a notice on false, rejection, or throw', a
   plainLink({}, uri)
   assert.deepEqual(notices, ['openExternalFailed', 'openExternalFailed', 'openExternalFailed'])
 })
+
+test('GPU rendering is opt-in: the visible host follows the setting and only it gets the lighter-glyph weight fix', () => {
+  globalThis.requestAnimationFrame = (fn) => fn()
+  const { registry, term } = createHost()
+  const entry = registry.hosts.get('tab-1')
+  entry.state = 'ready'
+  registry.setActiveHost('tab-1')
+  const fits = []
+  registry.fitTerminal = (e) => { fits.push(e.id) }
+
+  // Default: DOM renderer, even for the host on screen.
+  const baseAddons = term.addons.length
+  registry.attachWebgl(entry)
+  assert.equal(entry.webgl, null)
+  assert.equal(term.addons.length, baseAddons)
+
+  registry.applyOptions({ gpuRendering: true })
+  assert.ok(entry.webgl, 'the visible host moves to WebGL')
+  assert.equal(term.options.fontWeight, '500')
+  assert.deepEqual(fits, ['tab-1'], 'and re-fits, since the renderers measure cells differently')
+
+  registry.applyOptions({ gpuRendering: false })
+  assert.equal(entry.webgl, null)
+  assert.equal(term.options.fontWeight, 'normal')
+  assert.deepEqual(fits, ['tab-1', 'tab-1'])
+
+  // A hidden host is not drawn on the GPU; it only re-fits when next shown.
+  registry.setActiveHost(null)
+  registry.applyOptions({ gpuRendering: true })
+  assert.equal(entry.webgl, null)
+  assert.equal(entry.geometryDirty, true)
+})

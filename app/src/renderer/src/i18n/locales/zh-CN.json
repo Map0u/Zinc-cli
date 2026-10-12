@@ -41,6 +41,8 @@
   "CardStartDirTitle": "起始目录",
   "CardStartDirDesc": "对新标签页生效",
   "CardScrollbackTitle": "滚动缓冲行数",
+  "CardGpuRenderingTitle": "GPU 渲染",
+  "CardGpuRenderingDesc": "用 GPU 绘制当前标签页，输出刷得很猛的程序更省力；字形的抗锯齿与默认渲染略有差别",
   "CardKimiFullscreenWheelPagingTitle": "Kimi 全屏滚轮适配",
   "CardKimiFullscreenWheelPagingDesc": "Kimi 全屏 TUI 时，滚轮按 PageUp / PageDown 整页翻对话，不再一行行滚",
   "CardGrokSurfaceTintTitle": "Grok 全屏配色适配",

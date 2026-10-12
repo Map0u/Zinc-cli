@@ -228,6 +228,7 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     ),
     StartingDirectory: normalizeString(raw.StartingDirectory, base.StartingDirectory),
     Scrollback: clampNumber(raw.Scrollback, base.Scrollback, NUMERIC_BOUNDS.Scrollback),
+    GpuRendering: normalizeBoolean(raw.GpuRendering, base.GpuRendering),
     KimiFullscreenWheelPaging: normalizeBoolean(raw.KimiFullscreenWheelPaging, base.KimiFullscreenWheelPaging),
     GrokFullscreenSurfaceTint: normalizeBoolean(raw.GrokFullscreenSurfaceTint, base.GrokFullscreenSurfaceTint),
     RestoreSessionsOnStartup: normalizeBoolean(raw.RestoreSessionsOnStartup, base.RestoreSessionsOnStartup),
@@ -290,6 +291,9 @@ function defaultSettings(): ZincSettings {
     // current user's profile dir instead (Windows' %USERPROFILE%).
     StartingDirectory: homedir(),
     Scrollback: 10000,
+    // Off by default: the WebGL renderer draws glyphs a little differently from
+    // the DOM renderer, so it is something the user opts into.
+    GpuRendering: false,
     KimiFullscreenWheelPaging: true,
     // Off by default: it deliberately overrides the palette the user picked,
     // so it has to be asked for.

@@ -657,6 +657,13 @@ function TerminalSection() {
           onChange={(v) => updateImmediate({ CursorBlink: v })}
         />
       </Card>
+      <Card title={t('CardGpuRenderingTitle')} desc={t('CardGpuRenderingDesc')}>
+        <Toggle
+          testId="setting-gpuRendering"
+          checked={settings.GpuRendering}
+          onChange={(v) => updateImmediate({ GpuRendering: v })}
+        />
+      </Card>
       <Card title={t('CardScrollbackTitle')}>
         <NumberField
           testId="setting-scrollback"

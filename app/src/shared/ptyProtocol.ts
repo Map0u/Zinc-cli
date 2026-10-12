@@ -36,6 +36,8 @@ export interface TerminalOptionsPush {
    * do not paint an opaque black panel over the material.
    */
   terminalOpacity?: number
+  /** Draw the visible terminal with xterm's WebGL renderer instead of the DOM renderer. */
+  gpuRendering?: boolean
   /** When true, the mouse wheel pages (PgUp/PgDn) instead of line-scrolling inside Kimi's full-screen TUI. */
   kimiFullscreenWheelPaging?: boolean
   /** When true, the terminal card takes Grok's own surface color while Grok's full-screen TUI is on screen. */
