@@ -28,12 +28,28 @@ export function isNearBlackIndexed(index: number): boolean {
   return NEAR_BLACK_INDEXED.has(index)
 }
 
+/** Near-black check for a colon-form color operand (`5:n`, `2:r:g:b`, `2:cs:r:g:b`). */
+function isNearBlackColonColor(sub: readonly number[]): boolean {
+  if (sub[0] === 5) return sub.length >= 2 && isNearBlackIndexed(sub[1])
+  if (sub[0] === 2) {
+    // ITU form carries a color-space id first: 48:2:<cs>:r:g:b (cs may be empty).
+    if (sub.length >= 5) return isNearBlackRgb(sub[2], sub[3], sub[4])
+    if (sub.length === 4) return isNearBlackRgb(sub[1], sub[2], sub[3])
+  }
+  return false
+}
+
 /**
  * Rewrite SGR parameter lists so black/near-black *backgrounds* become the
  * default background (49). Returns null when nothing changed.
  *
  * Accepts the public xterm.js CSI handler shape: a flat-ish list of numbers
  * and colon-style subparam arrays (`48;2;r;g;b` or `48:[2,r,g,b]`).
+ *
+ * Extended colors (38 foreground, 48 background, 58 underline) consume their
+ * operands as a unit, so an operand that happens to be 40 or 48 (e.g. the
+ * channel values in `38;2;40;40;40`) is never mistaken for a command; only a
+ * real 40 / 48 background is rewritten.
  */
 export function rewriteSgrParamsForTransparentBg(
   params: ReadonlyArray<number | number[]>
@@ -46,7 +62,7 @@ export function rewriteSgrParamsForTransparentBg(
   for (let i = 0; i < params.length; i++) {
     const p = params[i]
 
-    // Colon form at the top level is rare; leave it alone unless it's clearly 48:…
+    // A stray subparam group with no command in front of it: keep as-is.
     if (Array.isArray(p)) {
       out.push(p)
       continue
@@ -59,69 +75,56 @@ export function rewriteSgrParamsForTransparentBg(
       continue
     }
 
-    // Extended background: 48;5;n  /  48;2;r;g;b  /  48 with subparams.
-    if (p === 48) {
-      const next = params[i + 1]
+    if (p !== 38 && p !== 48 && p !== 58) {
+      out.push(p)
+      continue
+    }
 
-      // 48:[5, n] or 48:[2, r, g, b]
-      if (Array.isArray(next)) {
-        if (next[0] === 5 && next.length >= 2 && isNearBlackIndexed(next[1])) {
-          out.push(49)
-          i += 1
-          changed = true
-          continue
-        }
-        if (
-          next[0] === 2 &&
-          next.length >= 4 &&
-          isNearBlackRgb(next[1], next[2], next[3])
-        ) {
-          out.push(49)
-          i += 1
-          changed = true
-          continue
-        }
-        out.push(48, next)
-        i += 1
-        continue
+    const isBackground = p === 48
+    const next = params[i + 1]
+
+    // 48:5:n / 48:2:r:g:b / 48:2:cs:r:g:b
+    if (Array.isArray(next)) {
+      i += 1
+      if (isBackground && isNearBlackColonColor(next)) {
+        out.push(49)
+        changed = true
+      } else {
+        out.push(p, next)
       }
+      continue
+    }
 
-      // 48;5;n
-      if (next === 5 && typeof params[i + 2] === 'number') {
-        const index = params[i + 2] as number
-        if (isNearBlackIndexed(index)) {
-          out.push(49)
-          i += 2
-          changed = true
-          continue
-        }
-        out.push(48, 5, index)
-        i += 2
-        continue
+    // 48;5;n
+    if (next === 5 && typeof params[i + 2] === 'number') {
+      const index = params[i + 2] as number
+      i += 2
+      if (isBackground && isNearBlackIndexed(index)) {
+        out.push(49)
+        changed = true
+      } else {
+        out.push(p, 5, index)
       }
+      continue
+    }
 
-      // 48;2;r;g;b
-      if (
-        next === 2 &&
-        typeof params[i + 2] === 'number' &&
-        typeof params[i + 3] === 'number' &&
-        typeof params[i + 4] === 'number'
-      ) {
-        const r = params[i + 2] as number
-        const g = params[i + 3] as number
-        const b = params[i + 4] as number
-        if (isNearBlackRgb(r, g, b)) {
-          out.push(49)
-          i += 4
-          changed = true
-          continue
-        }
-        out.push(48, 2, r, g, b)
-        i += 4
-        continue
+    // 48;2;r;g;b
+    if (
+      next === 2 &&
+      typeof params[i + 2] === 'number' &&
+      typeof params[i + 3] === 'number' &&
+      typeof params[i + 4] === 'number'
+    ) {
+      const r = params[i + 2] as number
+      const g = params[i + 3] as number
+      const b = params[i + 4] as number
+      i += 4
+      if (isBackground && isNearBlackRgb(r, g, b)) {
+        out.push(49)
+        changed = true
+      } else {
+        out.push(p, 2, r, g, b)
       }
-
-      out.push(48)
       continue
     }
 
@@ -174,9 +177,13 @@ export function terminalThemeBackground(
   terminalOpacity: number,
   surfaceBase: readonly [number, number, number]
 ): string {
-  if (shouldTransparentizeTerminalBackgrounds(terminalOpacity)) return 'rgba(0, 0, 0, 0)'
   const [r, g, b] = surfaceBase.map((n) =>
     Math.round(Math.max(0, Math.min(255, Number.isFinite(n) ? n : 0)))
   )
+  // See-through card: alpha 0 so Acrylic shows, but keep the surface RGB —
+  // xterm's opaque() only forces alpha to 255, so inverse text (and the
+  // WebGL glyph atlas, which the index.css override cannot reach) still gets
+  // the scheme's real surface color instead of black.
+  if (shouldTransparentizeTerminalBackgrounds(terminalOpacity)) return `rgba(${r}, ${g}, ${b}, 0)`
   return `rgb(${r}, ${g}, ${b})`
 }

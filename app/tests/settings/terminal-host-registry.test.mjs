@@ -29,6 +29,9 @@ async function loadRegistry() {
       export const shouldTransparentizeTerminalBackgrounds = () => false
       export const terminalThemeBackground = () => '#000'
     `,
+    './transparentSgrStream': `
+      export class TransparentSgrStream { push(data) { return data } reset() { return new Uint8Array(0) } }
+    `,
     './kimiFullscreenWheelPaging': `
       export const createWheelPagerState = () => ({})
       export const decideKimiFullscreenWheel = () => ({ consume: false })

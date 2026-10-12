@@ -98,11 +98,27 @@ test('opaque card gets the scheme surface color, not a transparent background', 
 })
 
 test('a fully see-through card keeps the transparent background', () => {
-  assert.equal(terminalThemeBackground(0, [250, 246, 236]), 'rgba(0, 0, 0, 0)')
-  assert.equal(terminalThemeBackground(-1, [250, 246, 236]), 'rgba(0, 0, 0, 0)')
+  assert.equal(terminalThemeBackground(0, [250, 246, 236]), 'rgba(250, 246, 236, 0)')
+  assert.equal(terminalThemeBackground(-1, [12, 12, 12]), 'rgba(12, 12, 12, 0)')
 })
 
 test('surface channels are rounded and clamped into a valid rgb()', () => {
   assert.equal(terminalThemeBackground(1, [249.6, 245.4, 236]), 'rgb(250, 245, 236)')
   assert.equal(terminalThemeBackground(1, [-5, 300, Number.NaN]), 'rgb(0, 255, 0)')
+})
+
+test('extended-color operands are consumed, never mistaken for 40 / 48 commands', () => {
+  assert.equal(rewriteSgrParamsForTransparentBg([38, 2, 40, 40, 40]), null)
+  assert.equal(rewriteSgrParamsForTransparentBg([38, 5, 40]), null)
+  assert.equal(rewriteSgrParamsForTransparentBg([58, 2, 40, 40, 40]), null)
+  assert.equal(rewriteSgrParamsForTransparentBg([38, 2, 48, 5, 0]), null)
+  assert.deepEqual(rewriteSgrParamsForTransparentBg([38, 2, 40, 40, 40, 40]), [38, 2, 40, 40, 40, 49])
+  assert.deepEqual(rewriteSgrParamsForTransparentBg([38, 5, 40, 48, 5, 0]), [38, 5, 40, 49])
+})
+
+test('colon form with a color-space id is recognised', () => {
+  assert.deepEqual(rewriteSgrParamsForTransparentBg([48, [2, -1, 0, 0, 0]]), [49])
+  assert.deepEqual(rewriteSgrParamsForTransparentBg([48, [2, 0, 10, 10, 10]]), [49])
+  assert.equal(rewriteSgrParamsForTransparentBg([48, [2, -1, 200, 0, 0]]), null)
+  assert.equal(rewriteSgrParamsForTransparentBg([38, [2, -1, 0, 0, 0]]), null)
 })
