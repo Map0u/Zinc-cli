@@ -133,29 +133,33 @@ async function measureInverseRun(page, tabId, marker) {
  * The visible tab renders through WebGL, which has no DOM spans to read
  * colours from. This check covers the DOM renderer (the fallback when WebGL is
  * unavailable and the path the index.css override targets), so the whole run
- * uses it. The DOM renderer measures cells slightly differently, so the switch
- * can re-fit the terminal; that resize makes ConPTY repaint the screen, which
- * would wipe text written straight into xterm. Wait for the size to settle
- * before writing anything.
+ * uses it. A fit under the DOM renderer picks different cols (it measures
+ * cells slightly differently), and the resize makes ConPTY repaint the screen,
+ * which would wipe text written straight into xterm. So fit once now and wait
+ * for the size and the repainted prompt to settle before writing anything.
  */
 async function useDomRenderer(page, tabId) {
   await page.evaluate((id) => {
     const registry = window.__zincRegistry
     registry.webglDisabled = true
     registry.detachWebgl(registry.hosts?.get(id))
+    registry.fitOnShow(id)
   }, tabId)
   let last = ''
   let stableSince = Date.now()
   const deadline = Date.now() + 15000
   while (Date.now() < deadline) {
     const size = await page.evaluate((id) => {
-      const term = window.__zincRegistry.hosts?.get(id)?.term
-      return term ? `${term.cols}x${term.rows}` : ''
+      const registry = window.__zincRegistry
+      const term = registry.hosts?.get(id)?.term
+      if (!term) return ''
+      const prompt = registry.getBufferText(id).includes('>') ? 'prompt' : 'blank'
+      return `${term.cols}x${term.rows}:${prompt}`
     }, tabId)
     if (size !== last) {
       last = size
       stableSince = Date.now()
-    } else if (Date.now() - stableSince >= 1500) {
+    } else if (size.endsWith(':prompt') && Date.now() - stableSince >= 1500) {
       return
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
