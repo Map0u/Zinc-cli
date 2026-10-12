@@ -898,11 +898,15 @@ export default function App() {
   // label in the tab rail.
   useEffect(() => {
     const pending = new Map<string, string>()
+    // Titles already handed to setTabs: until React commits them, tabsRef
+    // still shows the previous title, which must not be used to drop a newer one.
+    const flushed = new Map<string, string>()
     let timer: number | null = null
     const flush = (): void => {
       timer = null
       const updates = new Map(pending)
       pending.clear()
+      for (const [id, title] of updates) flushed.set(id, title)
       setTabs((prev) => {
         // Another event may have queued the same title before React rendered.
         if (!prev.some((tab) => updates.has(tab.id) && tab.title !== updates.get(tab.id))) return prev
@@ -915,7 +919,8 @@ export default function App() {
     const unsubscribe = terminalHostRegistry.onTitleChange((id, title) => {
       const clean = normalizeTabTitle(title)
       if (!clean) return
-      if (!pending.has(id) && tabsRef.current.find((tab) => tab.id === id)?.title === clean) return
+      const latest = pending.get(id) ?? flushed.get(id) ?? tabsRef.current.find((tab) => tab.id === id)?.title
+      if (latest === clean) return
       pending.set(id, clean)
       if (timer === null) timer = window.setTimeout(flush, TITLE_FLUSH_MS)
     })

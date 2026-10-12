@@ -293,6 +293,14 @@ test('repeated terminal title skips setTabs, while a new title still updates', a
   app.h.titleChange('tab-1', 'Renamed')
   flushTitles()
   assert.equal(app.h.tabWrites, before + 1)
+  // A title flushed but not yet committed must not swallow a newer one that
+  // matches the still-committed title.
+  app.h.titleChange('tab-1', 'Working')
+  flushTitles()
+  app.h.titleChange('tab-1', 'Renamed')
+  flushTitles()
+  assert.equal(app.h.tabWrites, before + 3)
+  app.flush()
   assert.equal(walk(app.tree, (node) => node.props?.['data-tabid'] === 'tab-1').props.children[2].props.title, 'Renamed')
 })
 

@@ -90,7 +90,7 @@ export class TransparentSgrStream {
     const out: Uint8Array[] = []
     const n = data.length
     // Start of the current pass-through run in `data`; -1 while holding.
-    let runStart = this.state === State.Esc || this.state === State.Csi ? -1 : 0
+    let runStart = this.state === State.Esc || this.state === State.Csi || this.state === State.StrEsc ? -1 : 0
     const flushRun = (end: number): void => {
       if (runStart >= 0 && end > runStart) out.push(data.subarray(runStart, end))
       runStart = -1
@@ -174,32 +174,36 @@ export class TransparentSgrStream {
             break
           }
           const b = data[j]
+          if (b === ESC) {
+            // Held (even across chunks) until the next byte says whether it
+            // ends the string (ST) or starts a new escape sequence.
+            flushRun(j)
+            this.held = [ESC]
+            this.state = State.StrEsc
+          } else {
+            this.state = State.Ground
+          }
           i = j + 1
-          this.state = b === ESC ? State.StrEsc : State.Ground
           break
         }
         case State.StrEsc: {
           const b = data[i]
           if (b === BACKSLASH) {
+            // ST: the string is over.
+            releaseHeld()
+            runStart = i
             this.state = State.Ground
             i++
             break
           }
-          // ESC that is not ST aborts the string and starts a new escape.
-          // When that ESC is still in this chunk, hold it so a following CSI
-          // can be rewritten; otherwise just resume from ground.
-          if (i > 0 && data[i - 1] === ESC && runStart >= 0) {
-            flushRun(i - 1)
-            this.held = [ESC]
-            this.state = State.Esc
-          } else {
-            this.state = State.Ground
-          }
+          // Any other byte: that ESC aborted the string and starts a new
+          // escape — continue exactly as after an ESC in ground.
+          this.state = State.Esc
           break
         }
       }
     }
-    if (this.state !== State.Esc && this.state !== State.Csi) flushRun(n)
+    if (runStart >= 0) flushRun(n)
 
     if (out.length === 0) return new Uint8Array(0)
     if (out.length === 1) return out[0]

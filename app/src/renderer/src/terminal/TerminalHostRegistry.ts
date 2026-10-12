@@ -101,6 +101,8 @@ interface HostEntry {
   webgl: WebglAddon | null
   /** The "[process exited]" line has been written (from the port or the IPC fallback). */
   exitNoticeShown: boolean
+  /** Pending IPC-side fallback for the exit notice; cleared when a new session port arrives. */
+  exitNoticeTimer: number | null
 }
 
 /**
@@ -305,7 +307,8 @@ export class TerminalHostRegistry {
       grokSurface: false,
       geometryDirty: false,
       webgl: null,
-      exitNoticeShown: false
+      exitNoticeShown: false,
+      exitNoticeTimer: null
     }
     this.syncTransparentBackgroundHandlers(entry)
 
@@ -630,6 +633,7 @@ export class TerminalHostRegistry {
     }
     this.clearTransparentBackgroundHandlers(entry)
     this.closePort(entry)
+    if (entry.exitNoticeTimer !== null) window.clearTimeout(entry.exitNoticeTimer)
     this.detachWebgl(entry)
     entry.term.dispose()
     window.zinc.pty.kill(id)
@@ -867,6 +871,11 @@ export class TerminalHostRegistry {
     // before wiring up the new one, otherwise both stay live until teardown.
     this.closePort(entry)
     entry.port = port
+    // A new port is a new pty session for this host: forget the previous
+    // session's exit notice and its pending fallback.
+    if (entry.exitNoticeTimer !== null) window.clearTimeout(entry.exitNoticeTimer)
+    entry.exitNoticeTimer = null
+    entry.exitNoticeShown = false
     // Write raw bytes straight into xterm's own streaming UTF-8 decoder —
     // do not TextDecoder.decode() to a string first, which can mangle a
     // multibyte character split across two chunks.
@@ -899,18 +908,19 @@ export class TerminalHostRegistry {
     // to the now-dead pty, then leave the final buffer on screen with a notice.
     entry.state = 'exited'
     // The notice normally comes from the exit message on the output port,
-    // behind the process's last output (this IPC can overtake it). Without a
-    // port, or if that message never arrives, print it from here.
-    if (!entry.port) {
-      this.showExitNotice(entry, exitCode)
-      return
-    }
-    window.setTimeout(() => {
+    // behind the process's last output (this IPC can overtake it — even the
+    // port itself may still be on its way to attachPort). Only if that
+    // message never arrives is it printed from here.
+    if (entry.exitNoticeTimer !== null) window.clearTimeout(entry.exitNoticeTimer)
+    entry.exitNoticeTimer = window.setTimeout(() => {
+      entry.exitNoticeTimer = null
       if (this.hosts.get(id) === entry) this.showExitNotice(entry, exitCode)
     }, EXIT_NOTICE_FALLBACK_MS)
   }
 
   private showExitNotice(entry: HostEntry, exitCode: number): void {
+    if (entry.exitNoticeTimer !== null) window.clearTimeout(entry.exitNoticeTimer)
+    entry.exitNoticeTimer = null
     if (entry.exitNoticeShown) return
     entry.exitNoticeShown = true
     // A partial escape sequence still held by the SGR stream goes out first.

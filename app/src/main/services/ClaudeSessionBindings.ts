@@ -173,8 +173,15 @@ export class ClaudeSessionBindings {
 
 /** See `ClaudeSessionBindings.snapshot()`. Matching rules live here, unchanged. */
 export class ClaudeBindingsSnapshot {
-  /** `undefined` until first lookup; `null` when the file is missing or unreadable. */
-  private bindings: ClaudeBinding[] | null | undefined
+  /** Raw lines; `undefined` until first lookup, `null` when the file is missing or unreadable. */
+  private lines: string[] | null | undefined
+  /**
+   * Lines parsed so far, by index (`null` = blank or not JSON). Lookups scan
+   * from the newest line and stop at the first match, as the per-tab reads
+   * did, so a long history is parsed only as far back as some lookup needs —
+   * and at most once per pass however many tabs ask.
+   */
+  private readonly parsed = new Map<number, ClaudeBinding | null>()
 
   constructor(private readonly bindingsPath: string) {}
 
@@ -185,10 +192,11 @@ export class ClaudeBindingsSnapshot {
     matchStartedMs: number | null,
   ): string | undefined {
     if (!Number.isSafeInteger(matchPid) || matchPid <= 0 || matchStartedMs === null) return undefined
-    const bindings = this.load()
-    if (!bindings) return undefined
-    for (let i = bindings.length - 1; i >= 0; i--) {
-      const b = bindings[i]
+    const lines = this.load()
+    if (!lines) return undefined
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const b = this.bindingAt(lines, i)
+      if (!b) continue
       // Strict: a binding only counts when BOTH the tab and the exact PTY run
       // match — a stale record from an earlier spawn of this tab must never be
       // picked up for a restarted Claude that has not reported yet.
@@ -204,28 +212,32 @@ export class ClaudeBindingsSnapshot {
     return undefined
   }
 
-  private load(): ClaudeBinding[] | null {
-    if (this.bindings !== undefined) return this.bindings
-    this.bindings = null
+  private load(): string[] | null {
+    if (this.lines !== undefined) return this.lines
+    this.lines = null
     if (!existsSync(this.bindingsPath)) return null
-    let lines: string[]
     try {
-      lines = readFileSync(this.bindingsPath, 'utf8').split(/\r?\n/)
+      this.lines = readFileSync(this.bindingsPath, 'utf8').split(/\r?\n/)
     } catch {
       return null
     }
-    const parsed: ClaudeBinding[] = []
-    for (const raw of lines) {
-      const line = raw.trim()
-      if (!line) continue
+    return this.lines
+  }
+
+  private bindingAt(lines: string[], index: number): ClaudeBinding | null {
+    const cached = this.parsed.get(index)
+    if (cached !== undefined) return cached
+    let binding: ClaudeBinding | null = null
+    const line = lines[index].trim()
+    if (line) {
       try {
-        parsed.push(JSON.parse(line))
+        binding = JSON.parse(line)
       } catch {
-        continue
+        binding = null
       }
     }
-    this.bindings = parsed
-    return parsed
+    this.parsed.set(index, binding)
+    return binding
   }
 }
 
