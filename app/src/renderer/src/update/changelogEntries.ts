@@ -16,7 +16,7 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     ],
     en: [
       'Terminals draw with the original DOM renderer by default again: after 0.7.3 moved the visible tab to GPU drawing (WebGL), text looked thinner and lighter than before. GPU drawing is now an optional "GPU rendering" setting, off by default; when on, the glyph weight is nudged to Medium so its ink coverage stays within 2% of the default renderer (measured with JetBrains Mono 17 px at 150% scaling, light and dark themes).',
-      'Hidden tabs still stop painting, which is where most of 0.7.3's responsiveness gain comes from.'
+      'Hidden tabs still stop painting, which is where most of the 0.7.3 responsiveness gain comes from.'
     ]
   },
   {

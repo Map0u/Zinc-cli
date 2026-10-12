@@ -6,6 +6,19 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-10-12
+
+### Changed
+
+- Terminals draw with the DOM renderer again by default. 0.7.3 switched the
+  visible tab to the xterm.js WebGL renderer, whose glyph atlas comes out
+  roughly a fifth lighter than DOM text. GPU rendering is now an opt-in
+  setting ("GPU rendering"), and when it is on the glyph weight is nudged to
+  Medium, which brings its ink coverage within 2% of the DOM renderer's
+  (measured with JetBrains Mono 17 px at 150% scaling, light and dark).
+  Hidden tabs still stop painting, which is where most of 0.7.3's
+  responsiveness gain comes from.
+
 ## [0.7.3] - 2026-10-12
 
 ### Changed
