@@ -128,6 +128,7 @@ function createHost() {
 test('applyOptions ignores equal values and fits only on geometry changes', () => {
   const { registry, term } = createHost()
   registry.hosts.get('tab-1').state = 'ready'
+  registry.setActiveHost('tab-1')
   let fits = 0
   registry.fitTerminal = () => { fits++ }
   registry.applyOptions({
@@ -155,6 +156,12 @@ test('applyOptions ignores equal values and fits only on geometry changes', () =
   assert.equal(fits, 1)
   registry.applyOptions({ scrollback: 0 })
   assert.equal(fits, 2)
+
+  // A hidden host does not reflow now; it is marked and fitted when shown.
+  registry.setActiveHost(null)
+  registry.applyOptions({ fontSize: 20 })
+  assert.equal(fits, 2)
+  assert.equal(registry.hosts.get('tab-1').geometryDirty, true)
 })
 
 test('OSC 8 and plain-text links show a notice on false, rejection, or throw', async () => {

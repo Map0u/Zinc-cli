@@ -86,6 +86,8 @@ interface HostEntry {
   wheelPager: WheelPagerState
   /** True while this tab wears Grok's surface color — see grokFullscreenSurface.ts. */
   grokSurface: boolean
+  /** Container size changed while hidden; the fit is deferred until the tab is shown. */
+  geometryDirty: boolean
 }
 
 /**
@@ -116,6 +118,14 @@ export class TerminalHostRegistry {
    * which point every still-`idle` host is re-checked for activation.
    */
   private fontsReady = false
+  /**
+   * The one host that is on screen (null while Settings is showing). Only it
+   * may take keyboard focus, and only it re-fits eagerly: hidden hosts stay
+   * laid out at full size, so without this a late-finishing background pty
+   * start would steal focus, and every window resize would reflow every
+   * hidden scrollback at once.
+   */
+  private activeId: string | null = null
 
   private get mode(): ThemeMode {
     return this.themePreference === 'auto' ? this.systemMode : this.themePreference
@@ -273,7 +283,8 @@ export class TerminalHostRegistry {
       tool: null,
       toolLookupSeq: 0,
       wheelPager: createWheelPagerState(),
-      grokSurface: false
+      grokSurface: false,
+      geometryDirty: false
     }
     this.syncTransparentBackgroundHandlers(entry)
 
@@ -308,7 +319,11 @@ export class TerminalHostRegistry {
           this.tryActivate(entry)
           return
         }
-        if (entry.state !== 'ready') return
+        if (!this.canFit(entry)) return
+        if (entry.id !== this.activeId) {
+          entry.geometryDirty = true
+          return
+        }
         // display:none/block toggles fire the observer even at 0x0 — never fit
         // a hidden container (that was the garbage-tiny-size regression).
         if (container.clientWidth > 0 && container.clientHeight > 0) {
@@ -389,7 +404,9 @@ export class TerminalHostRegistry {
         this.syncFullscreenState(entry)
         if (entry.container.clientWidth > 0 && entry.container.clientHeight > 0) {
           this.fitTerminal(entry)
-          entry.term.focus()
+          // Restored background tabs finish starting in any order; only the
+          // tab on screen may take the keyboard.
+          if (entry.id === this.activeId) entry.term.focus()
         }
       })
       .catch((err: unknown) => {
@@ -449,12 +466,15 @@ export class TerminalHostRegistry {
   fitOnShow(id: string): void {
     const entry = this.hosts.get(id)
     if (!entry) return
+    this.activeId = id
     // Wait a frame to let React fully update the DOM (especially important for
     // display:none→block transitions), then fit. This RAF is a transition-settle
     // delay, distinct from the readiness state machine: the ResizeObserver would
     // normally catch the size change, but delaying here ensures fit runs before
     // any subsequent ResizeObserver callbacks.
     requestAnimationFrame(() => {
+      // The tab may have been closed, or another one shown, since this was queued.
+      if (this.hosts.get(id) !== entry || this.activeId !== id) return
       if (entry.container.clientWidth <= 0 || entry.container.clientHeight <= 0) return
       // A host that never became measurable while hidden may still be idle when
       // first shown — activate it now rather than fit an unopened terminal.
@@ -462,13 +482,29 @@ export class TerminalHostRegistry {
         this.tryActivate(entry)
         return
       }
-      if (entry.state === 'ready') this.fitTerminal(entry)
+      if (this.canFit(entry)) {
+        entry.geometryDirty = false
+        this.fitTerminal(entry)
+      }
       entry.term.focus()
     })
   }
 
   focus(id: string): void {
     this.hosts.get(id)?.term.focus()
+  }
+
+  /**
+   * Records which host is on screen (null = none, e.g. Settings is showing).
+   * Call this before fitOnShow() for the newly shown tab.
+   */
+  setActiveHost(id: string | null): void {
+    this.activeId = id
+  }
+
+  /** Opened hosts can re-fit locally; an exited one too (its final output must not clip), it just no longer reports to the pty. */
+  private canFit(entry: HostEntry): boolean {
+    return entry.state === 'ready' || entry.state === 'exited'
   }
 
   onTitleChange(handler: (id: string, title: string) => void): () => void {
@@ -507,8 +543,9 @@ export class TerminalHostRegistry {
       if ((appearanceChanged || opacityChanged) && wasTinted === entry.grokSurface) this.retheme(entry)
       // Font metrics or the scrollback scrollbar can change cols/rows. The
       // fit's onResize is the sole pty report path; cosmetic settings don't fit.
-      if (entry.state === 'ready' && (fontFamilyChanged || fontSizeChanged || scrollbackChanged)) {
-        this.fitTerminal(entry)
+      if (this.canFit(entry) && (fontFamilyChanged || fontSizeChanged || scrollbackChanged)) {
+        if (entry.id === this.activeId) this.fitTerminal(entry)
+        else entry.geometryDirty = true
       }
     }
   }
@@ -552,7 +589,9 @@ export class TerminalHostRegistry {
     entry.sgrStream = new TransparentSgrStream()
     // OSC 11 sets the terminal's default background color. TUIs often push
     // `#000000` here for a "theme"; swallowing it keeps our transparent default.
-    const osc11 = entry.term.parser.registerOscHandler(11, () => true)
+    // A bare query (`OSC 11 ; ?`) still goes to xterm, which answers with the
+    // scheme surface color, so TUIs can tell light from dark.
+    const osc11 = entry.term.parser.registerOscHandler(11, (data) => data.trim() !== '?')
     entry.transparentBgHandlers = [osc11]
   }
 
@@ -846,8 +885,11 @@ export class TerminalHostRegistry {
   private writePtyOutput(entry: HostEntry, raw: Uint8Array): void {
     const data = entry.sgrStream ? entry.sgrStream.push(raw) : raw
     if (data.length === 0) return
-    const before = this.captureScrollPosition(entry)
-    entry.term.write(data, () => this.restoreScrollPosition(entry, before))
+    // No per-chunk scroll restore: xterm already follows output while at the
+    // bottom and holds a scrolled-up reader in place (anchoring through
+    // scrollback trimming). Re-applying a snapshot taken before the write
+    // fought the user's own scrolling and cost a callback + RAF per chunk.
+    entry.term.write(data)
   }
 
   private preserveScrollPosition(entry: HostEntry, action: () => void): void {

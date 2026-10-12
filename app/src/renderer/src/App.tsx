@@ -10,6 +10,8 @@ import { surfaceBaseFor } from './terminal/grokFullscreenSurface'
 
 /** Length of the Grok surface-tint cross-fade; index.css uses the same value. */
 const SURFACE_FADE_MS = 220
+/** How often batched tab-title changes are applied (see the onTitleChange effect). */
+const TITLE_FLUSH_MS = 250
 import { getColorScheme, harmonizeAccent, resolveVariant } from './colorSchemes'
 import { useResolvedThemeMode } from './themeMode'
 import zincIcon from './assets/zinc-icon.png'
@@ -825,10 +827,14 @@ export default function App() {
   // webContents may already be destroyed, so this can't be done lazily at
   // quit time. The close-last-tab path above pushes its own final snapshot
   // synchronously rather than waiting on this effect (see its comment).
+  // Keyed on what the snapshot actually carries (ids, shells, order, active
+  // tab) — not on `tabs` itself, which also changes on every tab title update
+  // and would resend an identical snapshot (and restart main's save debounce).
+  const snapshotKey = tabs.map((t) => `${t.id}:${t.shellId}`).join('|')
   useEffect(() => {
     if (!sessionReady) return
-    pushSessionSnapshot(tabs, activeId)
-  }, [tabs, activeId, sessionReady])
+    pushSessionSnapshot(tabsRef.current, activeId)
+  }, [snapshotKey, activeId, sessionReady])
 
   // Startup splash: holds a beat once the session is ready so the window
   // doesn't flash straight from blank to the restored tab layout, then fades.
@@ -842,11 +848,11 @@ export default function App() {
     }
   }, [sessionReady])
 
-  // Re-fit and refocus whenever the visible tab changes (container went from
-  // display:none to display:block, or a brand new host was just created).
-  useEffect(() => {
-    if (activeId) terminalHostRegistry.fitOnShow(activeId)
-  }, [activeId])
+  // Tells the registry which host is on screen before any fit/focus runs this
+  // commit — hidden hosts must neither take focus nor re-fit eagerly.
+  useLayoutEffect(() => {
+    terminalHostRegistry.setActiveHost(view === 'terminal' ? activeId : null)
+  }, [view, activeId])
 
   // Which tabs currently wear Grok's surface color. The registry owns the
   // decision (it sees the buffer type and the detected tool); React only needs
@@ -880,16 +886,37 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [activeTabIsGrokTinted])
 
+  // Titles are coalesced: Claude Code and similar CLIs animate a spinner in
+  // the title several times a second, and with many tabs each update was a
+  // full App render. One batched update per TITLE_FLUSH_MS is plenty for a
+  // label in the tab rail.
   useEffect(() => {
-    return terminalHostRegistry.onTitleChange((id, title) => {
-      const clean = normalizeTabTitle(title)
-      if (!clean || tabsRef.current.find((tab) => tab.id === id)?.title === clean) return
+    const pending = new Map<string, string>()
+    let timer: number | null = null
+    const flush = (): void => {
+      timer = null
+      const updates = new Map(pending)
+      pending.clear()
       setTabs((prev) => {
         // Another event may have queued the same title before React rendered.
-        if (!prev.some((tab) => tab.id === id && tab.title !== clean)) return prev
-        return prev.map((tab) => (tab.id === id ? { ...tab, title: clean } : tab))
+        if (!prev.some((tab) => updates.has(tab.id) && tab.title !== updates.get(tab.id))) return prev
+        return prev.map((tab) => {
+          const title = updates.get(tab.id)
+          return title !== undefined && tab.title !== title ? { ...tab, title } : tab
+        })
       })
+    }
+    const unsubscribe = terminalHostRegistry.onTitleChange((id, title) => {
+      const clean = normalizeTabTitle(title)
+      if (!clean) return
+      if (!pending.has(id) && tabsRef.current.find((tab) => tab.id === id)?.title === clean) return
+      pending.set(id, clean)
+      if (timer === null) timer = window.setTimeout(flush, TITLE_FLUSH_MS)
     })
+    return () => {
+      unsubscribe()
+      if (timer !== null) window.clearTimeout(timer)
+    }
   }, [])
 
   // Transient toast for terminal notices. The registry is plain TS with no
@@ -964,9 +991,10 @@ export default function App() {
     }
   }, [tabContextMenu])
 
-  // Returning to the terminal view flips the terminal-content column back
-  // from display:none to display:block without `activeId` changing, so the
-  // effect above (keyed only on `activeId`) never reruns — the host would sit
+  // Re-fit and refocus whenever the visible tab changes (a brand new host was
+  // just created, or another tab was shown) and when returning to the
+  // terminal view, which flips the terminal-content column back from
+  // display:none without `activeId` changing — the host would otherwise sit
   // at its stale pre-hidden size until an async ResizeObserver tick caught up.
   useEffect(() => {
     if (view === 'terminal' && activeId) terminalHostRegistry.fitOnShow(activeId)

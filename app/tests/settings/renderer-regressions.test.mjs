@@ -159,6 +159,7 @@ async function setupApp(tabs = [{ id: 'tab-1', title: 'First' }, { id: 'tab-2', 
   }
   const updates = { immediate: [], debounced: [] }
   Object.assign(h, {
+    timers: [],
     mode: 'dark',
     language: 'en',
     dropIndex: 1,
@@ -172,6 +173,7 @@ async function setupApp(tabs = [{ id: 'tab-1', title: 'First' }, { id: 'tab-2', 
       onSurfaceTintChange() { return () => {} },
       onNotice(callback) { h.notice = callback; return () => {} },
       fitOnShow() {},
+      setActiveHost() {},
       destroyHost() {}
     }
   })
@@ -192,7 +194,7 @@ async function setupApp(tabs = [{ id: 'tab-1', title: 'First' }, { id: 'tab-2', 
     removeEventListener(name) { events.delete(name) },
     requestAnimationFrame: () => 1,
     cancelAnimationFrame() {},
-    setTimeout: () => 1,
+    setTimeout: (fn, ms) => { h.timers.push({ fn, ms }); return h.timers.length },
     clearTimeout() {},
     innerWidth: 900, innerHeight: 700
   }
@@ -272,13 +274,24 @@ test('old system accent reply cannot overwrite the newer selected scheme', async
 
 test('repeated terminal title skips setTabs, while a new title still updates', async () => {
   const app = await setupApp()
+  // Title updates are batched on a 250ms timer; run just those timers.
+  const flushTitles = () => {
+    const due = app.h.timers.filter((t) => t.ms === 250)
+    app.h.timers = app.h.timers.filter((t) => t.ms !== 250)
+    for (const t of due) t.fn()
+  }
   const before = app.h.tabWrites
   app.h.titleChange('tab-1', ' First ')
+  flushTitles()
   assert.equal(app.h.tabWrites, before)
+  app.h.titleChange('tab-1', 'Spinner 1')
   app.h.titleChange('tab-1', 'Renamed')
+  assert.equal(app.h.tabWrites, before)
+  flushTitles()
   assert.equal(app.h.tabWrites, before + 1)
   app.flush()
   app.h.titleChange('tab-1', 'Renamed')
+  flushTitles()
   assert.equal(app.h.tabWrites, before + 1)
   assert.equal(walk(app.tree, (node) => node.props?.['data-tabid'] === 'tab-1').props.children[2].props.title, 'Renamed')
 })

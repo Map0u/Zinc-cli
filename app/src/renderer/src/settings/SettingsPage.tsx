@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useRef,
   useState,
@@ -128,8 +129,13 @@ export function SettingsRailBody({
   )
 }
 
-/** Settings' own content body — mounted in place of the terminal tabs inside App.tsx's terminal card when settings is open. */
-export function SettingsContentBody({ category }: { category: Category }) {
+/**
+ * Settings' own content body — mounted in place of the terminal tabs inside
+ * App.tsx's terminal card when settings is open. Memoized: it stays mounted
+ * (display:none) while the terminal shows, and App re-renders on every tab
+ * title change, which must not rebuild the whole hidden settings tree.
+ */
+export const SettingsContentBody = memo(function SettingsContentBody({ category }: { category: Category }) {
   const { t } = useI18n()
   return (
     <>
@@ -147,7 +153,7 @@ export function SettingsContentBody({ category }: { category: Category }) {
       </div>
     </>
   )
-}
+})
 
 /** Matches `SettingsCategoryTitle` (FontSize 22, SemiBold, default/primary foreground = white, Margin 2,8,0,4). */
 function SectionHeading({ children }: { children: string }) {
