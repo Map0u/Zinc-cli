@@ -12,6 +12,7 @@ async function loadRegistry() {
     '@xterm/addon-fit': 'export class FitAddon {}',
     '@xterm/addon-unicode11': 'export class Unicode11Addon {}',
     '@xterm/addon-web-links': 'export class WebLinksAddon { constructor(handler) { this.handler = handler } }',
+    '@xterm/addon-webgl': 'export class WebglAddon { onContextLoss() {} dispose() {} }',
     '@xterm/xterm/css/xterm.css': '',
     '../../../shared/ptyProtocol': `export const PTY_PORT_MESSAGE_TYPE = 'zinc:pty-port'`,
     '../colorSchemes': `

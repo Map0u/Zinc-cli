@@ -3,6 +3,7 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { PTY_PORT_MESSAGE_TYPE, type PtySpawnOptions, type TerminalOptionsPush } from '../../../shared/ptyProtocol'
 import type { AiCliTool } from '../../../shared/aiCliTools'
@@ -88,6 +89,8 @@ interface HostEntry {
   grokSurface: boolean
   /** Container size changed while hidden; the fit is deferred until the tab is shown. */
   geometryDirty: boolean
+  /** GPU renderer, attached only while this host is the one on screen; null otherwise (DOM renderer). */
+  webgl: WebglAddon | null
 }
 
 /**
@@ -126,6 +129,12 @@ export class TerminalHostRegistry {
    * hidden scrollback at once.
    */
   private activeId: string | null = null
+  /**
+   * Set once WebGL failed to load or lost its context for good; every host
+   * then stays on the DOM renderer for the rest of the session instead of
+   * retrying a broken GPU path on each tab switch.
+   */
+  private webglDisabled = false
 
   private get mode(): ThemeMode {
     return this.themePreference === 'auto' ? this.systemMode : this.themePreference
@@ -284,7 +293,8 @@ export class TerminalHostRegistry {
       toolLookupSeq: 0,
       wheelPager: createWheelPagerState(),
       grokSurface: false,
-      geometryDirty: false
+      geometryDirty: false,
+      webgl: null
     }
     this.syncTransparentBackgroundHandlers(entry)
 
@@ -406,7 +416,10 @@ export class TerminalHostRegistry {
           this.fitTerminal(entry)
           // Restored background tabs finish starting in any order; only the
           // tab on screen may take the keyboard.
-          if (entry.id === this.activeId) entry.term.focus()
+          if (entry.id === this.activeId) {
+            this.attachWebgl(entry)
+            entry.term.focus()
+          }
         }
       })
       .catch((err: unknown) => {
@@ -482,6 +495,7 @@ export class TerminalHostRegistry {
         this.tryActivate(entry)
         return
       }
+      this.attachWebgl(entry)
       if (this.canFit(entry)) {
         entry.geometryDirty = false
         this.fitTerminal(entry)
@@ -500,6 +514,50 @@ export class TerminalHostRegistry {
    */
   setActiveHost(id: string | null): void {
     this.activeId = id
+    for (const entry of this.hosts.values()) {
+      if (entry.id !== id) this.detachWebgl(entry)
+    }
+  }
+
+  /**
+   * GPU rendering for the on-screen host only. Hidden hosts are paused
+   * anyway (parked off-screen), and Chromium caps live WebGL contexts per
+   * page, so one context follows the visible tab around. Any failure falls
+   * back to xterm's DOM renderer for the rest of the session.
+   */
+  private attachWebgl(entry: HostEntry): void {
+    if (this.webglDisabled || entry.webgl || entry.state === 'idle' || entry.id !== this.activeId) return
+    let addon: WebglAddon | null = null
+    try {
+      addon = new WebglAddon()
+      addon.onContextLoss(() => {
+        this.webglDisabled = true
+        this.detachWebgl(entry)
+      })
+      entry.term.loadAddon(addon)
+      entry.webgl = addon
+    } catch (err) {
+      console.warn('[terminal] WebGL renderer unavailable, staying on DOM:', err)
+      this.webglDisabled = true
+      try {
+        addon?.dispose()
+      } catch {
+        // A half-initialized addon may throw again on dispose; DOM rendering continues regardless.
+      }
+      entry.term.refresh(0, entry.term.rows - 1)
+    }
+  }
+
+  private detachWebgl(entry: HostEntry): void {
+    const addon = entry.webgl
+    if (!addon) return
+    entry.webgl = null
+    try {
+      addon.dispose()
+    } catch {
+      // Disposing after a context loss can throw; the DOM renderer takes over either way.
+    }
+    if (this.hosts.get(entry.id) === entry) entry.term.refresh(0, entry.term.rows - 1)
   }
 
   /** Opened hosts can re-fit locally; an exited one too (its final output must not clip), it just no longer reports to the pty. */
@@ -561,6 +619,7 @@ export class TerminalHostRegistry {
     }
     this.clearTransparentBackgroundHandlers(entry)
     this.closePort(entry)
+    this.detachWebgl(entry)
     entry.term.dispose()
     window.zinc.pty.kill(id)
     this.hosts.delete(id)
@@ -935,20 +994,19 @@ export class TerminalHostRegistry {
     return `"${this.currentOptions.fontFamily ?? DEFAULT_OPTIONS.fontFamily}", ${FONT_FALLBACK}`
   }
 
-  // Fully transparent ONLY while the card itself is see-through
-  // (TerminalOpacity 0); otherwise the scheme's own surface color, opaque.
-  // terminalThemeBackground() carries the reason: xterm also derives the color
-  // of inverse (SGR 7) text from theme.background, and a transparent value
-  // collapses to pure black there — the invisible-text "solid bar" bug.
+  // Fully transparent (surface RGB at alpha 0) ONLY while the card itself is
+  // see-through (TerminalOpacity 0); otherwise the scheme's own surface color,
+  // opaque. terminalThemeBackground() carries the reason: xterm also derives
+  // the color of inverse (SGR 7) text from theme.background.
   //
   // The transparent branch stays because xterm paints ON TOP of the host div's
   // CSS background (App.tsx's `terminalSurfaceBg`, see chromeBackground.ts,
   // which already carries the real rgba(12,12,12,opacity) tint). A *partially*
   // transparent theme background would make both layers blend against the
   // window backdrop independently and stack (two 0.4-alpha layers compose to
-  // ~0.64, not 0.4) - measured via direct pixel sampling: canvas showed A=255
-  // with the WebGL addon (which additionally ignores theme alpha outright) and
-  // A=163 without it (0.4 + 0.4*(1-0.4) = 0.64 ≈ 163/255), while the
+  // ~0.64, not 0.4) - measured via direct pixel sampling: an older WebGL
+  // addon showed A=255 (it ignored theme alpha; 0.18 clears to alpha 0, which
+  // is all Zinc now asks of it), and the DOM renderer showed A=163 (0.4 + 0.4*(1-0.4) = 0.64 ≈ 163/255), while the
   // surrounding CSS-only padding gap correctly showed A=102 (0.4). An *opaque*
   // theme background does not stack - it simply repaints the same color the
   // CSS layer already resolves to (Acrylic renders any alpha > 0 as fully

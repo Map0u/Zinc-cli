@@ -73,7 +73,14 @@ function describe(color) {
  */
 async function writeInverseRun(page, tabId, marker) {
   await page.evaluate(({ id, text }) => {
-    const entry = window.__zincRegistry.hosts?.get(id)
+    const registry = window.__zincRegistry
+    const entry = registry.hosts?.get(id)
+    // The visible tab renders through WebGL, which has no DOM spans to read
+    // colours from. This check covers the DOM renderer (the fallback when
+    // WebGL is unavailable and the path the index.css override targets), so
+    // drop to it for the measurement; measureInverseRun restores WebGL.
+    registry.webglDisabled = true
+    registry.detachWebgl(entry)
     entry.term.write(`\r\n\u001b[7m${text}\u001b[0m\r\n`)
   }, { id: tabId, text: marker })
 
@@ -120,12 +127,16 @@ async function measureInverseRun(page, tabId, marker) {
       backgroundColor = window.getComputedStyle(node).backgroundColor
     }
 
-    return {
+    const result = {
       found: true,
       color: style.color,
       backgroundColor,
       className: span.className
     }
+    const registry = window.__zincRegistry
+    registry.webglDisabled = false
+    registry.attachWebgl(entry)
+    return result
   }, { id: tabId, text: marker })
 }
 

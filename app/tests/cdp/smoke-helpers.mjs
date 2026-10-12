@@ -325,10 +325,10 @@ export function assertTerminalGeometry(geometry, label) {
     `${label}: xterm screen right edge is inside the viewport`,
     `${geometry.screen.right} > ${geometry.viewport.right}`
   )
-  // The product uses xterm's DOM renderer (the WebGL addon was deliberately
-  // dropped in 9d6856d because it ignores theme alpha). Canvas layers only
-  // exist if a canvas-based addon is ever reintroduced, so require the DOM
-  // rows to have rendered and treat canvases as optional extra layers.
+  // The visible tab renders through the WebGL addon (canvas layers); hidden
+  // tabs, and every tab when WebGL is unavailable, use the DOM renderer. So
+  // accept either: canvases must stay inside the viewport, and without them
+  // the DOM rows must have rendered.
   if (geometry.canvases.length > 0) {
     for (const [index, canvas] of geometry.canvases.entries()) {
       assert(

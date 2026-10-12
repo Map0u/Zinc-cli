@@ -9,6 +9,8 @@
 //   --duration  运行秒数，0 = 一直运行到被杀（默认 0）
 //   --sync      用 DEC 2026 同步输出（\x1b[?2026h/l）包裹每一帧
 //   --tag       仅用于在命令行里标记本次启动，便于清理时精确识别
+//   --random-colors  每帧随机 24 位颜色（默认关）。真实 Claude Code 只用一套固定
+//               主题色；随机色会让 WebGL 字形缓存不断失效，只用于压测极端情况
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
     const m = /^--([^=]+)(?:=(.*))?$/.exec(a)
@@ -20,6 +22,7 @@ const mode = args.mode === 'normal' ? 'normal' : 'alt'
 const titleMs = Number(args['title-ms'] ?? 150)
 const durationSec = Number(args.duration ?? 0)
 const sync = Boolean(args.sync)
+const randomColors = Boolean(args['random-colors'])
 const cols = Math.max(40, process.stdout.columns || 100)
 const termRows = process.stdout.rows || 41
 const rows = args.rows !== undefined ? Math.max(6, Number(args.rows)) : Math.max(6, Math.min(40, termRows - 1))
@@ -105,10 +108,10 @@ function buildLine(i, frame, r) {
       return wrap(`${bg(24, 12, 12)}${fg(220, 110, 110)}${fit(` ${n} - ${CODE[(i + 1 + (frame >> 3)) % CODE.length]}`, inner)}`)
     }
     case 2:
-      return wrap(`${fg(80 + ((r() * 175) | 0), 160, 220)}${fit(' ● ' + CN[(i + (frame >> 4)) % CN.length], inner)}`)
+      return wrap(`${fg(randomColors ? 80 + ((r() * 175) | 0) : 120, 160, 220)}${fit(' ● ' + CN[(i + (frame >> 4)) % CN.length], inner)}`)
     case 3: {
       // 40 背景 + 256 色前景 + 粗体/暗淡混用
-      const c = 16 + ((r() * 215) | 0)
+      const c = randomColors ? 16 + ((r() * 215) | 0) : 75
       return wrap(
         `${ESC}[40m${ESC}[38;5;${c}m${ESC}[1m${fit(' ⎿ ', 5)}${ESC}[22;2m${fit('output line ' + ((r() * 99999) | 0), inner - 5)}`
       )
@@ -118,7 +121,11 @@ function buildLine(i, frame, r) {
       let used = 0
       while (used < inner - 12) {
         const t = ` ${((r() * 1e6) | 0).toString(16)}`
-        cells.push(`${bg((r() * 30) | 0, (r() * 30) | 0, (r() * 30) | 0)}${fg(120 + ((r() * 135) | 0), 120 + ((r() * 135) | 0), 120 + ((r() * 135) | 0))}${t}`)
+        cells.push(
+          randomColors
+            ? `${bg((r() * 30) | 0, (r() * 30) | 0, (r() * 30) | 0)}${fg(120 + ((r() * 135) | 0), 120 + ((r() * 135) | 0), 120 + ((r() * 135) | 0))}${t}`
+            : `${bg(20, 20, 28)}${fg(200, 200, 210)}${t}`
+        )
         used += t.length
       }
       return wrap(cells.join('') + RESET + ' '.repeat(Math.max(0, inner - used)))
