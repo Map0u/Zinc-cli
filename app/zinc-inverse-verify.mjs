@@ -73,15 +73,7 @@ function describe(color) {
  */
 async function writeInverseRun(page, tabId, marker) {
   await page.evaluate(({ id, text }) => {
-    const registry = window.__zincRegistry
-    const entry = registry.hosts?.get(id)
-    // The visible tab renders through WebGL, which has no DOM spans to read
-    // colours from. This check covers the DOM renderer (the fallback when
-    // WebGL is unavailable and the path the index.css override targets), so
-    // drop to it for the measurement; measureInverseRun restores WebGL.
-    registry.webglDisabled = true
-    registry.detachWebgl(entry)
-    entry.term.write(`\r\n\u001b[7m${text}\u001b[0m\r\n`)
+    window.__zincRegistry.hosts?.get(id).term.write(`\r\n\u001b[7m${text}\u001b[0m\r\n`)
   }, { id: tabId, text: marker })
 
   await waitFor(
@@ -133,11 +125,42 @@ async function measureInverseRun(page, tabId, marker) {
       backgroundColor,
       className: span.className
     }
-    const registry = window.__zincRegistry
-    registry.webglDisabled = false
-    registry.attachWebgl(entry)
     return result
   }, { id: tabId, text: marker })
+}
+
+/**
+ * The visible tab renders through WebGL, which has no DOM spans to read
+ * colours from. This check covers the DOM renderer (the fallback when WebGL is
+ * unavailable and the path the index.css override targets), so the whole run
+ * uses it. The DOM renderer measures cells slightly differently, so the switch
+ * can re-fit the terminal; that resize makes ConPTY repaint the screen, which
+ * would wipe text written straight into xterm. Wait for the size to settle
+ * before writing anything.
+ */
+async function useDomRenderer(page, tabId) {
+  await page.evaluate((id) => {
+    const registry = window.__zincRegistry
+    registry.webglDisabled = true
+    registry.detachWebgl(registry.hosts?.get(id))
+  }, tabId)
+  let last = ''
+  let stableSince = Date.now()
+  const deadline = Date.now() + 15000
+  while (Date.now() < deadline) {
+    const size = await page.evaluate((id) => {
+      const term = window.__zincRegistry.hosts?.get(id)?.term
+      return term ? `${term.cols}x${term.rows}` : ''
+    }, tabId)
+    if (size !== last) {
+      last = size
+      stableSince = Date.now()
+    } else if (Date.now() - stableSince >= 1500) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error('terminal size did not settle after switching to the DOM renderer')
 }
 
 async function assertLegibleInverse(page, tabId, label) {
@@ -209,6 +232,7 @@ if (requireIsolatedTestProfile()) {
     await setSetting(page, 'ThemePreference', 'light')
 
     const tabId = await createTestTab(page)
+    await useDomRenderer(page, tabId)
 
     await setSetting(page, 'TerminalOpacity', 1)
     await assertLegibleInverse(page, tabId, 'light scheme, opaque card')
