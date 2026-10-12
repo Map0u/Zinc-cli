@@ -120,7 +120,27 @@ test('a tab closed or replaced during the write receives nothing', async () => {
 
   assert.equal(await service.pasteForTab('tab-1', null, () => null, png, 'image/png', (p) => delivered.push(p)), 'tab-changed')
   assert.deepEqual(delivered, [])
-  assert.equal(hooks.started.length, 3) // the files themselves were still written
+  // The two pastes already writing finished their files; the third, whose tab
+  // was gone before its turn, skipped the write entirely.
+  assert.equal(hooks.started.length, 2)
+})
+
+test('keys typed during a paste reach the pty after the pasted path', async () => {
+  const hooks = newHooks(1)
+  const service = newService()
+  const writes = []
+  const paste = service.pasteForTab('tab-1', 'run-1', () => 'run-1', png, 'image/png', () => writes.push('path'))
+  service.afterPendingPastes('tab-1', () => writes.push('a'))
+  service.afterPendingPastes('tab-1', () => writes.push('b'))
+  service.afterPendingPastes('tab-2', () => writes.push('other-tab'))
+  assert.deepEqual(writes, ['other-tab'])
+  await sleep(20)
+  hooks.releases[0]()
+  assert.equal(await paste, 'delivered')
+  await sleep(5)
+  assert.deepEqual(writes, ['other-tab', 'path', 'a', 'b'])
+  service.afterPendingPastes('tab-1', () => writes.push('c'))
+  assert.deepEqual(writes.at(-1), 'c') // nothing pending: written immediately
 })
 
 test('a failed save is reported, delivers nothing, and does not block the next paste', async () => {

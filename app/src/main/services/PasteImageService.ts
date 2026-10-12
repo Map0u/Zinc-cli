@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { readdirSync, statSync, unlinkSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -37,7 +38,9 @@ export class PasteImageService {
       if (!extension) return null
 
       await mkdir(this.dir, { recursive: true })
-      const fileName = `clipboard_${timestamp()}.${extension}`
+      // Random suffix: two tabs pasting in the same millisecond must not
+      // collide on the exclusive ('wx') create and silently lose one paste.
+      const fileName = `clipboard_${timestamp()}_${randomBytes(3).toString('hex')}.${extension}`
       const filePath = join(this.dir, fileName)
       await writeFile(filePath, Buffer.from(data.buffer, data.byteOffset, data.byteLength), { flag: 'wx', mode: 0o600 })
       return filePath
@@ -62,6 +65,8 @@ export class PasteImageService {
     deliver: (filePath: string) => void
   ): Promise<PasteForTabResult> {
     const task = (this.tabQueues.get(tabId) ?? Promise.resolve()).then(async (): Promise<PasteForTabResult> => {
+      // Closed/replaced while queued behind an earlier paste: skip the write.
+      if (expectedRunId === null || currentRunId() !== expectedRunId) return 'tab-changed'
       const filePath = await this.save(data, mime)
       if (!filePath) return 'save-failed'
       if (expectedRunId === null || currentRunId() !== expectedRunId) return 'tab-changed'
@@ -75,6 +80,24 @@ export class PasteImageService {
       if (this.tabQueues.get(tabId) === tail) this.tabQueues.delete(tabId)
     })
     return task
+  }
+
+  /**
+   * Runs `write` now, or — while an image paste for this tab is still being
+   * saved — after it, so keys typed right after a paste reach the shell
+   * behind the pasted path instead of overtaking it.
+   */
+  afterPendingPastes(tabId: string, write: () => void): void {
+    const pending = this.tabQueues.get(tabId)
+    if (!pending) {
+      write()
+      return
+    }
+    const tail = pending.then(write).then(() => undefined, () => undefined)
+    this.tabQueues.set(tabId, tail)
+    void tail.then(() => {
+      if (this.tabQueues.get(tabId) === tail) this.tabQueues.delete(tabId)
+    })
   }
 
   /** Remove only regular files in this service's directory after 30 days. */

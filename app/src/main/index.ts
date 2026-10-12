@@ -516,7 +516,8 @@ ipcMain.handle("shells:getProfiles", async (event: IpcMainInvokeEvent) => {
 
 ipcMain.on("pty:input", (event: IpcMainEvent, id: string, data: Uint8Array) => {
   if (!isTrustedIpcSender(event) || !(data instanceof Uint8Array)) return;
-  ptyManager.write(id, data, event.sender.id);
+  const senderId = event.sender.id;
+  pasteImageService.afterPendingPastes(id, () => ptyManager.write(id, data, senderId));
 });
 
 ipcMain.on(
