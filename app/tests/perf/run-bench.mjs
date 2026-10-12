@@ -5,6 +5,7 @@
 import { chromium } from 'playwright-core'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,7 +32,7 @@ const cfg = {
   rootPid: Number(args['root-pid'] ?? 0),
   nodeExe: String(args.node ?? process.execPath),
   outDir: String(
-    args.out ?? join('D:/tmp/cf/zinc-perf', `${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}-n${args.tabs ?? 10}`)
+    args.out ?? join(process.env.RUNNER_TEMP || tmpdir(), 'zinc-perf', `${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}-n${args.tabs ?? 10}`)
   ),
   tag: String(args.tag ?? `zpb-${process.pid}`)
 }
@@ -53,6 +54,10 @@ function stats(values) {
 }
 
 // ---------- 隔离与身份校验 ----------
+if (!Number.isInteger(cfg.tabs) || cfg.tabs < 1 || cfg.tabs > 20) {
+  console.error(`FAIL: --tabs 必须是 1..20 的整数，收到 ${args.tabs}。`)
+  process.exit(2)
+}
 if (process.env.ZINC_TEST_ISOLATED !== '1' || !process.env.ZINC_TEST_USER_DATA?.trim()) {
   console.error('FAIL: 需要 ZINC_TEST_ISOLATED=1 与 ZINC_TEST_USER_DATA（请通过 run-bench.ps1 启动）。')
   process.exit(2)

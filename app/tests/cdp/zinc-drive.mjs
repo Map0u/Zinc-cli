@@ -8,6 +8,7 @@
 //   node tests/cdp/zinc-drive.mjs newtab
 //   node tests/cdp/zinc-drive.mjs quit             (close window → before-quit persists)
 import { chromium } from 'playwright-core'
+import { readTerminalText } from './terminal-text.mjs'
 
 const endpoint = process.env.ZINC_CDP_ENDPOINT || 'http://127.0.0.1:19337'
 const [cmd, arg] = process.argv.slice(2)
@@ -27,14 +28,9 @@ async function focusTerminal() {
 }
 
 async function screen() {
-  return page.evaluate((shownSrc) => {
-    const shown = eval(shownSrc)
-    const hosts = Array.from(document.querySelectorAll('.xterm')).filter(shown)
-    return hosts
-      .map((h) => Array.from(h.querySelectorAll('.xterm-rows > div')).map((r) => r.textContent.replace(/\s+$/, '')).join('\n'))
-      .join('\n=====\n')
-      .replace(/\n{3,}/g, '\n\n')
-  }, shown.toString())
+  // Registry (dev) -> DOM rows -> select+copy (WebGL / packaged); see terminal-text.mjs.
+  const text = await readTerminalText(page)
+  return text.replace(/\n{3,}/g, '\n\n')
 }
 
 switch (cmd) {

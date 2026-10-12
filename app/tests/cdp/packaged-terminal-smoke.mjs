@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core'
+import { waitForTerminalText } from './terminal-text.mjs'
 
 const endpoint = process.env.ZINC_CDP_ENDPOINT || 'http://127.0.0.1:9337'
 const marker = `ZINC-PACKAGED-${Date.now().toString(36)}`
@@ -21,11 +22,12 @@ try {
   await page.keyboard.insertText(command)
   await page.keyboard.press('Enter')
 
-  await page.waitForFunction(
-    (expected) => Array.from(document.querySelectorAll('.xterm-rows')).some((element) => element.textContent?.includes(expected)),
-    marker,
-    { timeout: 20_000 }
-  )
+  // Renderer-independent read (works with the WebGL renderer and without the
+  // dev-only __zincRegistry); see terminal-text.mjs.
+  await waitForTerminalText(page, (text) => text.includes(marker), {
+    timeout: 20_000,
+    message: 'the command output marker'
+  })
   console.log('PASS: packaged Zinc launched a PowerShell terminal and produced verified output.')
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)

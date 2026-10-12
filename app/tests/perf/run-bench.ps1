@@ -4,10 +4,15 @@
 .EXAMPLE
   pwsh -NoProfile -File app/tests/perf/run-bench.ps1                 # 默认依次跑 N=1 和 N=10
   pwsh -NoProfile -File app/tests/perf/run-bench.ps1 -TabCounts 10 -MeasureSec 60 -Mode normal
+.NOTES
+  -TabCounts 是字符串：用逗号或空白分隔多个 N，如 -TabCounts '1,10'（pwsh -File 下加引号最稳）。
+  原先的 [int[]] 参数在 pwsh -File 下会把 10,10 解析成 1010，从而开出上千个标签，故改为字符串自行拆分。
+  每个 N 必须在 1..20 之间，否则立即报错退出，不启动任何实例。
+  默认输出目录：$env:RUNNER_TEMP 或系统临时目录下的 zinc-perf；可用 -OutRoot 覆盖。
 #>
 [CmdletBinding()]
 param(
-  [int[]]$TabCounts = @(1, 10),
+  [string]$TabCounts = '1,10',          # 逗号/空白分隔的整数列表，每个 1..20
   [int]$WarmupSec = 5,
   [int]$MeasureSec = 30,
   [int]$Fps = 20,
@@ -17,12 +22,28 @@ param(
   [switch]$Sync,                        # DEC 2026 同步输出
   [int]$InputIntervalMs = 200,
   [int]$InspectPort = 9337,             # 0 = 不测主进程事件循环延迟
-  [string]$OutRoot = 'D:/tmp/cf/zinc-perf',
+  [string]$OutRoot = '',                # 空 = <RUNNER_TEMP 或系统临时目录>/zinc-perf
   [ValidateRange(15, 300)][int]$StartupTimeoutSeconds = 90
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$maxTabs = 20
+$tabCountList = @()
+foreach ($token in ($TabCounts -split '[,;\s]+' | Where-Object { $_ -ne '' })) {
+  $parsed = 0
+  if (-not [int]::TryParse($token, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt $maxTabs) {
+    throw "-TabCounts 的每个值必须是 1..$maxTabs 的整数，收到 '$token'（完整输入 '$TabCounts'）。多个值请用带引号的逗号分隔字符串，如 -TabCounts '1,10'。"
+  }
+  $tabCountList += $parsed
+}
+if ($tabCountList.Count -eq 0) { throw "-TabCounts 不能为空。" }
+
+if (-not $OutRoot) {
+  $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [System.IO.Path]::GetTempPath() }
+  $OutRoot = Join-Path $tempRoot 'zinc-perf'
+}
 
 $appRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $endpoint = 'http://127.0.0.1:9336'
@@ -47,7 +68,7 @@ function Stop-OwnedTree {
     ForEach-Object { & taskkill.exe /PID $_.ProcessId /T /F *> $null }
 }
 
-foreach ($n in $TabCounts) {
+foreach ($n in $tabCountList) {
   if (Test-CdpReady) { throw "CDP endpoint $endpoint 已被占用，拒绝在不明实例上运行基准。" }
   if ($InspectPort -gt 0 -and (Get-NetTCPConnection -LocalPort $InspectPort -State Listen -ErrorAction SilentlyContinue)) {
     throw "inspector 端口 $InspectPort 已被占用。"

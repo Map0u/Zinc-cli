@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core'
+import { readTerminalRows } from './terminal-text.mjs'
 
 const endpoint = process.env.ZINC_CDP_ENDPOINT || 'http://127.0.0.1:19337'
 const timeoutMs = Number(process.env.ZINC_KIMI_WHEEL_TIMEOUT_MS || 120_000)
@@ -11,12 +12,11 @@ function redact(value) {
     .replace(/\/(?:home|mnt|tmp|Users)\/[^\s)]+/g, '<redacted-path>')
 }
 
+// Kimi runs full-screen with mouse reporting on; the selection fallback in
+// terminal-text.mjs handles that with a Shift+drag. The registry path is not
+// used for packaged builds (no __zincRegistry), DOM rows only on the DOM renderer.
 async function visibleRows(page) {
-  return page.evaluate(() => {
-    const rowRoot = document.querySelector('.xterm-rows')
-    if (!rowRoot) return []
-    return Array.from(rowRoot.children).map((row) => (row.textContent ?? '').replace(/\s+$/g, ''))
-  })
+  return readTerminalRows(page)
 }
 
 function changedRowCount(before, after) {
