@@ -8,12 +8,8 @@ import { PTY_PORT_MESSAGE_TYPE, type PtySpawnOptions, type TerminalOptionsPush }
 import type { AiCliTool } from '../../../shared/aiCliTools'
 import { DEFAULT_COLOR_SCHEME_ID, getColorScheme, resolveVariant, type ThemeMode } from '../colorSchemes'
 import { getSystemThemeMode, onSystemThemeModeChange } from '../themeMode'
-import {
-  formatSgrParams,
-  rewriteSgrParamsForTransparentBg,
-  shouldTransparentizeTerminalBackgrounds,
-  terminalThemeBackground
-} from './transparentTerminalBackground'
+import { shouldTransparentizeTerminalBackgrounds, terminalThemeBackground } from './transparentTerminalBackground'
+import { TransparentSgrStream } from './transparentSgrStream'
 import {
   createWheelPagerState,
   decideKimiFullscreenWheel,
@@ -69,8 +65,10 @@ interface HostEntry {
   resizeTimer: number | null
   contextMenuListener: ((event: MouseEvent) => void) | null
   port: MessagePort | null
-  /** Active CSI/OSC handlers that rewrite black TUI backgrounds; disposed when mode flips off. */
+  /** Active OSC 11 handler that keeps the transparent default background; disposed when mode flips off. */
   transparentBgHandlers: IDisposable[]
+  /** Rewrites black TUI backgrounds in the pty byte stream while the card is transparent; null otherwise. */
+  sgrStream: TransparentSgrStream | null
   /** Capture-phase wheel listener that pages Kimi's full-screen TUI; removed on destroy. */
   wheelListener: ((event: WheelEvent) => void) | null
   /**
@@ -270,6 +268,7 @@ export class TerminalHostRegistry {
       contextMenuListener: null,
       port: null,
       transparentBgHandlers: [],
+      sgrStream: null,
       wheelListener: null,
       tool: null,
       toolLookupSeq: 0,
@@ -547,20 +546,14 @@ export class TerminalHostRegistry {
       return
     }
 
-    // Most-recently-registered CSI handlers run first. We consume only the
-    // sequences we rewrote; everything else falls through to xterm's default.
-    const sgr = entry.term.parser.registerCsiHandler({ final: 'm' }, (params) => {
-      const rewritten = rewriteSgrParamsForTransparentBg(params)
-      if (!rewritten) return false
-      // Re-inject the rewritten SGR; our handler returns false for the new
-      // sequence (no near-black bg left), so xterm applies it normally.
-      entry.term.write(`\x1b[${formatSgrParams(rewritten)}m`)
-      return true
-    })
+    // Black SGR backgrounds are rewritten in the byte stream before xterm
+    // sees them (writePtyOutput) — see transparentSgrStream.ts for why not
+    // from a CSI handler.
+    entry.sgrStream = new TransparentSgrStream()
     // OSC 11 sets the terminal's default background color. TUIs often push
     // `#000000` here for a "theme"; swallowing it keeps our transparent default.
     const osc11 = entry.term.parser.registerOscHandler(11, () => true)
-    entry.transparentBgHandlers = [sgr, osc11]
+    entry.transparentBgHandlers = [osc11]
   }
 
   private clearTransparentBackgroundHandlers(entry: HostEntry): void {
@@ -572,6 +565,12 @@ export class TerminalHostRegistry {
       }
     }
     entry.transparentBgHandlers = []
+    if (entry.sgrStream) {
+      // Hand xterm any partial sequence still held back, unmodified.
+      const pending = entry.sgrStream.reset()
+      entry.sgrStream = null
+      if (pending.length > 0) entry.term.write(pending)
+    }
   }
 
   /** Debug/verification helper: current scrollback+viewport text for a host. */
@@ -844,7 +843,9 @@ export class TerminalHostRegistry {
     }
   }
 
-  private writePtyOutput(entry: HostEntry, data: Uint8Array): void {
+  private writePtyOutput(entry: HostEntry, raw: Uint8Array): void {
+    const data = entry.sgrStream ? entry.sgrStream.push(raw) : raw
+    if (data.length === 0) return
     const before = this.captureScrollPosition(entry)
     entry.term.write(data, () => this.restoreScrollPosition(entry, before))
   }
