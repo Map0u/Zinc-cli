@@ -1684,13 +1684,24 @@ export default function App() {
               return (
                 <div
                   key={tab.id}
-                  className="absolute inset-0 p-3.5 transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
-                  style={{
-                    opacity: isActive ? 1 : 0,
-                    transform: isActive ? 'translateY(0)' : 'translateY(10px)',
-                    pointerEvents: isActive ? 'auto' : 'none',
-                    zIndex: isActive ? 1 : 0
-                  }}
+                  className={`absolute inset-0 p-3.5 ${isActive ? 'zinc-tab-enter' : ''}`}
+                  style={
+                    isActive
+                      ? { zIndex: 1 }
+                      : {
+                          // Parked outside the viewport at full size (never
+                          // 0x0, see above). Opacity alone kept every hidden
+                          // tab intersecting the viewport, so xterm's
+                          // IntersectionObserver never paused it and all of
+                          // them kept rebuilding their rows on the one shared
+                          // renderer thread. Off-screen, xterm stops painting
+                          // but keeps parsing, and repaints in full on return.
+                          transform: 'translateX(-200vw)',
+                          visibility: 'hidden',
+                          pointerEvents: 'none',
+                          zIndex: 0
+                        }
+                  }
                 >
                   <div
                     ref={(el) => {
