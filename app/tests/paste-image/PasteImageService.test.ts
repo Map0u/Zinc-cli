@@ -9,28 +9,28 @@ import {
   PasteImageService
 } from '../../src/main/services/PasteImageService.ts'
 
-function withUserData(callback: (userData: string) => void): void {
+async function withUserData(callback: (userData: string) => void | Promise<void>): Promise<void> {
   const userData = mkdtempSync(join(tmpdir(), 'zinc-paste-image-test-'))
   try {
-    callback(userData)
+    await callback(userData)
   } finally {
     rmSync(userData, { recursive: true, force: true })
   }
 }
 
-test('service enforces byte bounds, supported MIME types, and image signatures', () => withUserData((userData) => {
+test('service enforces byte bounds, supported MIME types, and image signatures', () => withUserData(async (userData) => {
   const service = new PasteImageService(userData)
   const png = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2mT0AAAAASUVORK5CYII=',
     'base64'
   ))
-  assert.equal(service.save(new Uint8Array(), 'image/png'), null)
-  assert.equal(service.save(new Uint8Array(MAX_PASTED_IMAGE_BYTES + 1), 'image/png'), null)
-  assert.equal(service.save(Uint8Array.from([1, 2, 3]), 'image/png'), null)
-  assert.equal(service.save(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), 'image/png'), null)
-  assert.equal(service.save(png, 'text/plain'), null)
+  assert.equal(await service.save(new Uint8Array(), 'image/png'), null)
+  assert.equal(await service.save(new Uint8Array(MAX_PASTED_IMAGE_BYTES + 1), 'image/png'), null)
+  assert.equal(await service.save(Uint8Array.from([1, 2, 3]), 'image/png'), null)
+  assert.equal(await service.save(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), 'image/png'), null)
+  assert.equal(await service.save(png, 'text/plain'), null)
 
-  const saved = service.save(png, 'image/png')
+  const saved = await service.save(png, 'image/png')
   assert.ok(saved)
   assert.equal(existsSync(saved), true)
 }))

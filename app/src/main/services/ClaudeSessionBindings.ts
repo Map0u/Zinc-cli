@@ -81,6 +81,9 @@ export class ClaudeSessionBindings {
    * A binding is valid only for the exact live Claude process instance: tab,
    * PTY run, PID AND creation time must all match. PID alone may be recycled;
    * the tab/run pair alone persists across sequential CLI launches.
+   *
+   * Reads the bindings file on every call; a caller resolving several tabs in
+   * one pass should use `snapshot()` instead.
    */
   sessionIdFor(
     tabId: string,
@@ -88,36 +91,16 @@ export class ClaudeSessionBindings {
     matchPid: number,
     matchStartedMs: number | null,
   ): string | undefined {
-    if (!Number.isSafeInteger(matchPid) || matchPid <= 0 || matchStartedMs === null) return undefined
-    if (!existsSync(this.bindingsPath)) return undefined
-    let lines: string[]
-    try {
-      lines = readFileSync(this.bindingsPath, 'utf8').split(/\r?\n/)
-    } catch {
-      return undefined
-    }
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim()
-      if (!line) continue
-      let b: ClaudeBinding
-      try {
-        b = JSON.parse(line)
-      } catch {
-        continue
-      }
-      // Strict: a binding only counts when BOTH the tab and the exact PTY run
-      // match — a stale record from an earlier spawn of this tab must never be
-      // picked up for a restarted Claude that has not reported yet.
-      if (b.zinc_tab_id !== tabId || !runId || b.zinc_run_id !== runId) continue
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.session_id)) continue
-      // The reporter resolved this PID while the temporary cmd.exe ancestor
-      // was still alive. Never infer ancestry from a later process snapshot:
-      // that cmd has exited by then, and a surviving shell ancestor could
-      // belong to a different invocation in the same tab.
-      if (b.claude_pid !== matchPid || b.claude_started_ms !== matchStartedMs) continue
-      return b.session_id
-    }
-    return undefined
+    return this.snapshot().sessionIdFor(tabId, runId, matchPid, matchStartedMs)
+  }
+
+  /**
+   * A view of session-bindings.jsonl that reads and parses the file at most
+   * once, on its first lookup. Use one per persist pass and drop it afterwards:
+   * the file is append-only and a later pass must see what hooks wrote since.
+   */
+  snapshot(): ClaudeBindingsSnapshot {
+    return new ClaudeBindingsSnapshot(this.bindingsPath)
   }
 
   /** Ensure the hook settings + report script exist on disk. Idempotent. */
@@ -185,6 +168,64 @@ export class ClaudeSessionBindings {
       console.error('[ClaudeSessionBindings] failed to materialize hook settings', err)
       return false
     }
+  }
+}
+
+/** See `ClaudeSessionBindings.snapshot()`. Matching rules live here, unchanged. */
+export class ClaudeBindingsSnapshot {
+  /** `undefined` until first lookup; `null` when the file is missing or unreadable. */
+  private bindings: ClaudeBinding[] | null | undefined
+
+  constructor(private readonly bindingsPath: string) {}
+
+  sessionIdFor(
+    tabId: string,
+    runId: string | null,
+    matchPid: number,
+    matchStartedMs: number | null,
+  ): string | undefined {
+    if (!Number.isSafeInteger(matchPid) || matchPid <= 0 || matchStartedMs === null) return undefined
+    const bindings = this.load()
+    if (!bindings) return undefined
+    for (let i = bindings.length - 1; i >= 0; i--) {
+      const b = bindings[i]
+      // Strict: a binding only counts when BOTH the tab and the exact PTY run
+      // match — a stale record from an earlier spawn of this tab must never be
+      // picked up for a restarted Claude that has not reported yet.
+      if (b.zinc_tab_id !== tabId || !runId || b.zinc_run_id !== runId) continue
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.session_id)) continue
+      // The reporter resolved this PID while the temporary cmd.exe ancestor
+      // was still alive. Never infer ancestry from a later process snapshot:
+      // that cmd has exited by then, and a surviving shell ancestor could
+      // belong to a different invocation in the same tab.
+      if (b.claude_pid !== matchPid || b.claude_started_ms !== matchStartedMs) continue
+      return b.session_id
+    }
+    return undefined
+  }
+
+  private load(): ClaudeBinding[] | null {
+    if (this.bindings !== undefined) return this.bindings
+    this.bindings = null
+    if (!existsSync(this.bindingsPath)) return null
+    let lines: string[]
+    try {
+      lines = readFileSync(this.bindingsPath, 'utf8').split(/\r?\n/)
+    } catch {
+      return null
+    }
+    const parsed: ClaudeBinding[] = []
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (!line) continue
+      try {
+        parsed.push(JSON.parse(line))
+      } catch {
+        continue
+      }
+    }
+    this.bindings = parsed
+    return parsed
   }
 }
 

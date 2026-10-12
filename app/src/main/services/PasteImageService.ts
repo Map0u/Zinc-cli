@@ -1,4 +1,5 @@
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readdirSync, statSync, unlinkSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export const MAX_PASTED_IMAGE_BYTES = 25 * 1024 * 1024
@@ -9,8 +10,11 @@ export const PASTED_IMAGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
  * the path string that gets typed into the pty (parity §1.5). Kept as its
  * own service (not inline in main/index.ts) so the main process stays thin.
  */
+export type PasteForTabResult = 'delivered' | 'save-failed' | 'tab-changed'
+
 export class PasteImageService {
   private readonly dir: string
+  private readonly tabQueues = new Map<string, Promise<void>>()
 
   constructor(userDataPath: string) {
     this.dir = join(userDataPath, 'PastedImages')
@@ -19,10 +23,12 @@ export class PasteImageService {
 
   /**
    * Writes `data` to a timestamped file under PastedImages, extension chosen
-   * from `mime` (parity §1.5: jpeg→jpg/gif/webp/else png). Returns the
-   * absolute Windows path, or `null` on any failure (silent per spec).
+   * from `mime` (parity §1.5: jpeg→jpg/gif/webp/else png). Resolves to the
+   * absolute Windows path, or `null` on any failure (silent per spec). The
+   * write is asynchronous: up to 25 MiB of synchronous disk I/O on the main
+   * thread would stall keystroke forwarding to every other tab's pty.
    */
-  save(data: Uint8Array, mime: string): string | null {
+  async save(data: Uint8Array, mime: string): Promise<string | null> {
     try {
       if (!(data instanceof Uint8Array) || data.byteLength === 0 || data.byteLength > MAX_PASTED_IMAGE_BYTES) {
         return null
@@ -30,14 +36,45 @@ export class PasteImageService {
       const extension = validatedExtension(data, mime)
       if (!extension) return null
 
-      mkdirSync(this.dir, { recursive: true })
+      await mkdir(this.dir, { recursive: true })
       const fileName = `clipboard_${timestamp()}.${extension}`
       const filePath = join(this.dir, fileName)
-      writeFileSync(filePath, Buffer.from(data.buffer, data.byteOffset, data.byteLength), { flag: 'wx', mode: 0o600 })
+      await writeFile(filePath, Buffer.from(data.buffer, data.byteOffset, data.byteLength), { flag: 'wx', mode: 0o600 })
       return filePath
     } catch {
       return null
     }
+  }
+
+  /**
+   * Saves, then hands the path to `deliver`. Pastes for the same tab run
+   * strictly one after another (a small image must not overtake a large one
+   * pasted earlier). `deliver` only runs if the tab's pty run is still the one
+   * that received the paste: a tab closed or replaced while the file was being
+   * written must not get the path typed into a different shell.
+   */
+  pasteForTab(
+    tabId: string,
+    expectedRunId: string | null,
+    currentRunId: () => string | null,
+    data: Uint8Array,
+    mime: string,
+    deliver: (filePath: string) => void
+  ): Promise<PasteForTabResult> {
+    const task = (this.tabQueues.get(tabId) ?? Promise.resolve()).then(async (): Promise<PasteForTabResult> => {
+      const filePath = await this.save(data, mime)
+      if (!filePath) return 'save-failed'
+      if (expectedRunId === null || currentRunId() !== expectedRunId) return 'tab-changed'
+      deliver(filePath)
+      return 'delivered'
+    })
+    // The chain itself never rejects, so one failed paste cannot block the next.
+    const tail = task.then(() => undefined, () => undefined)
+    this.tabQueues.set(tabId, tail)
+    void tail.then(() => {
+      if (this.tabQueues.get(tabId) === tail) this.tabQueues.delete(tabId)
+    })
+    return task
   }
 
   /** Remove only regular files in this service's directory after 30 days. */

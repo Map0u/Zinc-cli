@@ -588,43 +588,57 @@ ipcMain.handle(
 // WSL path form by checking whether this tab's shell has a codex/claude
 // child (M5's detector, reused here), then types the bare path string into
 // the pty — no trailing newline, matching the WinUI behavior. Failed saves
-// and detection are logged without printing clipboard data.
+// and detection are logged without printing clipboard data. The file write is
+// asynchronous (main-thread disk I/O delays keystroke forwarding); pastes for
+// one tab are delivered in order, and a tab whose pty run changed while the
+// file was being written gets nothing typed into it.
 ipcMain.on(
   "pty:pasteImage",
   (event: IpcMainEvent, id: string, data: Uint8Array, mime: string) => {
     if (!isTrustedIpcSender(event) || !(data instanceof Uint8Array)) return;
-    try {
-      const filePath = pasteImageService.save(data, mime);
-      if (!filePath) {
-        console.warn("[pty:pasteImage] clipboard image could not be saved");
-        return;
-      }
-      let pathText = filePath;
-      let isWsl = false;
-      try {
-        isWsl = detectActiveToolMatch(
-          ptyManager.getPid(id, event.sender.id),
-          recentProcessSnapshot(),
-        )?.runtime === "wsl";
-      } catch (err) {
-        // Keep the existing Windows-path fallback when the detector is unavailable.
-        console.warn("[pty:pasteImage] process detection failed", err);
-      }
-      if (isWsl) {
-        const wslPath = toWslPath(filePath);
-        if (wslPath === null) {
-          console.warn(
-            "[pty:pasteImage] unsupported Windows path for WSL; paste skipped",
-            filePath,
-          );
-          return;
-        }
-        pathText = wslPath;
-      }
-      ptyManager.write(id, new TextEncoder().encode(pathText), event.sender.id);
-    } catch (err) {
-      console.warn("[pty:pasteImage] failed to paste clipboard image", err);
-    }
+    const senderId = event.sender.id;
+    pasteImageService
+      .pasteForTab(
+        id,
+        ptyManager.getRunId(id, senderId),
+        () => ptyManager.getRunId(id, senderId),
+        data,
+        mime,
+        (filePath) => {
+          let pathText = filePath;
+          let isWsl = false;
+          try {
+            isWsl = detectActiveToolMatch(
+              ptyManager.getPid(id, senderId),
+              recentProcessSnapshot(),
+            )?.runtime === "wsl";
+          } catch (err) {
+            // Keep the existing Windows-path fallback when the detector is unavailable.
+            console.warn("[pty:pasteImage] process detection failed", err);
+          }
+          if (isWsl) {
+            const wslPath = toWslPath(filePath);
+            if (wslPath === null) {
+              console.warn(
+                "[pty:pasteImage] unsupported Windows path for WSL; paste skipped",
+                filePath,
+              );
+              return;
+            }
+            pathText = wslPath;
+          }
+          ptyManager.write(id, new TextEncoder().encode(pathText), senderId);
+        },
+      )
+      .then((result) => {
+        if (result === "save-failed")
+          console.warn("[pty:pasteImage] clipboard image could not be saved");
+        else if (result === "tab-changed")
+          console.warn("[pty:pasteImage] tab changed while saving; paste skipped");
+      })
+      .catch((err) => {
+        console.warn("[pty:pasteImage] failed to paste clipboard image", err);
+      });
   },
 );
 
@@ -954,6 +968,9 @@ function persistSessionState(
       console.error("[persistSessionState] snapshotProcesses failed", err);
     }
   }
+  // The bindings file is read at most once per pass (on the first Claude tab),
+  // not once per tab; a fresh snapshot per pass keeps later hook writes visible.
+  const claudeBindings = claudeSessionBindings.snapshot();
   sessionStateService.persist(
     latestSessionSnapshot.tabs,
     latestSessionSnapshot.activeIndex,
@@ -980,7 +997,7 @@ function persistSessionState(
             ? claudeAttachedSessions.get(
                 extractClaudeAttachJobId(match.commandLine) ?? "",
               ) ??
-              claudeSessionBindings.sessionIdFor(
+              claudeBindings.sessionIdFor(
                 id,
                 ptyManager.getRunIdInternal(id),
                 match.pid,
