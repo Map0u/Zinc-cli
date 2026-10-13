@@ -67,7 +67,7 @@ export const GroupHeader = memo(function GroupHeader({
       aria-label={`${name}, ${count}`}
       data-count={count}
       title={name}
-      className={`tab-rail-group-header mx-3 flex h-8 cursor-pointer select-none items-center rounded pl-1 pr-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`tab-rail-group-header mx-3 flex h-8 cursor-pointer select-none items-center rounded pl-1 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         activeInside ? 'bg-row-selected/60' : 'hover:bg-row-hover'
       }`}
       onClick={() => handlers.onToggle(groupId)}
@@ -104,14 +104,15 @@ export const GroupHeader = memo(function GroupHeader({
       ) : (
         <span className="ml-1 min-w-0 flex-1 truncate px-1 text-[12px] font-medium text-fg-secondary">{name}</span>
       )}
+      {/* The count column is as wide as a row's close button and sits where it does, so the numbers line up with the Xs below. */}
       {/* Always in the DOM so a dragged group's ghost can show how many tabs it carries; hidden while the group is open. */}
-      <span data-groupcount className={`${collapsed && !renaming ? 'flex' : 'hidden'} shrink-0 items-center gap-1.5`} aria-hidden>
+      <span data-groupcount className={`${collapsed && !renaming ? 'flex' : 'hidden'} shrink-0 items-center`} aria-hidden>
         {collapsed && (
           <span className="flex w-4 items-center justify-center">
             <ActivitySlot state={status} />
           </span>
         )}
-        <span className="min-w-[1ch] text-right text-[11px] tabular-nums text-fg-tertiary">{count}</span>
+        <span className="flex w-6 items-center justify-center text-[11px] tabular-nums text-fg-tertiary">{count}</span>
       </span>
     </div>
   )
