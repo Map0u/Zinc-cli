@@ -50,7 +50,7 @@ await runSmoke('m2 tab lifecycle', async ({ page }) => {
     'tab rename did not update the tab model'
   )
   assert(
-    (await sourceRow.locator('span[title]').getAttribute('title')) === rename,
+    ((await sourceRow.getAttribute('title')) ?? '').split('\n')[0] === rename,
     'renamed test tab exposes the new title in the rail'
   )
 
