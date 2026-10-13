@@ -33,6 +33,8 @@ function fakeEl(attrs = {}) {
       if (name.startsWith('data-')) delete el.dataset[name.slice(5)]
     },
     setAttribute(name, value) { el.attrs[name] = value },
+    hasAttribute: (name) => name in el.attrs,
+    closest: () => null,
     getBoundingClientRect: () => ({ left: 10, top: el.top ?? 0, width: 230, height: 40, bottom: (el.top ?? 0) + 40 }),
     setPointerCapture() {},
     releasePointerCapture() {},
@@ -171,4 +173,57 @@ test('a renaming row is not draggable', () => {
   renaming.pointerDown(event(rows[0], 20, 120), 'a')
   assert.equal(renaming.busy, false)
   assert.equal(drag.busy, false)
+})
+
+test('with groups on screen, headers shift with the rows and collapsed members take no part', () => {
+  // a | header(g1) b(g1, first member) | hidden(g2 member in a collapsed group) | c
+  const tops = { a: 100, h: 142, b: 176, hidden: 218, c: 218 }
+  const a = Object.assign(fakeEl({ 'data-tabid': 'a' }), { top: tops.a })
+  const header = Object.assign(fakeEl({ 'data-groupheader': 'g1' }), { top: tops.h })
+  header.getBoundingClientRect = () => ({ left: 10, top: tops.h, width: 230, height: 32, bottom: tops.h + 32 })
+  const b = Object.assign(fakeEl({ 'data-tabid': 'b' }), { top: tops.b })
+  const hidden = Object.assign(fakeEl({ 'data-tabid': 'hidden' }), { top: tops.hidden, closest: () => ({}) })
+  const c = Object.assign(fakeEl({ 'data-tabid': 'c' }), { top: tops.c })
+  const all = [a, header, b, hidden, c]
+  const list = Object.assign(fakeEl(), {
+    scrollTop: 0,
+    querySelectorAll: () => all,
+    querySelector: (sel) => all.find((r) => sel.includes(`"${r.attrs['data-tabid']}"`)) ?? null,
+    getBoundingClientRect: () => ({ top: 80, bottom: 400 })
+  })
+  const dropLine = fakeEl()
+  const moves = []
+  const ids = ['a', 'b', 'c'] // what is on screen: the hidden member is not a slot
+  const host = {
+    list: () => list, dropLine: () => dropLine, ids: () => ids, activeId: () => 'a', isRenaming: () => false,
+    select() {}, move: (from, to) => moves.push([from, to])
+  }
+  globalThis.window = {
+    matchMedia: () => ({ matches: true }),
+    requestAnimationFrame: () => 1, cancelAnimationFrame() {}, setTimeout: () => 1
+  }
+  globalThis.requestAnimationFrame = window.requestAnimationFrame
+  globalThis.getComputedStyle = () => ({ backgroundColor: '#111' })
+  globalThis.CSS = { escape: (id) => id }
+  globalThis.document = { body: { style: {}, appendChild() {} } }
+  const drag = new RailDrag(host)
+  const event = (row, clientX, clientY) => ({
+    pointerId: 3, button: 0, clientX, clientY, currentTarget: row,
+    target: { closest: () => null }, preventDefault() {}
+  })
+  drag.pointerDown(event(a, 20, 120), 'a')
+  drag.pointerMove(event(a, 40, 125))
+  // The collapsed group's hidden row was never prepared to move; the header was.
+  assert.equal(hidden.style.transform, undefined)
+  assert.equal(header.style.transform, 'translate3d(0, 0, 0)')
+  // Ghost past c: header, b and c all slide up by one row; the line sits under c (origin = a's top).
+  drag.pointerMove(event(a, 40, 240))
+  assert.deepEqual([header, b, c].map((el) => el.style.transform), Array(3).fill('translate3d(0, -42px, 0)'))
+  assert.equal(hidden.style.transform, undefined)
+  assert.equal(dropLine.dataset.active, 'true')
+  assert.equal(dropLine.style.top, `${tops.c + 40 - tops.a}px`)
+  drag.pointerUp(event(a, 40, 240))
+  // Visible slots only: a is slot 0, c is slot 2 (not 3).
+  assert.deepEqual(moves, [[0, 2]])
+  assert.deepEqual([a, header, b, c].map((el) => el.style.transform), ['', '', '', ''])
 })

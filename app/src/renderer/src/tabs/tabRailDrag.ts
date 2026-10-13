@@ -5,8 +5,7 @@ import {
   liveSlotCenters as liveSlotCentersFrom,
   resolveDropIndex as resolveDropIndexFrom,
   tabDragDistance,
-  tabDragShiftY,
-  tabDropLineTop
+  tabDragShiftY
 } from './tabDragOrder'
 
 /** Matches index.css / chrome easing (dropdown + settings slide). */
@@ -51,8 +50,15 @@ interface TabDragSession {
   ghost: HTMLElement | null
   /** Source row kept in flow (opacity 0) while the ghost is up. */
   sourceEl: HTMLElement | null
-  /** Row elements in order, captured at drag start (the order is frozen during the drag). */
+  /** Row elements in order, captured at drag start (the order is frozen during the drag). Rows of collapsed groups are not on screen and not in here. */
   rows: HTMLElement[]
+  /** Every element that takes part in the shift - rows and group headers - in DOM order. */
+  els: HTMLElement[]
+  /** For each row, its index in `els`. */
+  rowEl: number[]
+  /** Top / bottom of each `els` entry in the scrolling stack's own coordinates, measured once at drag start. */
+  edgeTop: number[]
+  edgeBottom: number[]
   /** Viewport Y of each row center at drag start (pre-shift). */
   slotCenters: number[]
   /** list.scrollTop when slotCenters were captured - adjust centers on scroll. */
@@ -115,20 +121,29 @@ export class RailDrag {
     this.paintSiblings(session)
   }
 
-  /** Sibling shifts + insertion line, as direct style writes. */
+  /**
+   * Sibling shifts + insertion line, as direct style writes. Everything between
+   * the origin and the drop slot - group headers included - slides by the
+   * dragged row's own stride (every row is the same height), so a header between
+   * two rows moves with them. Interim: group-aware drop targets arrive with the
+   * variable-height rework.
+   */
   private paintSiblings(session: TabDragSession): void {
-    session.rows.forEach((row, index) => {
-      if (index === session.fromIndex) return
-      const shiftY = tabDragShiftY(index, session.fromIndex, session.dropIndex)
-      row.style.transform = `translate3d(0, ${shiftY}px, 0)`
+    const fromEl = session.rowEl[session.fromIndex]
+    const dropEl = session.rowEl[session.dropIndex]
+    session.els.forEach((el, index) => {
+      if (index === fromEl) return
+      const shiftY = tabDragShiftY(index, fromEl, dropEl)
+      el.style.transform = `translate3d(0, ${shiftY}px, 0)`
     })
     const line = this.host.dropLine()
     if (!line) return
-    const lineTop = tabDropLineTop(session.fromIndex, session.dropIndex, session.rows.length)
-    if (lineTop == null) {
+    if (session.fromIndex === session.dropIndex) {
       line.removeAttribute('data-active')
       return
     }
+    // On the opened gap: above the slot's element when moving up, below it when moving down.
+    const lineTop = session.dropIndex < session.fromIndex ? session.edgeTop[dropEl] : session.edgeBottom[dropEl]
     line.style.top = `${lineTop}px`
     line.dataset.active = 'true'
   }
@@ -136,9 +151,9 @@ export class RailDrag {
   /** Idempotent: drops the list's drag state and every sibling's inline shift. */
   private clearSiblings(session: TabDragSession): void {
     this.host.list()?.removeAttribute('data-dragging')
-    for (const row of session.rows) {
-      row.style.transform = ''
-      row.style.willChange = ''
+    for (const el of session.els) {
+      el.style.transform = ''
+      el.style.willChange = ''
     }
     const line = this.host.dropLine()
     if (line) {
@@ -375,6 +390,10 @@ export class RailDrag {
       ghost: null,
       sourceEl: null,
       rows: [],
+      els: [],
+      rowEl: [],
+      edgeTop: [],
+      edgeBottom: [],
       slotCenters: [],
       baseScrollTop: 0
     }
@@ -398,18 +417,28 @@ export class RailDrag {
       session.grabOffsetX = event.clientX - rect.left
       session.grabOffsetY = event.clientY - rect.top
       const list = this.host.list()
-      session.rows = Array.from(list?.querySelectorAll<HTMLElement>('[data-tabid]') ?? [])
-      session.slotCenters = session.rows.map((el) => {
-        const r = el.getBoundingClientRect()
+      // What is on screen: rows and group headers, not the members of a collapsed group.
+      session.els = Array.from(list?.querySelectorAll<HTMLElement>('[data-tabid], [data-groupheader]') ?? []).filter(
+        (el) => !el.closest('[data-collapsed="true"]')
+      )
+      session.rows = session.els.filter((el) => el.hasAttribute('data-tabid'))
+      session.rowEl = session.rows.map((row) => session.els.indexOf(row))
+      const rects = session.els.map((el) => el.getBoundingClientRect())
+      // The first element sits at the stack's top edge, so it is the origin of the drop line's coordinates.
+      const origin = rects[0]?.top ?? 0
+      session.edgeTop = rects.map((r) => r.top - origin)
+      session.edgeBottom = rects.map((r) => r.bottom - origin)
+      session.slotCenters = session.rows.map((row) => {
+        const r = rects[session.els.indexOf(row)]
         return r.top + r.height / 2
       })
       session.baseScrollTop = list?.scrollTop ?? 0
       this.mountGhost(session, event.currentTarget)
       if (list) list.dataset.dragging = 'true'
-      for (const row of session.rows) {
-        if (row === event.currentTarget) continue
-        row.style.willChange = 'transform'
-        row.style.transform = 'translate3d(0, 0, 0)'
+      for (const el of session.els) {
+        if (el === event.currentTarget) continue
+        el.style.willChange = 'transform'
+        el.style.transform = 'translate3d(0, 0, 0)'
       }
       document.body.style.cursor = 'grabbing'
       document.body.style.userSelect = 'none'

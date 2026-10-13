@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode
+} from 'react'
 import { terminalHostRegistry, type TerminalNotice } from './terminal/TerminalHostRegistry'
 import { useSettings } from './settings/SettingsContext'
 import { useI18n } from './i18n/I18nContext'
@@ -21,10 +29,26 @@ import {
   type ShellProfile
 } from './shells/shellProfiles'
 import type { ShortcutAction } from '../../shared/keybindings'
-import { MAX_TAB_TITLE_LENGTH, type RestorePayload } from '../../shared/sessionState'
+import { MAX_GROUP_KEY_LENGTH, MAX_TAB_TITLE_LENGTH, type RestorePayload } from '../../shared/sessionState'
 import { moveItem } from './tabs/tabDragOrder'
+import {
+  createGroup,
+  dissolveGroup,
+  moveGroupStep,
+  moveTabs,
+  moveTabStep,
+  neighborAfterClose,
+  normalizeRail,
+  renameGroup,
+  revealTab,
+  toggleCollapsed,
+  ungroupTab,
+  type MoveTarget,
+  type RailState,
+  type TabGroup
+} from './tabs/tabGroups'
 import { TabRail } from './tabs/TabRail'
-import { activeAfterClose } from './tabs/tabNav'
+import { cwdBasename } from './tabs/tabLabel'
 import { attachTabStores, forgetTabValues, tabActivityStore, tabContextStore, tabTitleStore } from './tabs/tabStores'
 import { useUpdate } from './update/UpdateContext'
 import { UpdateDialog } from './update/UpdateDialog'
@@ -64,10 +88,16 @@ interface Tab {
   shellLabel?: string
   /** `claude --continue` / `codex resume --last` / `grok --continue` for a restored tab whose saved session had a known AI tool. */
   startupCommand?: string
+  /** The rail group this tab sits in (see tabs/tabGroups.ts). */
+  groupId?: string
+  /** The user placed this tab, so automatic grouping leaves it alone. */
+  manual?: boolean
 }
 
+/** A tab's menu, or a group header's. */
 interface TabContextMenuState {
-  tabId: string
+  kind: 'tab' | 'group'
+  id: string
   x: number
   y: number
 }
@@ -82,14 +112,49 @@ interface AddTabOptions {
   customTitle?: string
   shellId?: string
   shellLabel?: string
+  /** A duplicate lands right after its source and joins the source's group. */
+  insertAfterId?: string
+}
+
+/** One entry of the rail's context menus. */
+function MenuItem({ children, onClick, indent }: { children: ReactNode; onClick(): void; indent?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      className={`flex h-8 w-full items-center px-3 text-left hover:bg-row-hover focus-visible:bg-row-hover focus-visible:outline-none ${
+        indent ? 'pl-6' : ''
+      }`}
+      onClick={onClick}
+    >
+      <span className="min-w-0 truncate">{children}</span>
+    </button>
+  )
 }
 
 export default function App() {
-  const [tabs, setTabs] = useState<Tab[]>([])
+  // Tabs and groups live in one state so every mutation can be normalized
+  // against the other (see tabs/tabGroups.ts): nothing leaves `setRail` unless
+  // the group invariants hold.
+  const [rail, setRailState] = useState<RailState<Tab>>({ tabs: [], groups: [] })
+  const { tabs, groups } = rail
+  function setRail(update: (prev: RailState<Tab>) => RailState<Tab>): void {
+    setRailState((prev) => {
+      const raw = update(prev)
+      const next = normalizeRail(raw.tabs, raw.groups)
+      return next.tabs === prev.tabs && next.groups === prev.groups ? prev : next
+    })
+  }
+  function setTabs(update: (prev: Tab[]) => Tab[]): void {
+    setRail((prev) => ({ tabs: update(prev.tabs), groups: prev.groups }))
+  }
   // Title events arrive through a once-registered listener; keep its no-op
   // check current without resubscribing on every tab render.
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
+  const groupsRef = useRef(groups)
+  groupsRef.current = groups
   const pendingCloneIdsRef = useRef(new Set<string>())
   // A close can be queued before React commits tabsRef's next value.
   const closingTabIdsRef = useRef(new Set<string>())
@@ -103,6 +168,9 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState | null>(null)
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null)
+  /** Monotonic id suffix for `grp-${n}` only. */
+  const nextGroupIdRef = useRef(1)
   const [shellProfiles, setShellProfiles] = useState<ShellProfile[]>([])
   const [shellMenuOpen, setShellMenuOpen] = useState(false)
   const [splashVisible, setSplashVisible] = useState(true)
@@ -196,12 +264,29 @@ export default function App() {
   // valid session-state.json with {Tabs:[], ActiveIndex:-1}.
   const [sessionReady, setSessionReady] = useState(false)
 
-  /** Pushes the current tab order + active id to main's live cache (see index.ts's `latestSessionSnapshot`). */
-  function pushSessionSnapshot(tabsList: Tab[], activeIdValue: string | null): void {
+  /** Pushes the current tab order + groups + active id to main's live cache (see index.ts's `latestSessionSnapshot`). */
+  function pushSessionSnapshot(tabsList: Tab[], activeIdValue: string | null, groupsList: TabGroup[]): void {
     const idx = tabsList.findIndex((t) => t.id === activeIdValue)
     window.zinc.session.pushSnapshot({
-      tabs: tabsList.map((t) => ({ id: t.id, shellId: t.shellId, customTitle: t.customTitle })),
-      activeIndex: idx
+      tabs: tabsList.map((t) => ({
+        id: t.id,
+        shellId: t.shellId,
+        customTitle: t.customTitle,
+        ...(t.groupId ? { groupId: t.groupId } : {}),
+        ...(t.manual ? { manual: true } : {})
+      })),
+      activeIndex: idx,
+      ...(groupsList.length > 0
+        ? {
+            groups: groupsList.map((g) => ({
+              id: g.id,
+              collapsed: g.collapsed,
+              auto: g.auto,
+              ...(g.name ? { name: g.name } : {}),
+              ...(g.key && g.key.length <= MAX_GROUP_KEY_LENGTH ? { key: g.key } : {})
+            }))
+          }
+        : {})
     })
   }
 
@@ -218,29 +303,39 @@ export default function App() {
     const id = `tab-${nextIdRef.current++}`
     const configuredShellId = settings?.DefaultShellId
     const selectedProfile = profileForId(options.shellId ?? configuredShellId) ?? (options.shellId ? undefined : shellProfiles[0])
-    setTabs((prev) =>
-      prev.some((t) => t.id === id)
-        ? prev
-        : [
-            ...prev,
-            {
-              id,
-              customTitle: options.customTitle,
-              spawnCwd: options.spawnCwd,
-              startupCommand: options.startupCommand,
-              shellId: options.shellId ?? selectedProfile?.id ?? configuredShellId,
-              shellLabel: options.shellLabel ?? selectedProfile?.label
-            }
-          ]
-    )
+    setRail((prev) => {
+      if (prev.tabs.some((t) => t.id === id)) return prev
+      const tab: Tab = {
+        id,
+        customTitle: options.customTitle,
+        spawnCwd: options.spawnCwd,
+        startupCommand: options.startupCommand,
+        shellId: options.shellId ?? selectedProfile?.id ?? configuredShellId,
+        shellLabel: options.shellLabel ?? selectedProfile?.label
+      }
+      const at = options.insertAfterId ? prev.tabs.findIndex((t) => t.id === options.insertAfterId) : -1
+      if (at < 0) return { tabs: [...prev.tabs, tab], groups: prev.groups }
+      // Right after the source, in the source's group.
+      const groupId = prev.tabs[at].groupId
+      const inserted = groupId === undefined ? tab : { ...tab, groupId }
+      return { tabs: [...prev.tabs.slice(0, at + 1), inserted, ...prev.tabs.slice(at + 1)], groups: prev.groups }
+    })
     if (options.initialTitle) tabTitleStore.set(id, options.initialTitle)
     setActiveId(id)
   }
 
   /** Recreates every tab from a resolved session-state.json restore plan in one shot, so `ActiveIndex` lands correctly (parity §1.4) instead of drifting to whichever tab `addTab` added last. */
   function restoreTabs(payload: RestorePayload): void {
+    // Saved group ids are only labels for this file; the live groups get fresh ids.
+    const groupIds = new Map<string, string>()
+    const restoredGroups: TabGroup[] = (payload.groups ?? []).map((g) => {
+      const id = `grp-${nextGroupIdRef.current++}`
+      groupIds.set(g.id, id)
+      return { id, collapsed: g.collapsed, auto: g.auto, ...(g.name ? { name: g.name } : {}), ...(g.key ? { key: g.key } : {}) }
+    })
     const restored: Tab[] = payload.tabs.map((t) => {
       const id = `tab-${nextIdRef.current++}`
+      const groupId = t.groupId === undefined ? undefined : groupIds.get(t.groupId)
       // Sessions written before multi-shell support have no id. Attach the
       // current default now so they receive the normal title and are migrated
       // the next time session state is persisted.
@@ -251,16 +346,30 @@ export default function App() {
         spawnCwd: t.cwd,
         startupCommand: t.startupCommand,
         shellId,
-        shellLabel: profileForId(shellId)?.label
+        shellLabel: profileForId(shellId)?.label,
+        ...(groupId ? { groupId } : {}),
+        ...(t.manual ? { manual: true } : {})
       }
     })
-    setTabs(restored)
+    // Main binds saved cwd / AI sessions to the new tabs by index, so the order must survive
+    // normalization. A file whose groups would need tabs reordered (hand-edited) restores ungrouped.
+    const normalized = normalizeRail(restored, restoredGroups)
+    const keepsOrder = normalized.tabs.every((tab, i) => tab.id === restored[i].id)
+    setRailState(keepsOrder ? normalized : { tabs: restored.map(({ groupId: _g, ...rest }) => rest), groups: [] })
     const idx = payload.activeIndex >= 0 && payload.activeIndex < restored.length ? payload.activeIndex : 0
     setActiveId(restored[idx]?.id ?? null)
   }
 
-  function moveTab(fromIndex: number, toIndex: number): void {
-    setTabs((prev) => moveItem(prev, fromIndex, toIndex))
+  /** A drag dropped a tab on another tab's slot. */
+  function moveTab(id: string, target: MoveTarget): void {
+    setRail((prev) => moveTabs(prev.tabs, prev.groups, id, target))
+  }
+
+  /** Alt+Up / Alt+Down: one visible position for a tab, or for a whole group. */
+  function moveStep(id: string, direction: -1 | 1, isGroup: boolean): void {
+    setRail((prev) =>
+      isGroup ? moveGroupStep(prev.tabs, prev.groups, id, direction) : moveTabStep(prev.tabs, prev.groups, id, direction)
+    )
   }
 
   function switchTab(id: string): void {
@@ -283,9 +392,10 @@ export default function App() {
     // multiple times before React commits the first update, and reading the
     // closure's stale `tabs` would resurrect an already-closed tab or pick
     // the wrong active tab.
-    setTabs((prevTabs) => {
+    setRail((prevRail) => {
+      const prevTabs = prevRail.tabs
       const idx = prevTabs.findIndex((t) => t.id === id)
-      if (idx === -1) return prevTabs
+      if (idx === -1) return prevRail
       const next = prevTabs.filter((t) => t.id !== id)
 
       if (next.length === 0) {
@@ -297,9 +407,9 @@ export default function App() {
         // already-torn-down tab. Push the now-empty snapshot synchronously
         // before requesting quit so `before-quit` doesn't read the stale,
         // still-non-empty cached snapshot from the effect below.
-        pushSessionSnapshot(next, null)
+        pushSessionSnapshot(next, null, [])
         window.zinc.app.requestQuit()
-        return next
+        return { tabs: next, groups: prevRail.groups }
       }
 
       terminalHostRegistry.destroyHost(id)
@@ -309,9 +419,9 @@ export default function App() {
         rest.delete(id)
         return rest
       })
-      // The neighbour (next tab, else previous) takes over, not the last tab.
-      setActiveId((prevActiveId) => activeAfterClose(prevTabs.map((t) => t.id), id, prevActiveId))
-      return next
+      // The neighbour in visible order (next tab, else previous) takes over, not the last tab.
+      setActiveId((prevActiveId) => neighborAfterClose(prevTabs, prevRail.groups, id, prevActiveId))
+      return { tabs: next, groups: prevRail.groups }
     })
     forgetTabValues(id)
   }
@@ -332,7 +442,8 @@ export default function App() {
         initialTitle: tabTitleStore.get(sourceId),
         customTitle: source.customTitle,
         shellId: source.shellId,
-        shellLabel: source.shellLabel
+        shellLabel: source.shellLabel,
+        insertAfterId: sourceId
       })
     } catch (err) {
       console.error(`[tabs] failed to read cwd for ${sourceId}:`, err)
@@ -341,14 +452,33 @@ export default function App() {
     }
   }
 
+  /** Rows the menu will show, to keep it on screen: a group's has 3 items; a tab's grows with the groups it can join. */
+  function openRailMenu(kind: 'tab' | 'group', id: string, x: number, y: number): void {
+    let items = 3
+    let extras = 0
+    if (kind === 'tab') {
+      const own = tabsRef.current.find((tab) => tab.id === id)?.groupId
+      const others = groupsRef.current.filter((group) => group.id !== own).length
+      items = 3 + (own ? 1 : 0) + others
+      extras = 9 + (others > 0 ? 9 + 24 : 0)
+    }
+    setTabContextMenu({
+      kind,
+      id,
+      x: Math.max(8, Math.min(x, window.innerWidth - 268)),
+      y: Math.max(8, Math.min(y, window.innerHeight - (16 + items * 32 + extras)))
+    })
+  }
+
   function showTabContextMenu(tabId: string, x: number, y: number, returnFocus: HTMLElement): void {
     tabContextMenuReturnFocusRef.current = returnFocus
     setActiveId(tabId)
-    setTabContextMenu({
-      tabId,
-      x: Math.max(8, Math.min(x, window.innerWidth - 152)),
-      y: Math.max(8, Math.min(y, window.innerHeight - 92))
-    })
+    openRailMenu('tab', tabId, x, y)
+  }
+
+  function showGroupContextMenu(groupId: string, x: number, y: number, returnFocus: HTMLElement): void {
+    tabContextMenuReturnFocusRef.current = returnFocus
+    openRailMenu('group', groupId, x, y)
   }
 
   function closeTabContextMenu(restoreFocus = false): void {
@@ -378,6 +508,46 @@ export default function App() {
     void cloneTab(tabId)
   }
 
+  // Groups. Every change goes through `setRail`, so the invariants hold afterwards.
+  function newGroupWithTab(tabId: string): void {
+    const groupId = `grp-${nextGroupIdRef.current++}`
+    setRail((prev) => createGroup(prev.tabs, prev.groups, [tabId], groupId))
+    // The header opens straight into its name field.
+    setRenamingGroupId(groupId)
+  }
+
+  function removeFromGroup(tabId: string): void {
+    setRail((prev) => ungroupTab(prev.tabs, prev.groups, tabId))
+  }
+
+  function addToGroup(tabId: string, groupId: string): void {
+    setRail((prev) => {
+      const moved = moveTabs(prev.tabs, prev.groups, tabId, { intoGroup: groupId })
+      // The tab being added is the active one; it must not vanish into a collapsed group.
+      return revealTab(moved.tabs, moved.groups, tabId)
+    })
+  }
+
+  function toggleGroup(groupId: string): void {
+    setRail((prev) => toggleCollapsed(prev.tabs, prev.groups, groupId))
+  }
+
+  function ungroup(groupId: string): void {
+    setRenamingGroupId((current) => (current === groupId ? null : current))
+    setRail((prev) => dissolveGroup(prev.tabs, prev.groups, groupId))
+  }
+
+  function startGroupRename(groupId: string): void {
+    if (groupsRef.current.some((group) => group.id === groupId)) setRenamingGroupId(groupId)
+  }
+
+  function commitGroupRename(groupId: string, raw: string): void {
+    setRenamingGroupId(null)
+    const clean = normalizeTabTitle(raw)
+    if (!clean) return
+    setRail((prev) => renameGroup(prev.tabs, prev.groups, groupId, clean))
+  }
+
   // Auto-create the first tab once settings have loaded (so it spawns with
   // the persisted DefaultShellId/StartingDirectory rather than a stale
   // executable path). Guarded by a ref (not a `tabs.length` check inside
@@ -404,11 +574,22 @@ export default function App() {
   // Keyed on what the snapshot actually carries (ids, shells, order, active
   // tab, rename) — not on `tabs` itself, which also changes when a shell label
   // resolves and would resend an identical snapshot (and restart main's save debounce).
-  const snapshotKey = tabs.map((t) => `${t.id}:${t.shellId}:${t.customTitle ?? ''}`).join('|')
+  // Group membership, names and collapsed state are part of what the snapshot carries.
+  const snapshotKey =
+    tabs.map((t) => `${t.id}:${t.shellId}:${t.customTitle ?? ''}:${t.groupId ?? ''}:${t.manual ? 1 : 0}`).join('|') +
+    JSON.stringify(groups)
   useEffect(() => {
     if (!sessionReady) return
-    pushSessionSnapshot(tabsRef.current, activeId)
+    pushSessionSnapshot(tabsRef.current, activeId, groupsRef.current)
   }, [snapshotKey, activeId, sessionReady])
+
+  // Whatever makes a tab active - a click, Ctrl+Tab, Ctrl+N, a duplicate, closing
+  // the active tab, restore - must not leave it hidden inside a collapsed group.
+  // Layout effect: the group is open before the first paint of the new selection.
+  useLayoutEffect(() => {
+    if (activeId) setRail((prev) => revealTab(prev.tabs, prev.groups, activeId))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId])
 
   // Startup splash: holds a beat once the session is ready so the window
   // doesn't flash straight from blank to the restored tab layout, then fades.
@@ -627,6 +808,8 @@ export default function App() {
         window as unknown as {
           __zincTabs: {
             tabs: Tab[]
+            groups: TabGroup[]
+            groupOp: (op: string, ...args: any[]) => void // eslint-disable-line @typescript-eslint/no-explicit-any
             activeId: string | null
             addTab: typeof addTab
             switchTab: typeof switchTab
@@ -638,6 +821,27 @@ export default function App() {
         }
       ).__zincTabs = {
             tabs,
+            groups,
+            /** Test helper: run one pure group op on the live rail (create / move / toggle / rename / ungroup / dissolve). */
+            groupOp: (op, ...args) =>
+              setRail((prev) => {
+                switch (op) {
+                  case 'create':
+                    return createGroup(prev.tabs, prev.groups, args[0], args[1], args[2])
+                  case 'move':
+                    return moveTabs(prev.tabs, prev.groups, args[0], args[1])
+                  case 'toggle':
+                    return toggleCollapsed(prev.tabs, prev.groups, args[0], args[1])
+                  case 'rename':
+                    return renameGroup(prev.tabs, prev.groups, args[0], args[1])
+                  case 'ungroup':
+                    return ungroupTab(prev.tabs, prev.groups, args[0])
+                  case 'dissolve':
+                    return dissolveGroup(prev.tabs, prev.groups, args[0])
+                  default:
+                    return prev
+                }
+              }),
             activeId,
             addTab,
             switchTab,
@@ -665,10 +869,16 @@ export default function App() {
     onSwitch: switchTab,
     onClose: closeTab,
     onClone: (id: string) => void cloneTab(id),
-    onMove: moveTab,
+    onMoveTab: moveTab,
+    onMoveStep: moveStep,
     onContextMenu: showTabContextMenu,
     onRenameCommit: commitTabRename,
-    onRenameCancel: () => setRenamingTabId(null)
+    onRenameCancel: () => setRenamingTabId(null),
+    onToggleGroup: toggleGroup,
+    onGroupContextMenu: showGroupContextMenu,
+    onRenameGroup: startGroupRename,
+    onGroupRenameCommit: commitGroupRename,
+    onGroupRenameCancel: () => setRenamingGroupId(null)
   }
   const railActionsRef = useRef(railActions)
   railActionsRef.current = railActions
@@ -677,10 +887,16 @@ export default function App() {
       onSwitch: (id) => railActionsRef.current.onSwitch(id),
       onClose: (id) => railActionsRef.current.onClose(id),
       onClone: (id) => railActionsRef.current.onClone(id),
-      onMove: (from, to) => railActionsRef.current.onMove(from, to),
+      onMoveTab: (id, target) => railActionsRef.current.onMoveTab(id, target),
+      onMoveStep: (id, direction, isGroup) => railActionsRef.current.onMoveStep(id, direction, isGroup),
       onContextMenu: (id, x, y, el) => railActionsRef.current.onContextMenu(id, x, y, el),
       onRenameCommit: (id, raw) => railActionsRef.current.onRenameCommit(id, raw),
-      onRenameCancel: () => railActionsRef.current.onRenameCancel()
+      onRenameCancel: () => railActionsRef.current.onRenameCancel(),
+      onToggleGroup: (id) => railActionsRef.current.onToggleGroup(id),
+      onGroupContextMenu: (id, x, y, el) => railActionsRef.current.onGroupContextMenu(id, x, y, el),
+      onRenameGroup: (id) => railActionsRef.current.onRenameGroup(id),
+      onGroupRenameCommit: (id, raw) => railActionsRef.current.onGroupRenameCommit(id, raw),
+      onGroupRenameCancel: () => railActionsRef.current.onGroupRenameCancel()
     }),
     []
   )
@@ -706,6 +922,8 @@ export default function App() {
     shellProfiles[0]?.label ??
     t('ShellDetecting')
   const railWidth = clampRailWidth(railWidthLive ?? settings?.RailWidth ?? RAIL_WIDTH_DEFAULT)
+  const menuTab = tabContextMenu?.kind === 'tab' ? tabs.find((tab) => tab.id === tabContextMenu.id) : undefined
+  const menuGroup = tabContextMenu?.kind === 'group' ? groups.find((group) => group.id === tabContextMenu.id) : undefined
 
   function endRailResize(pointerId: number, finalWidth: number): void {
     const session = railResizeRef.current
@@ -806,8 +1024,10 @@ export default function App() {
             <div className="flex min-h-0 flex-1 flex-col">
               <TabRail
                 tabs={tabs}
+                groups={groups}
                 activeId={activeId}
                 renamingId={renamingTabId}
+                renamingGroupId={renamingGroupId}
                 {...railHandlers}
               />
 
@@ -956,7 +1176,7 @@ export default function App() {
         <div
           ref={tabContextMenuRef}
           role="menu"
-          className="fixed z-50 w-36 rounded border border-popup-border bg-popup-bg py-1 text-[13px] text-fg-primary shadow-lg"
+          className="fixed z-50 max-h-[calc(100vh-16px)] min-w-44 max-w-64 overflow-y-auto rounded border border-popup-border bg-popup-bg py-1 text-[13px] text-fg-primary shadow-lg"
           style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
@@ -974,35 +1194,98 @@ export default function App() {
             items[nextIndex].focus()
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            tabIndex={-1}
-            className="flex h-8 w-full items-center px-3 text-left hover:bg-row-hover"
-            onClick={() => {
-              const tabId = tabContextMenu.tabId
-              // No focus return to the tab row here: it would land one frame
-              // AFTER the rename input autofocuses, blurring (and thus
-              // committing/unmounting) it immediately.
-              closeTabContextMenu(false)
-              renameTab(tabId)
-            }}
-          >
-            {t('RenameTab')}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            tabIndex={-1}
-            className="flex h-8 w-full items-center px-3 text-left hover:bg-row-hover"
-            onClick={() => {
-              const tabId = tabContextMenu.tabId
-              closeTabContextMenu(true)
-              duplicateTab(tabId)
-            }}
-          >
-            {t('DuplicateTab')}
-          </button>
+          {tabContextMenu.kind === 'tab' ? (
+            <>
+              <MenuItem
+                onClick={() => {
+                  // No focus return to the tab row here: it would land one frame
+                  // AFTER the rename input autofocuses, blurring (and thus
+                  // committing/unmounting) it immediately.
+                  closeTabContextMenu(false)
+                  renameTab(tabContextMenu.id)
+                }}
+              >
+                {t('RenameTab')}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  closeTabContextMenu(true)
+                  duplicateTab(tabContextMenu.id)
+                }}
+              >
+                {t('DuplicateTab')}
+              </MenuItem>
+              <div role="separator" className="my-1 h-px bg-popup-border" />
+              <MenuItem
+                onClick={() => {
+                  // The new header's name field takes focus, so no focus return either.
+                  closeTabContextMenu(false)
+                  newGroupWithTab(tabContextMenu.id)
+                }}
+              >
+                {t('NewGroupWithTab')}
+              </MenuItem>
+              {menuTab?.groupId && (
+                <MenuItem
+                  onClick={() => {
+                    closeTabContextMenu(true)
+                    removeFromGroup(tabContextMenu.id)
+                  }}
+                >
+                  {t('RemoveFromGroup')}
+                </MenuItem>
+              )}
+              {groups.some((group) => group.id !== menuTab?.groupId) && (
+                <>
+                  <div role="separator" className="my-1 h-px bg-popup-border" />
+                  <div role="presentation" className="px-3 pb-0.5 pt-1 text-[11px] text-fg-tertiary">
+                    {t('AddToGroup')}
+                  </div>
+                  {groups
+                    .filter((group) => group.id !== menuTab?.groupId)
+                    .map((group) => (
+                      <MenuItem
+                        key={group.id}
+                        indent
+                        onClick={() => {
+                          closeTabContextMenu(true)
+                          addToGroup(tabContextMenu.id, group.id)
+                        }}
+                      >
+                        {group.name || (group.key ? cwdBasename(group.key) : t('NewGroup'))}
+                      </MenuItem>
+                    ))}
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <MenuItem
+                onClick={() => {
+                  closeTabContextMenu(false)
+                  startGroupRename(tabContextMenu.id)
+                }}
+              >
+                {t('RenameGroup')}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  closeTabContextMenu(true)
+                  toggleGroup(tabContextMenu.id)
+                }}
+              >
+                {menuGroup?.collapsed ? t('ExpandGroup') : t('CollapseGroup')}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  closeTabContextMenu(true)
+                  ungroup(tabContextMenu.id)
+                }}
+              >
+                {t('UngroupGroup')}
+              </MenuItem>
+            </>
+          )}
         </div>
       )}
 

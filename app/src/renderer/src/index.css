@@ -308,6 +308,80 @@
   }
 }
 
+/*
+  Tab groups (see tabs/TabRail.tsx). A group is a header row plus a body that
+  opens and closes with grid-template-rows 0fr <-> 1fr (no height in px, no
+  layout reads): the sibling-shift duration and curve above, 160ms. The inner
+  box clips while it animates and turns hidden once closed, so collapsed
+  members are neither focusable nor clickable; while a drag is lifted it stops
+  clipping so a row shifted by the drag is not cut off at the group's edge.
+*/
+.tab-rail-group-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tab-rail-group-body[data-collapsed='true'] {
+  grid-template-rows: 0fr;
+}
+
+.tab-rail-group-inner {
+  min-height: 0;
+  overflow: hidden;
+  /* Visible all through the close animation, hidden at its end; open is immediate. */
+  transition: visibility 160ms;
+  /* The clip would cut the focus ring of the first and last member, so rings inside a group are drawn inward. */
+  --tw-ring-inset: inset;
+}
+
+.tab-rail-group-body[data-collapsed='true'] > .tab-rail-group-inner {
+  visibility: hidden;
+}
+
+.tab-rail-list[data-dragging='true'] .tab-rail-group-inner {
+  overflow: visible;
+}
+
+/* The guide line members hang from: the existing divider colour, no box around the group. */
+.tab-rail-group-list::before {
+  content: '';
+  position: absolute;
+  left: 23px;
+  top: 4px;
+  bottom: 2px;
+  width: 1px;
+  border-radius: 1px;
+  background: var(--color-popup-border);
+  pointer-events: none;
+}
+
+.tab-rail-group-header {
+  transition: background-color 120ms ease;
+}
+
+.tab-rail-group-header input {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.tab-rail-chevron {
+  transition: transform 120ms ease;
+}
+
+.tab-rail-chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-rail-group-body,
+  .tab-rail-group-inner,
+  .tab-rail-group-header,
+  .tab-rail-chevron {
+    transition: none;
+  }
+}
+
 /* Segoe Fluent Icons is supplied by Windows and is not bundled. Falls back to
    Segoe MDL2 Assets, the pre-Win11 name for the same glyph set, for older
    Windows installs that never got the Fluent Icons font update. */

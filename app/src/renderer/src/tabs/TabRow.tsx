@@ -2,7 +2,7 @@ import { memo, useEffect, type KeyboardEvent, type MouseEvent, type PointerEvent
 import type { TabActivityState } from '../../../shared/tabActivity'
 import { useI18n, type LocaleKey } from '../i18n/I18nContext'
 import { SegoeIcon } from '../segoeFluentIcons'
-import { resolveTabLabel, showsPositionNumber, tabSecondaryText } from './tabLabel'
+import { resolveTabLabel, showsPositionNumber, tabSecondaryText, withOrdinal } from './tabLabel'
 import { markActivitySeen, useTabActivity, useTabContext, useTabTitle } from './tabStores'
 
 /** One stable object from TabRail; every handler takes the row's id so nothing is rebuilt per tab. */
@@ -29,6 +29,10 @@ export interface TabRowProps {
   renaming: boolean
   customTitle?: string
   shellLabel?: string
+  /** Set for a member of a group: the group's shown name. Absent = an ungrouped row. */
+  groupName?: string
+  /** Position among identical labels in its group (1 = plain); only read when `groupName` is set. */
+  ordinal?: number
   handlers: TabRowHandlers
 }
 
@@ -41,7 +45,7 @@ const STATE_LABEL_KEYS: Partial<Record<TabActivityState, LocaleKey>> = {
 }
 
 /** Fixed-size slot so labels stay aligned whether or not a tab has a status. */
-function ActivitySlot({ state }: { state: TabActivityState }) {
+export function ActivitySlot({ state }: { state: TabActivityState }) {
   switch (state) {
     case 'working':
       return <span className="icon-font tab-rail-activity-working text-[12px] text-fg-secondary">{SegoeIcon.TabWorking}</span>
@@ -70,19 +74,37 @@ export const TabRow = memo(function TabRow({
   renaming,
   customTitle,
   shellLabel,
+  groupName,
+  ordinal = 1,
   handlers
 }: TabRowProps) {
   const { t } = useI18n()
   const title = useTabTitle(id)
   const context = useTabContext(id)
   const state = useTabActivity(id)?.state ?? 'shell'
-  const { label, source } = resolveTabLabel({ customTitle, title, cwd: context?.cwd, shellLabel })
-  const secondary = tabSecondaryText({
-    label,
-    source,
-    projectName: context?.projectName,
-    tool: context?.tool
-  })
+  const group = groupName === undefined ? undefined : { name: groupName }
+  const resolved = resolveTabLabel(
+    {
+      customTitle,
+      title,
+      cwd: context?.cwd,
+      shellLabel,
+      projectRoot: context?.projectRoot,
+      tool: context?.tool
+    },
+    group
+  )
+  const { source } = resolved
+  const label = group ? withOrdinal(resolved.label, ordinal) : resolved.label
+  const secondary = tabSecondaryText(
+    {
+      label: resolved.label,
+      source,
+      projectName: context?.projectName,
+      tool: context?.tool
+    },
+    group
+  )
   // Leaving the name as it was shown is not a rename: it must not freeze an automatic label.
   const commitRename = (value: string): void => {
     if (value.trim() === label) handlers.onRenameCancel()
@@ -114,9 +136,9 @@ export const TabRow = memo(function TabRow({
       aria-selected={active}
       draggable={false}
       title={tooltip}
-      className={`group relative mx-3 flex h-10 cursor-grab select-none items-center rounded pl-0.5 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-        active ? 'bg-row-selected' : 'hover:bg-row-hover'
-      }`}
+      className={`group relative flex h-10 cursor-grab select-none items-center rounded pl-0.5 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        groupName === undefined ? 'mx-3' : 'ml-7 mr-3'
+      } ${active ? 'bg-row-selected' : 'hover:bg-row-hover'}`}
       onClick={() => handlers.onClick(id)}
       onDoubleClick={() => handlers.onDoubleClick(id)}
       onContextMenu={(e) => handlers.onContextMenu(e, id)}

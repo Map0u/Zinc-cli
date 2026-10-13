@@ -49,6 +49,8 @@ async function loadComponent(path, mocks = {}) {
     // The rail lives in its own module; App tests only look at the props it is handed.
     './tabs/TabRail': `export const TabRail = 'TabRail'`,
     './tabs/tabNav': { file: join(root, 'src/renderer/src/tabs/tabNav.ts') },
+    './tabs/tabGroups': { file: join(root, 'src/renderer/src/tabs/tabGroups.ts') },
+    './tabs/tabLabel': { file: join(root, 'src/renderer/src/tabs/tabLabel.ts') },
     './tabs/tabStores': `
       const titles = globalThis.__zincTest.titles
       export const tabTitleStore = { get: (id) => titles.get(id), set: (id, title) => { titles.set(id, title) } }
@@ -57,7 +59,7 @@ async function loadComponent(path, mocks = {}) {
       export const attachTabStores = () => () => {}
       export const forgetTabValues = (id) => { titles.delete(id) }
     `,
-    '../../shared/sessionState': `export const MAX_TAB_TITLE_LENGTH = 256`,
+    '../../shared/sessionState': `export const MAX_TAB_TITLE_LENGTH = 256, MAX_GROUP_KEY_LENGTH = 1024`,
     './tabs/tabDragOrder': `
       export const TAB_DRAG_THRESHOLD_PX = 5, TAB_ROW_STRIDE_PX = 42
       export const ghostProbeY = (y) => y
@@ -102,7 +104,7 @@ async function loadComponent(path, mocks = {}) {
   return module.exports
 }
 
-function hooks(seedTabs) {
+function hooks(seedTabs, seedGroups = []) {
   const slots = []
   const pending = []
   let index = 0
@@ -112,7 +114,8 @@ function hooks(seedTabs) {
   return {
     state(initial) {
       const slot = index++
-      if (!(slot in slots)) slots[slot] = slot === 0 && seedTabs ? seedTabs : typeof initial === 'function' ? initial() : initial
+      // Slot 0 is App's rail state: the tabs plus their groups.
+      if (!(slot in slots)) slots[slot] = slot === 0 && seedTabs ? { tabs: seedTabs, groups: seedGroups } : typeof initial === 'function' ? initial() : initial
       return [slots[slot], (value) => {
         if (slot === 0) tabWrites++
         const next = typeof value === 'function' ? value(slots[slot]) : value
@@ -151,7 +154,8 @@ function hooks(seedTabs) {
       return tree
     },
     get tabWrites() { return tabWrites },
-    get tabs() { return slots[0] }
+    get tabs() { return slots[0].tabs },
+    get groups() { return slots[0].groups }
   }
 }
 
@@ -168,8 +172,8 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }]) {
-  const h = hooks(tabs)
+async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }], groups = []) {
+  const h = hooks(tabs, groups)
   const events = new Map()
   const accentRequests = []
   const accentWrites = []
@@ -315,9 +319,11 @@ test('clone deduplicates while cwd is pending and keeps the source shell without
   await Promise.resolve()
   app.flush()
   assert.equal(app.h.tabs.length, 3)
-  assert.equal(app.h.tabs[2].spawnCwd, 'C:\\work')
-  assert.equal(app.h.tabs[2].shellId, 'pwsh')
-  assert.equal(app.h.tabs[2].startupCommand, undefined)
+  // A duplicate lands right after its source.
+  assert.equal(app.h.tabs[2].id, 'source-2')
+  assert.equal(app.h.tabs[1].spawnCwd, 'C:\\work')
+  assert.equal(app.h.tabs[1].shellId, 'pwsh')
+  assert.equal(app.h.tabs[1].startupCommand, undefined)
 })
 
 test('clone ignores a late cwd reply after source close, even before React renders the close', async () => {
@@ -352,15 +358,84 @@ test('closing the active tab activates its neighbour, not the last tab', async (
   assert.deepEqual(app.h.tabs.map((tab) => tab.id), ['c'])
 })
 
+const group = (id, extra = {}) => ({ id, collapsed: false, auto: false, ...extra })
+
+test('a duplicate of a grouped tab lands right after it, in the same group', async () => {
+  const app = await setupApp(
+    [{ id: 'x' }, { id: 'a', groupId: 'g1' }, { id: 'b', groupId: 'g1' }, { id: 'y' }],
+    [group('g1')]
+  )
+  const rail = walk(app.tree, (node) => node.type === 'TabRail').props
+  rail.onClone('a')
+  app.cwdRequests[0].resolve('C:\work')
+  await Promise.resolve()
+  app.flush()
+  assert.deepEqual(app.h.tabs.map((tab) => tab.groupId), [undefined, 'g1', 'g1', 'g1', undefined])
+  assert.equal(app.h.tabs[1].id, 'a')
+  assert.equal(app.h.tabs[3].id, 'b')
+  assert.equal(app.h.tabs[2].manual, undefined)
+})
+
+test('closing members dissolves an untouched auto group at one tab and drops an emptied group', async () => {
+  const app = await setupApp(
+    [{ id: 'a', groupId: 'auto' }, { id: 'b', groupId: 'auto' }, { id: 'c', groupId: 'mine' }, { id: 'd' }],
+    [group('auto', { auto: true }), group('mine')]
+  )
+  const rail = () => walk(app.tree, (node) => node.type === 'TabRail').props
+  rail().onClose('a')
+  app.flush()
+  assert.deepEqual(app.h.groups.map((g) => g.id), ['mine'])
+  assert.equal(app.h.tabs.find((tab) => tab.id === 'b').groupId, undefined)
+  rail().onClose('c')
+  app.flush()
+  assert.deepEqual(app.h.groups, [])
+  assert.deepEqual(app.h.tabs.map((tab) => tab.id), ['b', 'd'])
+})
+
+test('switching to a tab inside a collapsed group expands it; collapsing it by hand does not fight back', async () => {
+  const app = await setupApp(
+    [{ id: 'x' }, { id: 'a', groupId: 'g1' }, { id: 'b', groupId: 'g1' }],
+    [group('g1', { collapsed: true })]
+  )
+  const rail = () => walk(app.tree, (node) => node.type === 'TabRail').props
+  rail().onSwitch('b')
+  app.flush()
+  app.flush()
+  assert.equal(app.h.groups[0].collapsed, false)
+  // The user collapses the group around the active tab: it stays collapsed.
+  rail().onToggleGroup('g1')
+  app.flush()
+  assert.equal(app.h.groups[0].collapsed, true)
+  assert.equal(rail().activeId, 'b')
+  rail().onSwitch('x')
+  app.flush()
+  assert.equal(app.h.groups[0].collapsed, true)
+})
+
+test('closing the active tab picks a visible neighbour, never a member hidden in a collapsed group', async () => {
+  const app = await setupApp(
+    [{ id: 'x' }, { id: 'a', groupId: 'g1' }, { id: 'b', groupId: 'g1' }, { id: 'y' }],
+    [group('g1', { collapsed: true })]
+  )
+  const rail = () => walk(app.tree, (node) => node.type === 'TabRail').props
+  rail().onSwitch('x')
+  app.flush()
+  rail().onClose('x')
+  app.flush()
+  // x was active; the visible neighbour is y, not the hidden a.
+  assert.equal(rail().activeId, 'y')
+})
+
 test('rail moves go through one stable callback and reorder tabs', async () => {
   const app = await setupApp([{ id: 'a' }, { id: 'b' }, { id: 'c' }])
   const rail = walk(app.tree, (node) => node.type === 'TabRail').props
-  rail.onMove(0, 2)
+  rail.onMoveTab('a', { after: 'c' })
   app.flush()
   assert.deepEqual(app.h.tabs.map((tab) => tab.id), ['b', 'c', 'a'])
   const again = walk(app.tree, (node) => node.type === 'TabRail').props
   assert.equal(again.onSwitch === rail.onSwitch, true)
-  assert.equal(again.onMove === rail.onMove, true)
+  assert.equal(again.onMoveTab === rail.onMoveTab, true)
+  assert.equal(again.onToggleGroup === rail.onToggleGroup, true)
 })
 
 test('failed external link uses the existing notice toast in both UI languages', async () => {

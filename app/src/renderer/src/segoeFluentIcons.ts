@@ -31,6 +31,8 @@ export const SegoeIcon = {
   Shortcuts: "",
   /** Settings category: About (E946, Info) — new 0.2.0 category, no old-app equivalent to copy from. */
   About: "",
+  /** Group header chevron (E76C, ChevronRight); turned 90 degrees by CSS when the group is open. */
+  ChevronRight: "\uE76C",
   /** Update available badge (E895, Download) — rail indicator when a newer release is known. */
   Update: "\uE895",
   /** Tab activity: working (E72C, Refresh), spun by CSS in the rail. */
