@@ -15,6 +15,10 @@ async function loadComponent(path, mocks = {}) {
       export const useRef = (initial) => globalThis.__zincTest.ref(initial)
       export const useEffect = (effect, deps) => globalThis.__zincTest.effect(effect, deps)
       export const useLayoutEffect = useEffect
+      export const useMemo = (factory) => globalThis.__zincTest.memo(factory)
+      export const useCallback = (fn) => fn
+      export const useSyncExternalStore = (subscribe, getSnapshot) => getSnapshot()
+      export const memo = (component) => component
       export const createContext = () => ({ Provider: 'provider' })
       export const useContext = () => null
     `,
@@ -42,6 +46,18 @@ async function loadComponent(path, mocks = {}) {
       export const loadShellProfiles = () => new Promise(() => {})
       export const consumeShellFallbackNotice = () => false
     `,
+    // The rail lives in its own module; App tests only look at the props it is handed.
+    './tabs/TabRail': `export const TabRail = 'TabRail'`,
+    './tabs/tabNav': { file: join(root, 'src/renderer/src/tabs/tabNav.ts') },
+    './tabs/tabStores': `
+      const titles = globalThis.__zincTest.titles
+      export const tabTitleStore = { get: (id) => titles.get(id), set: (id, title) => { titles.set(id, title) } }
+      export const tabActivityStore = { set() {} }
+      export const tabContextStore = { set() {} }
+      export const attachTabStores = () => () => {}
+      export const forgetTabValues = (id) => { titles.delete(id) }
+    `,
+    '../../shared/sessionState': `export const MAX_TAB_TITLE_LENGTH = 256`,
     './tabs/tabDragOrder': `
       export const TAB_DRAG_THRESHOLD_PX = 5, TAB_ROW_STRIDE_PX = 42
       export const ghostProbeY = (y) => y
@@ -71,6 +87,7 @@ async function loadComponent(path, mocks = {}) {
       setup(build) {
         build.onResolve({ filter: /^(react(?:\/jsx-runtime)?|\.)/ }, ({ path }) => {
           if (!(path in modules)) throw new Error(`Missing test mock: ${path}`)
+          if (typeof modules[path] === 'object') return { path: modules[path].file }
           return { path, namespace: 'renderer-stubs' }
         })
         build.onLoad({ filter: /.*/, namespace: 'renderer-stubs' }, ({ path }) => ({
@@ -106,6 +123,12 @@ function hooks(seedTabs) {
       const slot = index++
       if (!(slot in slots)) slots[slot] = { current: initial }
       return slots[slot]
+    },
+    // Only used with empty deps (computed once), which is all the rail callbacks need.
+    memo(factory) {
+      const slot = index++
+      if (!(slot in slots)) slots[slot] = { value: factory() }
+      return slots[slot].value
     },
     effect(effect, deps) {
       const slot = index++
@@ -145,13 +168,12 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-async function setupApp(tabs = [{ id: 'tab-1', title: 'First' }, { id: 'tab-2', title: 'Second' }]) {
+async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }]) {
   const h = hooks(tabs)
   const events = new Map()
   const accentRequests = []
   const accentWrites = []
   const cwdRequests = []
-  const ghosts = []
   const settings = {
     ColorScheme: 'old', AccentSource: 'system', ThemePreference: 'dark',
     RailWidth: 260, RailOpacity: 0, TerminalOpacity: 0,
@@ -161,6 +183,7 @@ async function setupApp(tabs = [{ id: 'tab-1', title: 'First' }, { id: 'tab-2', 
   Object.assign(h, {
     timers: [],
     mode: 'dark',
+    titles: new Map(),
     language: 'en',
     dropIndex: 1,
     settings: {
@@ -206,58 +229,16 @@ async function setupApp(tabs = [{ id: 'tab-1', title: 'First' }, { id: 'tab-2', 
       dataset: {},
       style: { setProperty(name, value) { accentWrites.push([name, value]) } }
     },
-    body: { style: {}, appendChild(ghost) { ghosts.push(ghost) } }
+    body: { style: {} }
   }
   const { default: App } = await loadComponent('src/renderer/src/App.tsx')
   let tree = h.render(App)
   return {
-    h, App, settings, updates, accentRequests, accentWrites, cwdRequests, ghosts, events,
+    h, App, settings, updates, accentRequests, accentWrites, cwdRequests, events,
     get tree() { return tree },
     render() { tree = h.render(App); return tree },
     flush() { tree = h.flush(App); return tree }
   }
-}
-
-function row(id, top) {
-  return {
-    dataset: {}, style: {},
-    classList: {
-      names: new Set(),
-      add(name) { this.names.add(name) },
-      remove(name) { this.names.delete(name) },
-      contains(name) { return this.names.has(name) }
-    },
-    getBoundingClientRect: () => ({ left: 10, top, width: 230, height: 40 }),
-    setPointerCapture() {},
-    releasePointerCapture() {},
-    cloneNode() {
-      return {
-        dataset: {}, style: {}, removeAttribute() {}, setAttribute() {},
-        querySelectorAll: () => [], remove() { this.removed = true }
-      }
-    }
-  }
-}
-
-function beginDrag(app) {
-  const first = row('tab-1', 80)
-  const second = row('tab-2', 122)
-  const list = walk(app.tree, (node) => node.props?.role === 'tablist')
-  list.props.ref.current = {
-    scrollTop: 0,
-    querySelectorAll: () => [first, second],
-    querySelector: () => first,
-    getBoundingClientRect: () => ({ top: 50, bottom: 300 })
-  }
-  const props = walk(app.tree, (node) => node.props?.['data-tabid'] === 'tab-1').props
-  const event = (clientX, clientY) => ({
-    pointerId: 3, button: 0, clientX, clientY, currentTarget: first,
-    target: { closest: () => null }, preventDefault() {}
-  })
-  props.onPointerDown(event(20, 100))
-  props.onPointerMove(event(40, 150))
-  assert.equal(app.ghosts.length > 0, true)
-  return { first, props, event }
 }
 
 test('old system accent reply cannot overwrite the newer selected scheme', async () => {
@@ -272,7 +253,7 @@ test('old system accent reply cannot overwrite the newer selected scheme', async
   assert.deepEqual(app.accentWrites.at(-1), ['--color-accent', 'new-dark'])
 })
 
-test('repeated terminal title skips setTabs, while a new title still updates', async () => {
+test('terminal titles are batched into the per-tab store and never touch App state', async () => {
   const app = await setupApp()
   // Title updates are batched on a 250ms timer; run just those timers.
   const flushTitles = () => {
@@ -280,46 +261,26 @@ test('repeated terminal title skips setTabs, while a new title still updates', a
     app.h.timers = app.h.timers.filter((t) => t.ms !== 250)
     for (const t of due) t.fn()
   }
+  const titles = app.h.titles
   const before = app.h.tabWrites
   app.h.titleChange('tab-1', ' First ')
+  assert.equal(titles.get('tab-1'), undefined)
   flushTitles()
-  assert.equal(app.h.tabWrites, before)
+  assert.equal(titles.get('tab-1'), 'First')
   app.h.titleChange('tab-1', 'Spinner 1')
   app.h.titleChange('tab-1', 'Renamed')
-  assert.equal(app.h.tabWrites, before)
+  assert.equal(titles.get('tab-1'), 'First')
   flushTitles()
-  assert.equal(app.h.tabWrites, before + 1)
-  app.flush()
+  assert.equal(titles.get('tab-1'), 'Renamed')
+  // A repeat of the stored title arms no timer at all.
   app.h.titleChange('tab-1', 'Renamed')
-  flushTitles()
-  assert.equal(app.h.tabWrites, before + 1)
-  // A title flushed but not yet committed must not swallow a newer one that
-  // matches the still-committed title.
+  assert.equal(app.h.timers.filter((t) => t.ms === 250).length, 0)
+  // A newer title queued behind an older pending one wins.
   app.h.titleChange('tab-1', 'Working')
-  flushTitles()
   app.h.titleChange('tab-1', 'Renamed')
   flushTitles()
-  assert.equal(app.h.tabWrites, before + 3)
-  app.flush()
-  assert.equal(walk(app.tree, (node) => node.props?.['data-tabid'] === 'tab-1').props.children[2].props.title, 'Renamed')
-})
-
-test('blur and lost pointer capture cancel an active drag without reordering or leaving a ghost', async () => {
-  const app = await setupApp()
-  for (const interruption of ['blur', 'lostpointercapture']) {
-    const { first, props, event } = beginDrag(app)
-    assert.equal(first.style.opacity, '0')
-    if (interruption === 'blur') app.events.get('blur')()
-    else props.onLostPointerCapture(event(40, 150))
-    assert.equal(app.ghosts.at(-1).removed, true)
-    assert.equal(first.style.opacity, '')
-    assert.equal(first.style.pointerEvents, '')
-    assert.equal(document.body.style.cursor, '')
-    assert.equal(document.body.style.userSelect, '')
-    app.flush()
-    assert.equal(walk(app.tree, (node) => node.props?.['data-tabid'] === 'tab-1').props['data-dragging'], undefined)
-    assert.equal(walk(app.tree, (node) => node.props?.['data-tabid'] === 'tab-1').props.children[1].props.children, 1)
-  }
+  assert.equal(titles.get('tab-1'), 'Renamed')
+  assert.equal(app.h.tabWrites, before)
 })
 
 test('rail width updates locally during moves and persists only on pointerup', async () => {
@@ -346,9 +307,9 @@ test('clone deduplicates while cwd is pending and keeps the source shell without
     { id: 'source-1', title: 'First', shellId: 'pwsh', startupCommand: 'claude --continue' },
     { id: 'source-2', title: 'Second' }
   ])
-  const source = walk(app.tree, (node) => node.props?.['data-tabid'] === 'source-1')
-  source.props.onDoubleClick()
-  source.props.onDoubleClick()
+  const rail = walk(app.tree, (node) => node.type === 'TabRail').props
+  rail.onClone('source-1')
+  rail.onClone('source-1')
   assert.deepEqual(app.cwdRequests.map((request) => request.id), ['source-1'])
   app.cwdRequests[0].resolve('C:\\work')
   await Promise.resolve()
@@ -361,14 +322,45 @@ test('clone deduplicates while cwd is pending and keeps the source shell without
 
 test('clone ignores a late cwd reply after source close, even before React renders the close', async () => {
   const app = await setupApp()
-  const source = walk(app.tree, (node) => node.props?.['data-tabid'] === 'tab-1')
-  source.props.onDoubleClick()
-  const close = walk(source, (node) => node.props?.['aria-label'] === 'CloseTab')
-  close.props.onClick({ stopPropagation() {} })
+  const rail = walk(app.tree, (node) => node.type === 'TabRail').props
+  rail.onClone('tab-1')
+  rail.onClose('tab-1')
   app.cwdRequests[0].resolve('C:\\work')
   await Promise.resolve()
   app.flush()
   assert.deepEqual(app.h.tabs.map((tab) => tab.id), ['tab-2'])
+})
+
+test('closing the active tab activates its neighbour, not the last tab', async () => {
+  const app = await setupApp([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }])
+  const rail = () => walk(app.tree, (node) => node.type === 'TabRail').props
+  rail().onSwitch('b')
+  app.flush()
+  assert.equal(rail().activeId, 'b')
+  rail().onClose('b')
+  app.flush()
+  assert.equal(rail().activeId, 'c')
+  rail().onSwitch('d')
+  app.flush()
+  rail().onClose('d')
+  app.flush()
+  assert.equal(rail().activeId, 'c')
+  // A background tab closing leaves the active one alone.
+  rail().onClose('a')
+  app.flush()
+  assert.equal(rail().activeId, 'c')
+  assert.deepEqual(app.h.tabs.map((tab) => tab.id), ['c'])
+})
+
+test('rail moves go through one stable callback and reorder tabs', async () => {
+  const app = await setupApp([{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+  const rail = walk(app.tree, (node) => node.type === 'TabRail').props
+  rail.onMove(0, 2)
+  app.flush()
+  assert.deepEqual(app.h.tabs.map((tab) => tab.id), ['b', 'c', 'a'])
+  const again = walk(app.tree, (node) => node.type === 'TabRail').props
+  assert.equal(again.onSwitch === rail.onSwitch, true)
+  assert.equal(again.onMove === rail.onMove, true)
 })
 
 test('failed external link uses the existing notice toast in both UI languages', async () => {

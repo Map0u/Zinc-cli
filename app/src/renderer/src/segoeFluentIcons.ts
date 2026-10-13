@@ -32,5 +32,13 @@ export const SegoeIcon = {
   /** Settings category: About (E946, Info) — new 0.2.0 category, no old-app equivalent to copy from. */
   About: "",
   /** Update available badge (E895, Download) — rail indicator when a newer release is known. */
-  Update: "\uE895"
+  Update: "\uE895",
+  /** Tab activity: working (E72C, Refresh), spun by CSS in the rail. */
+  TabWorking: "\uE72C",
+  /** Tab activity: waiting on the user (E7BA, Warning). */
+  TabWaiting: "\uE7BA",
+  /** Tab activity: a turn finished and has not been seen (E73E, CheckMark). */
+  TabDone: "\uE73E",
+  /** Tab activity: failed (EA39, ErrorBadge). */
+  TabError: "\uEA39"
 } as const

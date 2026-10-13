@@ -30,6 +30,7 @@
    the same control template falls back to for its non-gradient edges. */
 @theme {
   --color-accent: #3f7fbf;
+  --color-danger: #e5786d;
   --color-card-bg: rgba(255, 255, 255, 0.051);
   --color-card-border: rgba(0, 0, 0, 0.098);
   --color-text-secondary: rgba(255, 255, 255, 0.773);
@@ -65,6 +66,7 @@
    inverted counterpart; nothing here is scoped to the terminal, this is
    chrome-only (rail/settings/status bar). */
 :root[data-theme='light'] {
+    --color-danger: #c4382c;
     --color-card-bg: rgba(0, 0, 0, 0.035);
     --color-card-border: rgba(0, 0, 0, 0.12);
     --color-text-secondary: rgba(0, 0, 0, 0.72);
@@ -186,8 +188,8 @@
 }
 
 /*
-  Vertical tab rail reorder — smooth dnd-kit-style model (see App.tsx):
-    - tabs[] frozen until drop (no live remount flicker between rows)
+  Vertical tab rail reorder — smooth dnd-kit-style model (see tabs/tabRailDrag.ts):
+    - tab order frozen until drop (no live remount flicker between rows)
     - source stays in flow at opacity 0; body-level ghost is position:fixed
     - siblings only translateY with hysteresis on dropIndex
     - drop target: accent insertion line (VS Code / Finder style) + soft glow
@@ -276,6 +278,33 @@
   .tab-rail-list[data-dragging='true'] [role='tab']:not([data-dragging='true']),
   .tab-rail-drop-line[data-active='true'] {
     transition: none;
+  }
+}
+
+/* Keep a little air when scrollIntoView({ block: 'nearest' }) lands a row at the list edge. */
+.tab-rail-list [role='tab'] {
+  scroll-margin-block: 4px;
+}
+
+/* Rail activity slot: a working tab's glyph turns; reduced motion leaves it still (its glyph already differs from every other state). */
+.tab-rail-activity-working {
+  display: inline-block;
+  animation: tab-rail-spin 1s linear infinite;
+}
+
+.tab-rail-activity-error {
+  color: var(--color-danger);
+}
+
+@keyframes tab-rail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-rail-activity-working {
+    animation: none;
   }
 }
 
