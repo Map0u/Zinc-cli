@@ -10,7 +10,9 @@ builds made from it. Modified distributions may behave differently.
 Zinc uses Electron's per-user `userData` directory to store:
 
 - application settings;
-- session-restore metadata, including tab order and working directories;
+- session-restore metadata, including tab order, working directories, and tab group
+  names, membership, and collapsed state (an automatically made group is named after
+  the project folder it was made for);
 - clipboard images pasted into a terminal, under a `PastedImages` directory,
   only in the fallback case described below.
 
@@ -38,6 +40,15 @@ which working directory to restore. Tab-list changes rewrite the local snapshot
 without repeating that process-tree scan. The inspection is local and does not
 upload results. Turning off session restore or AI conversation resume reduces
 what is recorded.
+
+## Project folder detection for tab groups
+
+To group tabs by project, Zinc reads the working directory of each tab (the shell
+reports it, or Zinc reads it from the running process) and looks for a `.git` entry
+in that folder and its parents on the local disk. Nothing is run and nothing leaves
+the machine. The resulting folder path and name are kept in memory and, for groups,
+in the local session state described above. The setting "Group tabs by project" turns
+automatic grouping off.
 
 ## Network Activity
 

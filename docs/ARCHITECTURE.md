@@ -44,11 +44,57 @@ parser and state machine live in `app/src/main/pty/activityTracker.ts`:
   tool has been gone for more than 5 s falls back to `shell`.
 - `done` stays until the renderer calls `window.zinc.pty.markActivitySeen(id)`.
 
+## Tab Groups and Automatic Grouping
+
+The rail keeps one flat `tabs` array (the visual order, `app/src/renderer/src/tabs/`)
+and a small `groups` array; a tab joins a group through `groupId`. Every change goes
+through the pure `normalizeRail` (`tabGroups.ts`), which enforces the invariants:
+members of a group are contiguous, every `groupId` names a group and an empty group
+is gone, a group with one tab survives only if the user touched it (it has a `name`,
+or is no longer `auto`), groups are ordered by their first member, and normalizing
+is idempotent and never reorders what it does not have to move. A tab the user placed
+(drag, "New group with this tab", Add/Remove from group, Alt+Up/Down) carries
+`manual`.
+
+Automatic grouping is the pure `autoGroupRail(state, contexts, options)` in the same
+file. Its key is the tab's `TabContext.projectRoot` (main's `ProjectRoot`: the git
+work tree, else the folder itself, never home / a drive root / Desktop / Downloads /
+Documents), folded the same way main folds it (case-insensitive, one separator, no
+trailing separator). Rules:
+
+- Eligible tabs are not `manual` and are ungrouped or in an `auto` group; a tab with
+  no context yet or no project root is never touched.
+- A bucket of tabs with one key joins the group that already carries that key (id,
+  collapsed state and name are kept), otherwise two or more tabs create exactly one
+  `auto` group with that `key` and a `title` (the project folder name, kept apart
+  from the user's `name` so an auto-titled group is not "touched"). A tab whose key
+  changed leaves its old group; the normalizer dissolves a group left with one
+  untouched tab.
+- A user-named group is never dissolved, renamed or emptied. Renaming an auto group
+  makes it permanent (`auto: false`) but keeps its `key`, and a keyed user-named
+  group still takes same-key tabs while it holds a tab the user did not place.
+- Automation never sets `manual`. The tab menu's "Group automatically" clears it.
+
+The driver is in `App.tsx`: any change in the per-tab context store pokes a
+scheduler (`autoGroupSchedule.ts`) that evaluates after 1.5 s of quiet, at most 4 s
+into a continuous stream of changes, once more after the restored session settles,
+and whenever the `AutoGroupTabs` setting (default on) is switched on. A run is
+postponed (retried every 300 ms) while a drag is up or a rename input or a context
+menu is open. Rows that automation moves glide with a transform-only FLIP (`railFlip.ts`,
+Web Animations, 160 ms, the rail's existing curve; a new group header fades in over
+220 ms); it is skipped under `prefers-reduced-motion` and never runs for a drag.
+
+Group names, titles, keys, membership, collapsed state and the `manual` flag live in
+`session-state.json` (`Groups[]`, `Tabs[].GroupId`, `Tabs[].Pinned`); all of it is
+optional, so files written before tab groups still load and older releases ignore
+the extra fields. Tabs are still restored by index.
+
 ## Local Persistence
 
 `SettingsService` stores normalized settings in Electron's per-user `userData`
 directory. `SessionStateService` stores tab order, active tab, working
-directories, and last-seen AI CLI metadata for optional restore. The snapshot
+directories, tab group names, membership and collapsed state, and last-seen AI CLI
+metadata for optional restore. The snapshot
 is rewritten on a short running-app interval, after tab-list changes, and on
 quit, so a crash or power loss does not depend on a clean `before-quit`.
 Clipboard images are pasted straight to a native AI CLI by default (main types

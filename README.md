@@ -28,6 +28,7 @@ Zinc is built on a clear set of principles:
 ## Key Features
 
 *   **Vertical Tab Bar:** Manage many sessions with full names visible—no guessing behind ellipses.
+*   **Tab Groups:** Sessions working in the same project folder group themselves, with a status icon per session and a summary on the collapsed group. Drag tabs or whole groups, name or collapse them; anything you place yourself is never moved again (switch it off in Settings).
 *   **Automatic Shell Detection:** PowerShell 7, Windows PowerShell, CMD, Git Bash, and installed WSL distributions.
 *   **Modern Aesthetics:** Frameless Acrylic-style chrome, themes, and opacity controls.
 *   **Deep Customization:** Fonts, colors, shortcuts, zoom, scrollback, and more.
