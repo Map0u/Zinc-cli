@@ -1,7 +1,7 @@
 import type { Socket } from "node:net";
 import { Worker } from "node:worker_threads";
-import { getRelayPipeName } from "./conoutRelayProtocol";
-import type { ConoutRelayReply, ConoutRelayRequest } from "./conoutRelayProtocol";
+import { getPumpPipeName } from "./conoutPumpProtocol";
+import type { ConoutPumpReply, ConoutPumpRequest } from "./conoutPumpProtocol";
 
 /** node-pty's own value (`windowsConoutConnection.js`): how long to keep draining after the shell exits. */
 const FLUSH_DATA_INTERVAL = 1000;
@@ -12,7 +12,7 @@ const FLUSH_DATA_INTERVAL = 1000;
  * working set. The worker is started with the first tab and terminated when the
  * last one closes.
  */
-export class ConoutRelayHost {
+export class ConoutPumpHost {
   private worker: Worker | null = null;
   private readonly ready = new Map<string, () => void>();
   private readonly open = new Set<string>();
@@ -22,13 +22,13 @@ export class ConoutRelayHost {
   attach(conoutPipeName: string, onReady: () => void): void {
     this.ready.set(conoutPipeName, onReady);
     this.open.add(conoutPipeName);
-    this.ensureWorker().postMessage({ type: "open", conoutPipeName } satisfies ConoutRelayRequest);
+    this.ensureWorker().postMessage({ type: "open", conoutPipeName } satisfies ConoutPumpRequest);
   }
 
   detach(conoutPipeName: string): void {
     this.ready.delete(conoutPipeName);
     if (!this.open.delete(conoutPipeName) || !this.worker) return;
-    this.worker.postMessage({ type: "close", conoutPipeName } satisfies ConoutRelayRequest);
+    this.worker.postMessage({ type: "close", conoutPipeName } satisfies ConoutPumpRequest);
     if (this.open.size === 0) {
       const worker = this.worker;
       this.worker = null;
@@ -39,17 +39,17 @@ export class ConoutRelayHost {
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
     const worker = new Worker(this.scriptPath);
-    worker.on("message", (message: ConoutRelayReply) => {
+    worker.on("message", (message: ConoutPumpReply) => {
       if (message.type === "ready") this.ready.get(message.conoutPipeName)?.();
     });
-    worker.on("error", (err) => console.error("[conout-relay]", err));
+    worker.on("error", (err) => console.error("[conout-pump]", err));
     // An unexpected exit takes every pipe it owned with it (ConPTY's conout pipe
     // cannot be reconnected). Forget them so they cannot pin the next worker open;
     // their tabs end the way a tab whose private worker died would.
     worker.on("exit", (code) => {
       if (this.worker !== worker) return;
       this.worker = null;
-      console.error(`[conout-relay] worker exited unexpectedly (code ${code}); ${this.open.size} pty pipe(s) lost`);
+      console.error(`[conout-pump] worker exited unexpectedly (code ${code}); ${this.open.size} pty pipe(s) lost`);
       this.open.clear();
       this.ready.clear();
     });
@@ -60,10 +60,10 @@ export class ConoutRelayHost {
 
 /**
  * Drop-in for node-pty's `ConoutConnection` (same constructor, `onReady`,
- * `connectSocket`, `dispose` and drain delay) that relays through the shared
+ * `connectSocket`, `dispose` and drain delay) that pumps through the shared
  * worker instead of a private one.
  */
-export function createSharedConoutConnection(host: ConoutRelayHost) {
+export function createSharedConoutConnection(host: ConoutPumpHost) {
   return class SharedConoutConnection {
     private isDisposed = false;
     private drainTimeout: NodeJS.Timeout | undefined;
@@ -92,9 +92,9 @@ export function createSharedConoutConnection(host: ConoutRelayHost) {
     }
 
     connectSocket(socket: Socket): void {
-      socket.connect(getRelayPipeName(this.conoutPipeName));
+      socket.connect(getPumpPipeName(this.conoutPipeName));
       // node-pty only disposes on kill(); a shell that exits by itself closes the
-      // socket and is never killed, so release the relay when the consumer is gone.
+      // socket and is never killed, so release the pump when the consumer is gone.
       socket.once("close", () => this.dispose());
     }
   };
@@ -113,7 +113,7 @@ interface ConoutModule {
 export function installSharedConout(
   mod: ConoutModule,
   scriptPath: string,
-): { installed: boolean; host?: ConoutRelayHost } {
+): { installed: boolean; host?: ConoutPumpHost } {
   const original = mod.ConoutConnection as { prototype?: Record<string, unknown> } | undefined;
   const proto = original?.prototype;
   const looksRight =
@@ -123,7 +123,7 @@ export function installSharedConout(
     typeof proto.dispose === "function" &&
     "onReady" in proto;
   if (!looksRight) return { installed: false };
-  const host = new ConoutRelayHost(scriptPath);
+  const host = new ConoutPumpHost(scriptPath);
   mod.ConoutConnection = createSharedConoutConnection(host);
   return { installed: true, host };
 }

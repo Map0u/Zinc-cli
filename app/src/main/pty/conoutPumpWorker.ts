@@ -1,8 +1,8 @@
 import { createServer, Socket } from "node:net";
 import type { Server } from "node:net";
 import { parentPort } from "node:worker_threads";
-import { getRelayPipeName } from "./conoutRelayProtocol";
-import type { ConoutRelayReply, ConoutRelayRequest } from "./conoutRelayProtocol";
+import { getPumpPipeName } from "./conoutPumpProtocol";
+import type { ConoutPumpReply, ConoutPumpRequest } from "./conoutPumpProtocol";
 
 /**
  * One worker thread that drains every tab's ConPTY conout pipe, replacing the
@@ -13,19 +13,19 @@ import type { ConoutRelayReply, ConoutRelayRequest } from "./conoutRelayProtocol
  * until conout is drained (node-pty#375), and the main thread is the one
  * calling it — so nothing here may ever wait on the main thread.
  */
-interface Relay {
+interface Pump {
   conout: Socket;
   server: Server;
   clients: Set<Socket>;
 }
 
-const relays = new Map<string, Relay>();
+const pumps = new Map<string, Pump>();
 
 // One tab's broken pipe must never take the other tabs' drain down with it.
-process.on("uncaughtException", (err) => console.error("[conout-relay]", err));
+process.on("uncaughtException", (err) => console.error("[conout-pump]", err));
 
 function open(conoutPipeName: string): void {
-  if (relays.has(conoutPipeName)) return;
+  if (pumps.has(conoutPipeName)) return;
   const conout = new Socket();
   conout.setEncoding("utf8");
   const clients = new Set<Socket>();
@@ -35,26 +35,26 @@ function open(conoutPipeName: string): void {
     client.on("error", () => client.destroy());
     conout.pipe(client);
   });
-  const relay: Relay = { conout, server, clients };
-  relays.set(conoutPipeName, relay);
+  const pump: Pump = { conout, server, clients };
+  pumps.set(conoutPipeName, pump);
   conout.on("error", () => close(conoutPipeName));
   server.on("error", () => close(conoutPipeName));
   conout.connect(conoutPipeName, () => {
-    server.listen(getRelayPipeName(conoutPipeName));
-    parentPort?.postMessage({ type: "ready", conoutPipeName } satisfies ConoutRelayReply);
+    server.listen(getPumpPipeName(conoutPipeName));
+    parentPort?.postMessage({ type: "ready", conoutPipeName } satisfies ConoutPumpReply);
   });
 }
 
 function close(conoutPipeName: string): void {
-  const relay = relays.get(conoutPipeName);
-  if (!relay) return;
-  relays.delete(conoutPipeName);
-  relay.conout.destroy();
-  for (const client of relay.clients) client.destroy();
-  relay.server.close();
+  const pump = pumps.get(conoutPipeName);
+  if (!pump) return;
+  pumps.delete(conoutPipeName);
+  pump.conout.destroy();
+  for (const client of pump.clients) client.destroy();
+  pump.server.close();
 }
 
-parentPort?.on("message", (message: ConoutRelayRequest) => {
+parentPort?.on("message", (message: ConoutPumpRequest) => {
   if (message.type === "open") open(message.conoutPipeName);
   else if (message.type === "close") close(message.conoutPipeName);
 });

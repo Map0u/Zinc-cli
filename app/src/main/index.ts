@@ -22,7 +22,7 @@ import { PtyManager } from "./pty/PtyManager";
 import { TabContextService } from "./services/TabContextService";
 import { createProjectRootResolver } from "./services/ProjectRoot";
 import { installSharedConout } from "./pty/sharedConout";
-import conoutRelayWorkerPath from "./pty/conoutRelayWorker?modulePath";
+import conoutPumpWorkerPath from "./pty/conoutPumpWorker?modulePath";
 import { SettingsService } from "./services/SettingsService";
 import { SessionStateService } from "./services/SessionStateService";
 import { ClaudeSessionBindings } from "./services/ClaudeSessionBindings";
@@ -483,7 +483,7 @@ settingsService.onChange((settings) => {
 // node-pty spawns a private Worker per PTY just to drain its conout pipe; share one.
 // Must run before the first spawn. Falls back to node-pty's own worker if its
 // internals are not the shape we expect.
-if (!installSharedConout(require("node-pty/lib/windowsConoutConnection"), conoutRelayWorkerPath).installed) {
+if (!installSharedConout(require("node-pty/lib/windowsConoutConnection"), conoutPumpWorkerPath).installed) {
   console.warn("[pty] node-pty ConoutConnection not recognised; keeping one worker per PTY");
 }
 

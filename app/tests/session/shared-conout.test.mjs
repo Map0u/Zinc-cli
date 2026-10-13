@@ -14,7 +14,7 @@ const bundle = (entry, name) => {
   buildSync({ entryPoints: [join(root, entry)], bundle: true, platform: 'node', format: 'cjs', outfile, logLevel: 'silent' })
   return outfile
 }
-const workerPath = bundle('src/main/pty/conoutRelayWorker.ts', 'conoutRelayWorker.cjs')
+const workerPath = bundle('src/main/pty/conoutPumpWorker.ts', 'conoutPumpWorker.cjs')
 const { installSharedConout } = await import(pathToFileURL(bundle('src/main/pty/sharedConout.ts', 'sharedConout.cjs')).href).then((m) => m.default ?? m)
 test.after(() => rmSync(outDir, { recursive: true, force: true }))
 
@@ -39,7 +39,7 @@ test('install swaps the export, and refuses a module that is not node-pty 1.1.0 
   assert.equal(installSharedConout({}, workerPath).installed, false)
 })
 
-test('one worker relays several conout pipes independently, then goes away with the last one', async () => {
+test('one worker pumps several conout pipes independently, then goes away with the last one', async () => {
   const mod = { ConoutConnection: FakeConnection }
   const { host } = installSharedConout(mod, workerPath)
   const sources = []
@@ -107,7 +107,7 @@ async function openTab(mod, tag) {
   await new Promise((resolve) => tab.conn.onReady(resolve))
   tab.conn.connectSocket(tab.socket)
   for (let i = 0; i < 50 && !tab.source; i++) await delay(20)
-  assert.ok(tab.source, 'the relay connected to the conout pipe')
+  assert.ok(tab.source, 'the pump connected to the conout pipe')
   return tab
 }
 const closeTab = (tab) => {
@@ -122,7 +122,7 @@ const cleanUp = (t, host, tabs) =>
     void host.worker?.terminate()
   })
 
-test('a shell that exits by itself (socket closed, never killed) releases its relay', async (t) => {
+test('a shell that exits by itself (socket closed, never killed) releases its pump', async (t) => {
   const mod = { ConoutConnection: FakeConnection }
   const { host } = installSharedConout(mod, workerPath)
   const tabs = []
