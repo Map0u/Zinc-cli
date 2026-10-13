@@ -5,9 +5,12 @@ import { homedir } from "node:os";
 import { MessageChannelMain } from "electron";
 import type { MessagePortMain, WebContents } from "electron";
 import type { PtyCreateOptions, PtyPortExitMessage } from "../../shared/ptyProtocol";
+import { TAB_ACTIVITY_CHANNEL } from "../../shared/tabActivity";
 import { getProcessCwd } from "../processCwd";
 import type { DiscoveredShell } from "../services/ShellDiscovery";
 import { buildIsolatedShellSpawn } from "../services/shellHistoryIsolation";
+import { createActivityTracker, createCoalescedEmitter } from "./activityTracker";
+import type { ActivityTracker, CoalescedEmitter } from "./activityTracker";
 import { createShellCwdReader } from "./shellCwdReport";
 
 interface Session {
@@ -31,6 +34,10 @@ interface Session {
   pendingBytes: number;
   /** Handle of the pending flush timer, or `null` when no flush is scheduled. Cleared on flush, exit, and kill. */
   flushTimer: ReturnType<typeof setTimeout> | null;
+  /** AI-CLI turn state for the tab rail, derived from the output stream, the exit code and `sweepActivity`. */
+  activity: ActivityTracker;
+  /** Coalesces `activity` changes into at most one `pty:activity` push per tab per ~100ms. */
+  activityEmitter: CoalescedEmitter;
 }
 
 /**
@@ -74,6 +81,8 @@ export class PtyManager {
     private readonly onSessionEnded: (id: string) => void = () => {},
     /** Called for every chunk of shell output so cwd / tool tracking can wake on activity instead of polling; `cwdReported` is true when the chunk carried a new prompt-reported cwd. */
     private readonly onOutput: (id: string, cwdReported: boolean) => void = () => {},
+    /** The `PreciseAiStatus` setting, read per spawn: a tab keeps the console host it was created with. */
+    private readonly preciseAiStatus: () => boolean = () => false,
   ) {}
 
   /** Spawns a shell for `id` and hands the renderer its output port. Replaces any existing session for the same id. */
@@ -110,13 +119,28 @@ export class PtyManager {
 
     // Spawn before replacing a healthy session: a missing executable or a
     // ConPTY creation error must not kill the still-working old terminal.
-    const proc = pty.spawn(shellProfile.command, args, {
-      name: "xterm-256color",
-      cols,
-      rows,
-      cwd,
-      env: ptyEnv,
-    });
+    // Precise AI status needs node-pty's bundled ConPTY: the system one answers
+    // Claude Code's device-attribute query itself, so Claude concludes the
+    // terminal has no status support before Zinc's reply can arrive. If the
+    // bundled host can not start, fall back to the system one (title-based status).
+    const spawnPty = (useConptyDll: boolean): pty.IPty =>
+      pty.spawn(shellProfile.command, args, {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd,
+        env: ptyEnv,
+        useConptyDll,
+      });
+    let precise = this.preciseAiStatus();
+    let proc: pty.IPty;
+    try {
+      proc = spawnPty(precise);
+    } catch (error) {
+      if (!precise) throw error;
+      precise = false;
+      proc = spawnPty(false);
+    }
 
     let port1: MessagePortMain | undefined;
     try {
@@ -124,6 +148,21 @@ export class PtyManager {
       port1 = channel.port1;
       port1.start();
       const mainPort = port1;
+
+      const activityEmitter = createCoalescedEmitter((state) => {
+        if (!sender.isDestroyed()) sender.send(TAB_ACTIVITY_CHANNEL, id, state);
+      });
+      const activity = createActivityTracker({
+        precise,
+        reply: (data) => {
+          try {
+            proc.write(data);
+          } catch {
+            // The process may have just exited.
+          }
+        },
+        onChange: activityEmitter.push,
+      });
 
       // Declared before either node-pty callback is registered (not after, as
       // this used to be for `onData`) so both closures can reference the same
@@ -142,6 +181,8 @@ export class PtyManager {
         pending: [],
         pendingBytes: 0,
         flushTimer: null,
+        activity,
+        activityEmitter,
       };
 
       // Concatenates and posts everything buffered since the last flush. A no-op
@@ -181,6 +222,7 @@ export class PtyManager {
         const reportedBefore = session.reportedCwd;
         recordCwd(data);
         this.onOutput(id, session.reportedCwd !== reportedBefore);
+        session.activity.feed(data);
         const buf = Buffer.from(data, "utf8");
         session.pending.push(buf);
         session.pendingBytes += buf.byteLength;
@@ -204,6 +246,8 @@ export class PtyManager {
         if (this.sessions.get(id) !== session) return;
         this.sessions.delete(id);
         this.onSessionEnded(id);
+        session.activity.exited(exitCode);
+        session.activityEmitter.flush();
         // Deliver any batched-but-unflushed output *before* closing the port and
         // sending `pty:exit`: exit travels a separate IPC channel from the data
         // port, so a still-buffered final frame would otherwise race behind the
@@ -315,6 +359,29 @@ export class PtyManager {
     }
   }
 
+  /** The user looked at the tab: a finished turn (`done`) stops asking for attention. */
+  markActivitySeen(id: string, senderId: number): void {
+    this.ownedSession(id, senderId)?.activity.markSeen();
+  }
+
+  /**
+   * Staleness pass for tabs whose AI CLI is mid-turn: a CLI that died without
+   * saying so (crash, kill) would otherwise leave the tab `working` forever.
+   * `isToolRunning` is only asked about such tabs, so an idle app does no work.
+   */
+  sweepActivity(isToolRunning: (id: string, shellPid: number) => boolean): void {
+    for (const [id, session] of this.sessions) {
+      if (!session.activity.needsStaleCheck()) continue;
+      let running = true;
+      try {
+        running = isToolRunning(id, session.proc.pid);
+      } catch {
+        // A failed process scan says nothing about the tool; try again next sweep.
+      }
+      session.activity.checkStale(running);
+    }
+  }
+
   /** Prompt-reported PowerShell cwd takes precedence over its stale PEB value. */
   getCwd(id: string, senderId: number): string | null {
     const session = this.ownedSession(id, senderId);
@@ -382,6 +449,7 @@ export class PtyManager {
     }
     session.pending = [];
     session.pendingBytes = 0;
+    session.activityEmitter.dispose();
     for (const disposable of session.disposables) {
       try {
         disposable.dispose();

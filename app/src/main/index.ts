@@ -494,6 +494,7 @@ const ptyManager = new PtyManager(
     tabContexts.drop(id);
   },
   (id, cwdReported) => tabContexts.noteOutput(id, cwdReported),
+  () => settingsService.get().PreciseAiStatus,
 );
 // Per-tab cwd / project / tool, pushed to the rail whenever one changes.
 function userFolders(): string[] {
@@ -583,6 +584,13 @@ ipcMain.on("pty:kill", (event: IpcMainEvent, id: string) => {
   ptyManager.kill(id, event.sender.id);
 });
 
+// The renderer reports that the user has looked at a tab, so its finished-turn
+// `done` activity can fade to `idle`.
+ipcMain.on("pty:activitySeen", (event: IpcMainEvent, id: string) => {
+  if (!isTrustedIpcSender(event) || typeof id !== "string") return;
+  ptyManager.markActivitySeen(id, event.sender.id);
+});
+
 ipcMain.handle("pty:getCwd", (event: IpcMainInvokeEvent, id: string) =>
   isTrustedIpcSender(event) ? ptyManager.getCwd(id, event.sender.id) : null,
 );
@@ -628,6 +636,16 @@ function detectForegroundTool(id: string, pid: number | null): AiCliTool | null 
   foregroundToolCache.set(id, { at: Date.now(), tool });
   return tool;
 }
+
+// Staleness sweep for the tab activity state: a tab shown as working/waiting
+// whose AI CLI is gone (crashed without a final report) falls back to a plain
+// shell. Only tabs in those states are checked, through the same cache and
+// process snapshot as the renderer's foreground-tool query.
+const ACTIVITY_SWEEP_MS = 2500;
+function isAiToolRunning(id: string, shellPid: number): boolean {
+  return detectForegroundTool(id, shellPid) !== null;
+}
+setInterval(() => ptyManager.sweepActivity(isAiToolRunning), ACTIVITY_SWEEP_MS).unref();
 
 ipcMain.handle(
   "pty:getForegroundTool",

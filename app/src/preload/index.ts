@@ -56,6 +56,8 @@ export interface ZincApi {
      * true. False means nothing was sent and the caller should fall back to `pasteImage`.
      */
     pasteImageToCli: (id: string) => Promise<boolean>
+    /** The user looked at the tab: a finished turn (`done`) goes back to `idle`. */
+    markActivitySeen: (id: string) => void
     /** Fires on every change of a tab's activity state (see shared/tabActivity.ts). Returns an unsubscribe function. */
     onActivity: (callback: (id: string, activity: TabActivity) => void) => () => void
     /** Fires whenever a tab's cwd / project root / foreground tool changes. Returns an unsubscribe function. */
@@ -170,6 +172,7 @@ const api: ZincApi = {
     getForegroundTool: (id) => ipcRenderer.invoke('pty:getForegroundTool', id),
     pasteImage: (id, data, mime) => ipcRenderer.send('pty:pasteImage', id, data, mime),
     pasteImageToCli: (id) => ipcRenderer.invoke('pty:pasteImageToCli', id),
+    markActivitySeen: (id) => ipcRenderer.send('pty:activitySeen', id),
     onActivity: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, id: string, activity: TabActivity): void => callback(id, activity)
       ipcRenderer.on(TAB_ACTIVITY_CHANNEL, listener)

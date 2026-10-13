@@ -24,6 +24,26 @@ xterm instances are managed outside React's render lifecycle so normal React
 updates do not recreate terminals or lose scrollback. PowerShell 7 is the
 first-class shell; alternative executables can be configured by the user.
 
+## Tab Activity
+
+`PtyManager` also derives a per-tab AI-CLI activity state
+(`shell | idle | working | waiting | done | error | exited`, see
+`app/src/shared/tabActivity.ts`) and pushes it to the renderer on
+`pty:activity`, at most once per ~100 ms per tab and only on change. The pure
+parser and state machine live in `app/src/main/pty/activityTracker.ts`:
+
+- Claude Code reports exact turn state over OSC 7501. It only does so after a
+  capability handshake (`OSC 7501;?`), which Zinc answers with a fixed string,
+  and only if the pty runs on node-pty's bundled ConPTY host (the system one
+  answers Claude's device-attribute query itself, so Claude gives up before
+  Zinc's reply arrives). The `PreciseAiStatus` setting switches new tabs to the
+  bundled host and enables the reply.
+- Without 7501, the title's first glyph is used: a four-point star is idle, a
+  spinner frame is working, and the star returning is a finished turn (`done`).
+- A pty exit is `exited` (code 0) or `error`; a working/waiting tab whose AI
+  tool has been gone for more than 5 s falls back to `shell`.
+- `done` stays until the renderer calls `window.zinc.pty.markActivitySeen(id)`.
+
 ## Local Persistence
 
 `SettingsService` stores normalized settings in Electron's per-user `userData`
