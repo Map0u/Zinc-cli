@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, type KeyboardEvent } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import { GroupHeader, type GroupHeaderHandlers } from './GroupHeader'
 import { TabRow, type TabRowHandlers } from './TabRow'
@@ -12,6 +12,7 @@ import {
 } from './tabGroups'
 import { cwdBasename } from './tabLabel'
 import { railEntryTarget, type RailNavKey } from './tabNav'
+import { captureRailPositions, playRailFlip } from './railFlip'
 import { RailDrag } from './tabRailDrag'
 import { useGroupOrdinals } from './tabStores'
 
@@ -39,11 +40,11 @@ export interface TabRailProps {
   onMoveGroup(id: string, before: string | null): void
   /** Alt+Up / Alt+Down on a tab or on a group header (`isGroup`). */
   onMoveStep(id: string, direction: -1 | 1, isGroup: boolean): void
-  onContextMenu(id: string, x: number, y: number, returnFocus: HTMLElement): void
+  onContextMenu(id: string, x: number, y: number): void
   onRenameCommit(id: string, raw: string): void
   onRenameCancel(): void
   onToggleGroup(id: string): void
-  onGroupContextMenu(id: string, x: number, y: number, returnFocus: HTMLElement): void
+  onGroupContextMenu(id: string, x: number, y: number): void
   onRenameGroup(id: string): void
   onGroupRenameCommit(id: string, raw: string): void
   onGroupRenameCancel(): void
@@ -51,9 +52,17 @@ export interface TabRailProps {
 
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'])
 
-/** Shown name of a group: the user's, else the project folder an auto group carries, else the placeholder. */
-function groupDisplayName(group: TabGroup, placeholder: string): string {
+/** What App can ask of the rail without it re-rendering: whether a drag is up, and a FLIP around an automatic change. */
+export interface TabRailHandle {
+  dragBusy(): boolean
+  /** Records where the rows are now; call the result right after the change has committed to glide them to their new places. */
+  captureFlip(): () => number
+}
+
+/** Shown name of a group: the user's, else the title automation gave it, else the project folder its key names, else the placeholder. */
+export function groupDisplayName(group: TabGroup, placeholder: string): string {
   if (group.name) return group.name
+  if (group.title) return group.title
   if (group.key) {
     const folder = cwdBasename(group.key)
     if (folder !== '') return folder
@@ -137,7 +146,7 @@ const GroupSection = memo(function GroupSection({
  * direct DOM writes (see RailDrag). Navigation works on ids over what is on
  * screen, never on DOM indexes.
  */
-export const TabRail = memo(function TabRail(props: TabRailProps) {
+export const TabRail = memo(forwardRef<TabRailHandle, TabRailProps>(function TabRail(props, ref) {
   const { t } = useI18n()
   const { tabs, groups, activeId, renamingId, renamingGroupId } = props
   const latest = useRef(props)
@@ -198,7 +207,7 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
       onContextMenu: (event, id) => {
         event.preventDefault()
         event.stopPropagation()
-        latest.current.onContextMenu(id, event.clientX, event.clientY, event.currentTarget)
+        latest.current.onContextMenu(id, event.clientX, event.clientY)
       },
       onKeyDown: (event, id) => {
         if (event.target !== event.currentTarget) return
@@ -222,7 +231,7 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
         if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
           event.preventDefault()
           const [x, y] = menuAnchor(event)
-          onContextMenu(id, x, y, event.currentTarget)
+          onContextMenu(id, x, y)
         }
       },
       onPointerDown: (event, id) => drag.pointerDown(event, id, 'tab'),
@@ -241,7 +250,7 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
       onContextMenu: (event, id) => {
         event.preventDefault()
         event.stopPropagation()
-        latest.current.onGroupContextMenu(id, event.clientX, event.clientY, event.currentTarget)
+        latest.current.onGroupContextMenu(id, event.clientX, event.clientY)
       },
       onKeyDown: (event, id) => {
         if (event.target !== event.currentTarget) return
@@ -270,7 +279,7 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
         if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
           event.preventDefault()
           const [x, y] = menuAnchor(event)
-          onGroupContextMenu(id, x, y, event.currentTarget)
+          onGroupContextMenu(id, x, y)
         }
       },
       onPointerDown: (event, id) => drag.pointerDown(event, id, 'group'),
@@ -290,6 +299,18 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
     }
     return { drag, rowHandlers, groupHandlers }
   }, [])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      dragBusy: () => drag.busy,
+      captureFlip: () => {
+        const first = captureRailPositions(listRef.current)
+        return () => playRailFlip(listRef.current, first)
+      }
+    }),
+    [drag]
+  )
 
   useEffect(() => {
     const cancel = (): void => drag.cancel()
@@ -372,4 +393,4 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
       </div>
     </div>
   )
-})
+}))

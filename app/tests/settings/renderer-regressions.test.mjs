@@ -27,6 +27,13 @@ async function loadComponent(path, mocks = {}) {
       export const jsx = (type, props) => ({ type, props: props ?? {} })
       export const jsxs = jsx
     `,
+    'react-dom': `export const flushSync = (fn) => { fn() }`,
+    // The scheduler is driven by hand: `run()` is the quiet period elapsing, `pokes` counts the changes it was told about.
+    './tabs/autoGroupSchedule': `
+      export const createAutoGroupScheduler = (run) => (globalThis.__zincTest.scheduler = {
+        run, pokes: 0, cancelled: 0, poke() { this.pokes++ }, cancel() { this.cancelled++ }
+      })
+    `,
     './terminal/TerminalHostRegistry': `export const terminalHostRegistry = globalThis.__zincTest.registry`,
     './settings/SettingsContext': `export const useSettings = () => globalThis.__zincTest.settings`,
     './i18n/I18nContext': `export const useI18n = () => ({ t: (key) => key, language: globalThis.__zincTest.language })`,
@@ -47,7 +54,10 @@ async function loadComponent(path, mocks = {}) {
       export const consumeShellFallbackNotice = () => false
     `,
     // The rail lives in its own module; App tests only look at the props it is handed.
-    './tabs/TabRail': `export const TabRail = 'TabRail'`,
+    './tabs/TabRail': `
+      export const TabRail = 'TabRail'
+      export const groupDisplayName = (group, placeholder) => group.name || group.title || placeholder
+    `,
     './tabs/tabNav': { file: join(root, 'src/renderer/src/tabs/tabNav.ts') },
     './tabs/tabGroups': { file: join(root, 'src/renderer/src/tabs/tabGroups.ts') },
     './tabs/tabLabel': { file: join(root, 'src/renderer/src/tabs/tabLabel.ts') },
@@ -55,7 +65,12 @@ async function loadComponent(path, mocks = {}) {
       const titles = globalThis.__zincTest.titles
       export const tabTitleStore = { get: (id) => titles.get(id), set: (id, title) => { titles.set(id, title) } }
       export const tabActivityStore = { set() {} }
-      export const tabContextStore = { set() {} }
+      const contexts = globalThis.__zincTest.contexts
+      export const tabContextStore = {
+        get: (id) => contexts.get(id),
+        set(id, value) { contexts.set(id, value); for (const listener of globalThis.__zincTest.contextListeners) listener() },
+        subscribeAll(listener) { globalThis.__zincTest.contextListeners.push(listener); return () => {} }
+      }
       export const attachTabStores = () => () => {}
       export const forgetTabValues = (id) => { titles.delete(id) }
     `,
@@ -165,7 +180,7 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }], groups = []) {
+async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }], groups = [], options = {}) {
   const h = hooks(tabs, groups)
   const events = new Map()
   const accentRequests = []
@@ -181,6 +196,9 @@ async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }], groups = []) 
     timers: [],
     mode: 'dark',
     titles: new Map(),
+    contexts: new Map(),
+    contextListeners: [],
+    scheduler: null,
     language: 'en',
     dropIndex: 1,
     settings: {
@@ -205,7 +223,7 @@ async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }], groups = []) 
         onStateChange: () => () => {},
         getAccentColor: () => { const request = deferred(); accentRequests.push(request); return request.promise }
       },
-      session: { getRestorePayload: () => new Promise(() => {}), pushSnapshot() {} },
+      session: { getRestorePayload: () => (options.ready ? Promise.resolve(null) : new Promise(() => {})), pushSnapshot() {} },
       pty: { getCwd(id) { const request = deferred(); cwdRequests.push({ id, ...request }); return request.promise } },
       app: { requestQuit() {} }
     },
@@ -219,6 +237,7 @@ async function setupApp(tabs = [{ id: 'tab-1' }, { id: 'tab-2' }], groups = []) 
     innerWidth: 900, innerHeight: 700
   }
   globalThis.requestAnimationFrame = window.requestAnimationFrame
+  globalThis.cancelAnimationFrame = () => {}
   globalThis.getComputedStyle = () => ({ backgroundColor: '#111' })
   globalThis.CSS = { escape: (id) => id }
   globalThis.document = {
@@ -486,4 +505,190 @@ test('two failed settings loads replace the splash with a retryable error screen
   } finally {
     console.error = previousError
   }
+})
+
+
+// ---------------------------------------------------------------------------
+// automatic grouping, driven through App with a hand-run scheduler
+
+const project = (root) => ({ cwd: root, projectRoot: root, projectName: root.split('\\').pop(), tool: null })
+
+async function readyApp(tabs, groups = [], on = true) {
+  const app = await setupApp(tabs, groups, { ready: true })
+  app.settings.AutoGroupTabs = on
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  app.render()
+  return app
+}
+
+const railProps = (app) => walk(app.tree, (node) => node.type === 'TabRail').props
+const menuItem = (app, label) =>
+  walk(app.tree, (node) => node.props?.children === label && typeof node.props?.onClick === 'function')
+
+test('auto-grouping: a context change pokes the scheduler, a run groups one project once and leaves the rest alone', async () => {
+  const app = await readyApp([{ id: 'tab-1' }, { id: 'tab-2' }, { id: 'tab-3' }, { id: 'tab-4' }])
+  const pokes = app.h.scheduler.pokes
+  app.h.contexts.set('tab-1', project('C:\\work\\alpha'))
+  app.h.contexts.set('tab-3', project('C:\\work\\alpha'))
+  app.h.contexts.set('tab-2', project('C:\\work\\beta'))
+  for (const listener of app.h.contextListeners) listener()
+  assert.equal(app.h.scheduler.pokes, pokes + 1)
+  assert.equal(app.h.groups.length, 0, 'nothing moves before the quiet period is over')
+  assert.equal(app.h.scheduler.run(), 'done')
+  app.flush()
+  assert.deepEqual(app.h.tabs.map((tab) => [tab.id, tab.groupId]), [
+    ['tab-1', 'grp-1'], ['tab-3', 'grp-1'], ['tab-2', undefined], ['tab-4', undefined]
+  ])
+  assert.deepEqual(app.h.groups, [{ id: 'grp-1', collapsed: false, auto: true, key: 'c:\\work\\alpha', title: 'alpha' }])
+  assert.ok(app.h.tabs.every((tab) => tab.manual === undefined))
+  // Settled: another run changes nothing, not even identities.
+  const settled = app.h.tabs
+  assert.equal(app.h.scheduler.run(), 'done')
+  app.flush()
+  assert.equal(app.h.tabs, settled)
+})
+
+test('auto-grouping: held back while a menu, a rename or a drag is up, then applied with a FLIP around it', async () => {
+  const app = await readyApp([{ id: 'tab-1' }, { id: 'tab-2' }, { id: 'tab-3' }])
+  app.h.contexts.set('tab-1', project('C:\\work\\alpha'))
+  app.h.contexts.set('tab-3', project('C:\\work\\alpha'))
+  // A context menu is open.
+  railProps(app).onContextMenu('tab-2', 10, 10)
+  app.flush()
+  assert.equal(app.h.scheduler.run(), 'blocked')
+  assert.equal(app.h.groups.length, 0)
+  app.events.get('keydown')({ key: 'Escape', preventDefault() {} })
+  app.flush()
+  // A drag is up.
+  const calls = []
+  let busy = true
+  railProps(app).ref.current = {
+    dragBusy: () => busy,
+    captureFlip: () => (calls.push('capture'), () => (calls.push('play'), 3))
+  }
+  assert.equal(app.h.scheduler.run(), 'blocked')
+  assert.equal(app.h.groups.length, 0)
+  busy = false
+  assert.equal(app.h.scheduler.run(), 'done')
+  app.flush()
+  assert.equal(app.h.groups.length, 1)
+  assert.deepEqual(calls, ['capture', 'play'])
+  // A rename input is open.
+  const renaming = await readyApp([{ id: 'tab-1' }, { id: 'tab-2' }])
+  renaming.h.contexts.set('tab-1', project('C:\\work\\alpha'))
+  renaming.h.contexts.set('tab-2', project('C:\\work\\alpha'))
+  railProps(renaming).onContextMenu('tab-1', 10, 10)
+  renaming.flush()
+  menuItem(renaming, 'RenameTab').props.onClick()
+  renaming.flush()
+  assert.equal(renaming.h.scheduler.run(), 'blocked')
+  railProps(renaming).onRenameCancel()
+  renaming.flush()
+  assert.equal(renaming.h.scheduler.run(), 'done')
+  renaming.flush()
+  assert.equal(renaming.h.groups.length, 1)
+})
+
+test('auto-grouping: off moves nothing, on evaluates again and does not clear manual', async () => {
+  const app = await readyApp([{ id: 'tab-1' }, { id: 'tab-2' }, { id: 'tab-3', manual: true }, { id: 'tab-4' }], [], false)
+  for (const id of ['tab-1', 'tab-2', 'tab-3', 'tab-4']) app.h.contexts.set(id, project('C:\\work\\alpha'))
+  assert.equal(app.h.scheduler.run(), 'done')
+  app.flush()
+  assert.equal(app.h.groups.length, 0, 'setting off: automation moves nothing')
+  const pokes = app.h.scheduler.pokes
+  app.settings.AutoGroupTabs = true
+  app.render()
+  assert.equal(app.h.scheduler.pokes, pokes + 1, 'turning it on asks for an evaluation')
+  assert.equal(app.h.scheduler.run(), 'done')
+  app.flush()
+  assert.deepEqual(app.h.tabs.map((tab) => [tab.id, tab.groupId, tab.manual]), [
+    ['tab-1', 'grp-1', undefined], ['tab-2', 'grp-1', undefined], ['tab-4', 'grp-1', undefined], ['tab-3', undefined, true]
+  ])
+})
+
+test('auto-grouping: "Group automatically" shows for a manual tab only while the setting is on, and hands the tab back', async () => {
+  const app = await readyApp([{ id: 'tab-1', manual: true }, { id: 'tab-2' }])
+  railProps(app).onContextMenu('tab-2', 10, 10)
+  app.flush()
+  assert.equal(menuItem(app, 'GroupAutomatically'), null, 'not for a tab automation already owns')
+  app.events.get('keydown')({ key: 'Escape', preventDefault() {} })
+  railProps(app).onContextMenu('tab-1', 10, 10)
+  app.flush()
+  const item = menuItem(app, 'GroupAutomatically')
+  assert.ok(item)
+  const pokes = app.h.scheduler.pokes
+  item.props.onClick()
+  app.flush()
+  assert.equal('manual' in app.h.tabs[0], false)
+  assert.equal(app.h.scheduler.pokes, pokes + 1)
+  // Off: the item is gone.
+  const off = await readyApp([{ id: 'tab-1', manual: true }, { id: 'tab-2' }], [], false)
+  railProps(off).onContextMenu('tab-1', 10, 10)
+  off.flush()
+  assert.equal(menuItem(off, 'GroupAutomatically'), null)
+})
+
+test('auto-grouping: an auto group without a name is offered in "Add to group" under its title', async () => {
+  const app = await readyApp([{ id: 'tab-1', groupId: 'g1' }, { id: 'tab-2', groupId: 'g1' }, { id: 'tab-3' }], [
+    group('g1', { auto: true, key: 'c:\\work\\alpha', title: 'Alpha' })
+  ])
+  railProps(app).onContextMenu('tab-3', 10, 10)
+  app.flush()
+  assert.ok(menuItem(app, 'Alpha'))
+})
+
+test('rename: an empty committed value clears the custom name and keeps the title', async () => {
+  const app = await readyApp(
+    [{ id: 'tab-1', groupId: 'g1' }, { id: 'tab-2', groupId: 'g1' }],
+    [group('g1', { name: 'Mine', title: 'Alpha', key: 'c:\\work\\alpha', auto: false })]
+  )
+  railProps(app).onGroupRenameCommit('g1', '')
+  app.flush()
+  assert.equal(app.h.groups[0].name, undefined)
+  assert.equal(app.h.groups[0].title, 'Alpha')
+  assert.equal(app.h.groups[0].auto, false, 'clearing a name does not hand the group back to automation')
+  railProps(app).onGroupRenameCommit('g1', 'Back end')
+  app.flush()
+  assert.equal(app.h.groups[0].name, 'Back end')
+  railProps(app).onGroupRenameCommit('g1', '   ')
+  app.flush()
+  assert.equal(app.h.groups[0].name, undefined)
+})
+
+test('focus returns by id after a menu action that replaces or removes the entry', async () => {
+  const app = await readyApp(
+    [{ id: 'tab-1', groupId: 'g1' }, { id: 'tab-2', groupId: 'g1' }, { id: 'tab-3' }],
+    [group('g1', { name: 'Mine' })]
+  )
+  const frames = []
+  globalThis.requestAnimationFrame = (fn) => frames.push(fn)
+  const focused = []
+  const nodes = new Map()
+  const node = (name) => ({ focus: () => focused.push(name) })
+  globalThis.document.querySelector = () => ({ querySelector: (selector) => nodes.get(selector) ?? null })
+  const runFrames = () => frames.splice(0).forEach((fn) => fn())
+
+  // Remove from group: the row is replaced by a new element under the top level.
+  nodes.set('[data-tabid="tab-1"]', node('old row'))
+  railProps(app).onContextMenu('tab-1', 10, 10)
+  app.flush()
+  menuItem(app, 'RemoveFromGroup').props.onClick()
+  app.flush()
+  nodes.set('[data-tabid="tab-1"]', node('new row'))
+  runFrames()
+  assert.deepEqual(focused, ['new row'])
+
+  // Ungroup from the header: the header is gone, focus falls back to the active tab's row.
+  focused.length = 0
+  nodes.clear()
+  nodes.set('[data-groupheader="g1"]', node('header'))
+  nodes.set('[data-tabid="tab-1"]', node('active row'))
+  railProps(app).onGroupContextMenu('g1', 10, 10)
+  app.flush()
+  assert.equal(railProps(app).activeId, 'tab-1')
+  menuItem(app, 'UngroupGroup').props.onClick()
+  app.flush()
+  nodes.delete('[data-groupheader="g1"]')
+  runFrames()
+  assert.deepEqual(focused, ['active row'])
 })

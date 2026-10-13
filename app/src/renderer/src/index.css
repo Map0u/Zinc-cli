@@ -354,7 +354,8 @@
   visibility: hidden;
 }
 
-.tab-rail-list[data-dragging='true'] .tab-rail-group-inner {
+.tab-rail-list[data-dragging='true'] .tab-rail-group-inner,
+.tab-rail-list[data-flipping='true'] .tab-rail-group-inner {
   overflow: visible;
 }
 

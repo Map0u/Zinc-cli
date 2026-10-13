@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode
 } from 'react'
+import { flushSync } from 'react-dom'
 import { terminalHostRegistry, type TerminalNotice } from './terminal/TerminalHostRegistry'
 import { useSettings } from './settings/SettingsContext'
 import { useI18n } from './i18n/I18nContext'
@@ -32,6 +33,7 @@ import type { ShortcutAction } from '../../shared/keybindings'
 import { MAX_GROUP_KEY_LENGTH, MAX_TAB_TITLE_LENGTH, type RestorePayload } from '../../shared/sessionState'
 import { moveItem } from './tabs/tabDragOrder'
 import {
+  autoGroupRail,
   createGroup,
   dissolveGroup,
   moveGroup,
@@ -44,12 +46,13 @@ import {
   revealTab,
   toggleCollapsed,
   ungroupTab,
+  type AutoGroupContext,
   type MoveTarget,
   type RailState,
   type TabGroup
 } from './tabs/tabGroups'
-import { TabRail } from './tabs/TabRail'
-import { cwdBasename } from './tabs/tabLabel'
+import { createAutoGroupScheduler, type AutoGroupScheduler } from './tabs/autoGroupSchedule'
+import { TabRail, groupDisplayName, type TabRailHandle } from './tabs/TabRail'
 import { attachTabStores, forgetTabValues, tabActivityStore, tabContextStore, tabTitleStore } from './tabs/tabStores'
 import { useUpdate } from './update/UpdateContext'
 import { UpdateDialog } from './update/UpdateDialog'
@@ -115,6 +118,11 @@ interface AddTabOptions {
   shellLabel?: string
   /** A duplicate lands right after its source and joins the source's group. */
   insertAfterId?: string
+}
+
+function withoutManual(tab: Tab): Tab {
+  const { manual: _manual, ...rest } = tab
+  return rest
 }
 
 /** One entry of the rail's context menus. */
@@ -184,7 +192,10 @@ export default function App() {
   const themeMode = useResolvedThemeMode(settings?.ThemePreference ?? 'auto')
   const [windowState, setWindowState] = useState(window.zinc.window.getStateSync())
   const tabContextMenuRef = useRef<HTMLDivElement | null>(null)
-  const tabContextMenuReturnFocusRef = useRef<HTMLElement | null>(null)
+  /** The entry a menu was opened from, by id: an action may replace its element, so focus looks it up again when it returns. */
+  const tabContextMenuReturnFocusRef = useRef<{ kind: 'tab' | 'group'; id: string } | null>(null)
+  const activeIdRef = useRef<string | null>(null)
+  activeIdRef.current = activeId
   const shellMenuRef = useRef<HTMLDivElement | null>(null)
   const shellMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
   /** Live width while the user drags the rail splitter (avoids waiting on settings round-trips). */
@@ -473,7 +484,8 @@ export default function App() {
     if (kind === 'tab') {
       const own = tabsRef.current.find((tab) => tab.id === id)?.groupId
       const others = groupsRef.current.filter((group) => group.id !== own).length
-      items = 3 + (own ? 1 : 0) + others
+      const manual = tabsRef.current.find((tab) => tab.id === id)?.manual === true && autoGroupOn
+      items = 3 + (own ? 1 : 0) + (manual ? 1 : 0) + others
       extras = 9 + (others > 0 ? 9 + 24 : 0)
     }
     setTabContextMenu({
@@ -484,24 +496,33 @@ export default function App() {
     })
   }
 
-  function showTabContextMenu(tabId: string, x: number, y: number, returnFocus: HTMLElement): void {
-    tabContextMenuReturnFocusRef.current = returnFocus
+  function showTabContextMenu(tabId: string, x: number, y: number): void {
+    tabContextMenuReturnFocusRef.current = { kind: 'tab', id: tabId }
     setActiveId(tabId)
     openRailMenu('tab', tabId, x, y)
   }
 
-  function showGroupContextMenu(groupId: string, x: number, y: number, returnFocus: HTMLElement): void {
-    tabContextMenuReturnFocusRef.current = returnFocus
+  function showGroupContextMenu(groupId: string, x: number, y: number): void {
+    tabContextMenuReturnFocusRef.current = { kind: 'group', id: groupId }
     openRailMenu('group', groupId, x, y)
   }
 
   function closeTabContextMenu(restoreFocus = false): void {
     setTabContextMenu(null)
     if (!restoreFocus) return
-    const returnFocus = tabContextMenuReturnFocusRef.current
-    requestAnimationFrame(() => {
-      if (returnFocus?.isConnected) returnFocus.focus()
-    })
+    const target = tabContextMenuReturnFocusRef.current
+    // Looked up after the commit: Add to group / Remove from group / Ungroup replace or remove the element the menu came from.
+    requestAnimationFrame(() => focusRailEntry(target))
+  }
+
+  /** Focus on a row or header by id, else on the active tab's row: focus must not fall out of the rail. */
+  function focusRailEntry(target: { kind: 'tab' | 'group'; id: string } | null): void {
+    const list = document.querySelector('[data-testid="tab-rail"] [role="tablist"]')
+    const find = (attribute: string, id: string): HTMLElement | null =>
+      list?.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(id)}"]`) ?? null
+    const entry = target && find(target.kind === 'tab' ? 'data-tabid' : 'data-groupheader', target.id)
+    const fallback = activeIdRef.current ? find('data-tabid', activeIdRef.current) : null
+    ;(entry ?? fallback)?.focus()
   }
 
   // Inline rename, not window.prompt: Electron never implemented prompt() —
@@ -557,9 +578,56 @@ export default function App() {
 
   function commitGroupRename(groupId: string, raw: string): void {
     setRenamingGroupId(null)
-    const clean = normalizeTabTitle(raw)
-    if (!clean) return
-    setRail((prev) => renameGroup(prev.tabs, prev.groups, groupId, clean))
+    // An empty value clears the custom name (the header falls back to its title); the header itself treats unchanged text as a cancel.
+    setRail((prev) => renameGroup(prev.tabs, prev.groups, groupId, normalizeTabTitle(raw) ?? ''))
+  }
+
+  // Automatic grouping (autoGroupRail in tabs/tabGroups.ts). Context changes poke a scheduler
+  // that waits for the rail to be quiet; a run is held back (and retried) while the user
+  // drags, renames or has a menu open, and the rows glide to their new places (FLIP).
+  const autoGroupOn = settings?.AutoGroupTabs ?? false
+  const railHandleRef = useRef<TabRailHandle | null>(null)
+  const autoGroupSchedulerRef = useRef<AutoGroupScheduler | null>(null)
+
+  function runAutoGroup(): 'done' | 'blocked' {
+    if (!autoGroupOn || !sessionReady) return 'done'
+    if (railHandleRef.current?.dragBusy() || renamingTabId !== null || renamingGroupId !== null || tabContextMenu !== null) {
+      return 'blocked'
+    }
+    const current: RailState<Tab> = { tabs: tabsRef.current, groups: groupsRef.current }
+    const contexts = new Map<string, AutoGroupContext>()
+    for (const tab of current.tabs) {
+      const context = tabContextStore.get(tab.id)
+      if (context) contexts.set(tab.id, context)
+    }
+    const next = autoGroupRail(current, contexts, { newGroupId: () => `grp-${nextGroupIdRef.current++}` })
+    if (next === current) return 'done'
+    const play = railHandleRef.current?.captureFlip()
+    flushSync(() => setRail((prev) => (prev.tabs === current.tabs && prev.groups === current.groups ? next : prev)))
+    play?.()
+    return 'done'
+  }
+  const runAutoGroupRef = useRef(runAutoGroup)
+  runAutoGroupRef.current = runAutoGroup
+  useEffect(() => {
+    const scheduler = createAutoGroupScheduler(() => runAutoGroupRef.current())
+    autoGroupSchedulerRef.current = scheduler
+    const off = tabContextStore.subscribeAll(() => scheduler.poke())
+    return () => {
+      off()
+      scheduler.cancel()
+      autoGroupSchedulerRef.current = null
+    }
+  }, [])
+  // Once the restored session has settled, and whenever the setting comes on: one evaluation.
+  useEffect(() => {
+    if (autoGroupOn && sessionReady) autoGroupSchedulerRef.current?.poke()
+  }, [autoGroupOn, sessionReady])
+
+  /** Hands a tab back to automation: it follows its project again after the usual quiet period. */
+  function groupAutomatically(tabId: string): void {
+    setTabs((prev) => prev.map((item) => (item.id === tabId && item.manual ? withoutManual(item) : item)))
+    autoGroupSchedulerRef.current?.poke()
   }
 
   // Auto-create the first tab once settings have loaded (so it spawns with
@@ -905,11 +973,11 @@ export default function App() {
       onMoveTab: (id, target) => railActionsRef.current.onMoveTab(id, target),
       onMoveGroup: (id, before) => railActionsRef.current.onMoveGroup(id, before),
       onMoveStep: (id, direction, isGroup) => railActionsRef.current.onMoveStep(id, direction, isGroup),
-      onContextMenu: (id, x, y, el) => railActionsRef.current.onContextMenu(id, x, y, el),
+      onContextMenu: (id, x, y) => railActionsRef.current.onContextMenu(id, x, y),
       onRenameCommit: (id, raw) => railActionsRef.current.onRenameCommit(id, raw),
       onRenameCancel: () => railActionsRef.current.onRenameCancel(),
       onToggleGroup: (id) => railActionsRef.current.onToggleGroup(id),
-      onGroupContextMenu: (id, x, y, el) => railActionsRef.current.onGroupContextMenu(id, x, y, el),
+      onGroupContextMenu: (id, x, y) => railActionsRef.current.onGroupContextMenu(id, x, y),
       onRenameGroup: (id) => railActionsRef.current.onRenameGroup(id),
       onGroupRenameCommit: (id, raw) => railActionsRef.current.onGroupRenameCommit(id, raw),
       onGroupRenameCancel: () => railActionsRef.current.onGroupRenameCancel()
@@ -1039,6 +1107,7 @@ export default function App() {
                 pinned at the rail foot. */}
             <div className="flex min-h-0 flex-1 flex-col">
               <TabRail
+                ref={railHandleRef}
                 tabs={tabs}
                 groups={groups}
                 activeId={activeId}
@@ -1251,6 +1320,16 @@ export default function App() {
                   {t('RemoveFromGroup')}
                 </MenuItem>
               )}
+              {menuTab?.manual && autoGroupOn && (
+                <MenuItem
+                  onClick={() => {
+                    closeTabContextMenu(true)
+                    groupAutomatically(tabContextMenu.id)
+                  }}
+                >
+                  {t('GroupAutomatically')}
+                </MenuItem>
+              )}
               {groups.some((group) => group.id !== menuTab?.groupId) && (
                 <>
                   <div role="separator" className="my-1 h-px bg-popup-border" />
@@ -1268,7 +1347,7 @@ export default function App() {
                           addToGroup(tabContextMenu.id, group.id)
                         }}
                       >
-                        {group.name || (group.key ? cwdBasename(group.key) : t('NewGroup'))}
+                        {groupDisplayName(group, t('NewGroup'))}
                       </MenuItem>
                     ))}
                 </>
