@@ -3,11 +3,16 @@
  * (every pwsh tab reports its exe path) or carries a status glyph (Claude
  * Code prefixes a spinner / ✳), so the label is picked in this order:
  * user rename → cleaned terminal title → cwd folder name → shell name.
+ *
+ * Inside a group the members share a project, so the folder name says nothing:
+ * user rename → cleaned title → cwd relative to the project root (when deeper)
+ * → tool name → shell name, and identical labels get an ordinal (see
+ * `groupOrdinals`). Ungrouped rows never take that path.
  */
 
 import type { TabActivityState } from '../../../shared/tabActivity'
 
-export type TabLabelSource = 'custom' | 'title' | 'cwd' | 'shell'
+export type TabLabelSource = 'custom' | 'title' | 'cwd' | 'tool' | 'shell'
 
 export interface TabLabelInput {
   customTitle?: string
@@ -15,6 +20,15 @@ export interface TabLabelInput {
   title?: string
   cwd?: string | null
   shellLabel?: string
+  /** Only read for a grouped row: the tab's own project root and foreground AI tool. */
+  projectRoot?: string | null
+  tool?: string | null
+}
+
+/** Present = the row sits inside a group. */
+export interface TabGroupContext {
+  /** The group's shown name; secondary text never repeats it. */
+  name: string
 }
 
 /** Tool shown as dim secondary text; keys match `TabContext['tool']`. */
@@ -60,18 +74,67 @@ export function cwdBasename(cwd: string): string {
   return drive ? drive[1] : cwd
 }
 
-export function resolveTabLabel(input: TabLabelInput): { label: string; source: TabLabelSource } {
+/**
+ * `cwd` below `root`, as a short forward-slash path (`src/main`, or `…/renderer/src`
+ * when deeper than two levels). Null when `cwd` is the root itself or is not under it.
+ */
+export function cwdRelativeToRoot(cwd: string, root: string): string | null {
+  const flat = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '')
+  const base = flat(root)
+  const here = flat(cwd)
+  if (base === '' || here.length <= base.length + 1) return null
+  if (here.slice(0, base.length + 1).toLowerCase() !== `${base.toLowerCase()}/`) return null
+  const parts = here.slice(base.length + 1).split('/').filter(Boolean)
+  if (parts.length === 0) return null
+  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : parts.join('/')
+}
+
+export function resolveTabLabel(
+  input: TabLabelInput,
+  group?: TabGroupContext
+): { label: string; source: TabLabelSource } {
   if (input.customTitle) return { label: input.customTitle, source: 'custom' }
   if (input.title && !isGenericShellTitle(input.title, input.shellLabel)) {
     const cleaned = stripStatusGlyph(input.title).trim()
-    const uninformative = STATUS_ONLY.test(cleaned) || (!!input.cwd && DEFAULT_AI_TITLES.has(cleaned.toLowerCase()))
+    const known = !!input.cwd || (!!group && !!input.tool)
+    const uninformative = STATUS_ONLY.test(cleaned) || (known && DEFAULT_AI_TITLES.has(cleaned.toLowerCase()))
     if (cleaned !== '' && !uninformative) return { label: cleaned, source: 'title' }
   }
+  if (!group) {
+    if (input.cwd) {
+      const name = cwdBasename(input.cwd)
+      if (name !== '') return { label: name, source: 'cwd' }
+    }
+    return { label: input.shellLabel || 'PowerShell', source: 'shell' }
+  }
   if (input.cwd) {
-    const name = cwdBasename(input.cwd)
+    const relative = input.projectRoot ? cwdRelativeToRoot(input.cwd, input.projectRoot) : null
+    if (relative) return { label: relative, source: 'cwd' }
+    // At the project root the folder is the project, which the group already names; elsewhere it still tells tabs apart.
+    const atRoot = !!input.projectRoot && cwdBasename(input.cwd).toLowerCase() === cwdBasename(input.projectRoot).toLowerCase()
+    const name = atRoot ? '' : cwdBasename(input.cwd)
     if (name !== '') return { label: name, source: 'cwd' }
   }
+  const tool = input.tool ? TOOL_NAMES[input.tool] : undefined
+  if (tool) return { label: tool, source: 'tool' }
   return { label: input.shellLabel || 'PowerShell', source: 'shell' }
+}
+
+/**
+ * Ordinal of each label among identical ones, in order: 1 for the first
+ * `Claude`, 2 for the next, … A row shows the ordinal only when it is above 1.
+ */
+export function groupOrdinals(labels: readonly string[]): number[] {
+  const seen = new Map<string, number>()
+  return labels.map((label) => {
+    const n = (seen.get(label) ?? 0) + 1
+    seen.set(label, n)
+    return n
+  })
+}
+
+export function withOrdinal(label: string, ordinal: number): string {
+  return ordinal > 1 ? `${label} ${ordinal}` : label
 }
 
 /**
@@ -87,20 +150,27 @@ export function showsPositionNumber(source: TabLabelSource, state: TabActivitySt
  * the project for a renamed / AI-titled tab, the project and tool for a tab
  * labelled by its folder. Never for the bare shell fallback.
  */
-export function tabSecondaryText(options: {
-  label: string
-  source: TabLabelSource
-  projectName?: string | null
-  tool?: string | null
-}): string | undefined {
+export function tabSecondaryText(
+  options: {
+    label: string
+    source: TabLabelSource
+    projectName?: string | null
+    tool?: string | null
+  },
+  group?: TabGroupContext
+): string | undefined {
   const { label, source } = options
   if (source === 'shell') return undefined
   const lowerLabel = label.toLowerCase()
   const project =
-    options.projectName && options.projectName.toLowerCase() !== lowerLabel ? options.projectName : undefined
+    options.projectName &&
+    options.projectName.toLowerCase() !== lowerLabel &&
+    options.projectName.toLowerCase() !== group?.name.toLowerCase()
+      ? options.projectName
+      : undefined
   const toolName = options.tool ? TOOL_NAMES[options.tool] : undefined
   const tool = toolName && !lowerLabel.includes(toolName.toLowerCase()) ? toolName : undefined
-  const parts = source === 'cwd' ? [project, tool] : [project ?? tool]
+  const parts = source === 'cwd' ? [project, tool] : source === 'tool' ? [project] : [project ?? tool]
   const text = parts.filter(Boolean).join(' \u00b7 ')
   return text === '' ? undefined : text
 }

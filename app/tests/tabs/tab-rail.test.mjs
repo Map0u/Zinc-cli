@@ -25,8 +25,18 @@ function load(file) {
   return module.exports
 }
 
-const { stripStatusGlyph, isGenericShellTitle, cwdBasename, resolveTabLabel, tabSecondaryText, showsPositionNumber } = load('tabLabel.ts')
-const { railNavTarget, activeAfterClose } = load('tabNav.ts')
+const {
+  stripStatusGlyph,
+  isGenericShellTitle,
+  cwdBasename,
+  cwdRelativeToRoot,
+  resolveTabLabel,
+  tabSecondaryText,
+  showsPositionNumber,
+  groupOrdinals,
+  withOrdinal
+} = load('tabLabel.ts')
+const { railNavTarget, railEntryTarget, activeAfterClose } = load('tabNav.ts')
 const { createKeyedStore } = load('keyedStore.ts')
 
 test('status glyphs and spinners are stripped from Claude-style titles, other titles are kept', () => {
@@ -144,4 +154,111 @@ test('keyed store notifies only the key that changed and skips equal writes', ()
   offA()
   store.set('a', { state: 'idle' })
   assert.equal(seen.a, 3)
+})
+
+// --- labels inside a group ---------------------------------------------------
+
+const inGroup = { name: 'Zinc' }
+const ROOT = 'C:\\Projects\\Zinc'
+
+test('cwdRelativeToRoot: below the root only, short forward-slash form, case-insensitive on Windows paths', () => {
+  assert.equal(cwdRelativeToRoot(ROOT + '\\src', ROOT), 'src')
+  assert.equal(cwdRelativeToRoot(ROOT + '\\src\\main', ROOT), 'src/main')
+  assert.equal(cwdRelativeToRoot(ROOT + '\\app\\src\\renderer\\src', ROOT), '\u2026/renderer/src')
+  assert.equal(cwdRelativeToRoot('e:/save/zinc/APP/', ROOT + '\\'), 'APP')
+  assert.equal(cwdRelativeToRoot(ROOT, ROOT), null)
+  assert.equal(cwdRelativeToRoot(ROOT + '\\', ROOT), null)
+  assert.equal(cwdRelativeToRoot('C:\\Projects\\ZincOther\\src', ROOT), null, 'a sibling that shares a prefix is not below the root')
+  assert.equal(cwdRelativeToRoot('D:\\elsewhere', ROOT), null)
+  assert.equal(cwdRelativeToRoot(ROOT + '\\src', ''), null)
+})
+
+test('group label chain: rename, informative title, relative cwd, tool, shell name', () => {
+  const base = { cwd: ROOT, projectRoot: ROOT, tool: 'claude', shellLabel: 'PowerShell' }
+  // 1. custom rename wins
+  assert.deepEqual(resolveTabLabel({ ...base, customTitle: 'build', title: 'Fix the rail' }, inGroup), { label: 'build', source: 'custom' })
+  // 2. a real topic from the terminal title
+  assert.deepEqual(resolveTabLabel({ ...base, title: '\u2733 Fix the rail' }, inGroup), { label: 'Fix the rail', source: 'title' })
+  // 3. cwd deeper than the project root
+  assert.deepEqual(resolveTabLabel({ ...base, cwd: ROOT + '\\src\\main', title: '\u2733 Claude Code' }, inGroup), { label: 'src/main', source: 'cwd' })
+  // 4. at the root with an AI tool: the tool name (a default AI title is no topic)
+  assert.deepEqual(resolveTabLabel({ ...base, title: '\u2733 Claude Code' }, inGroup), { label: 'Claude', source: 'tool' })
+  assert.deepEqual(resolveTabLabel({ ...base, title: '\u25d0' }, inGroup), { label: 'Claude', source: 'tool' })
+  assert.deepEqual(resolveTabLabel({ ...base, tool: 'codex', title: undefined }, inGroup), { label: 'Codex', source: 'tool' })
+  assert.deepEqual(resolveTabLabel({ ...base, tool: 'kimi' }, inGroup), { label: 'Kimi', source: 'tool' })
+  // 5. at the root without a tool: the shell's own name
+  assert.deepEqual(resolveTabLabel({ ...base, tool: null, title: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' }, inGroup), { label: 'PowerShell', source: 'shell' })
+  assert.deepEqual(resolveTabLabel({ cwd: ROOT, projectRoot: ROOT, shellLabel: 'Git Bash' }, inGroup), { label: 'Git Bash', source: 'shell' })
+})
+
+test('group label: a cwd outside the root (or with no root) still tells the tab apart by its folder', () => {
+  assert.deepEqual(resolveTabLabel({ cwd: 'D:\\other\\web', projectRoot: ROOT, tool: 'claude' }, inGroup), { label: 'web', source: 'cwd' })
+  assert.deepEqual(resolveTabLabel({ cwd: 'C:\\Users\\me', projectRoot: null, shellLabel: 'PowerShell' }, inGroup), { label: 'me', source: 'cwd' })
+  // Before any context arrives: nothing but the shell name (or the title).
+  assert.deepEqual(resolveTabLabel({ shellLabel: 'PowerShell' }, inGroup), { label: 'PowerShell', source: 'shell' })
+  assert.deepEqual(resolveTabLabel({ title: '\u2733 Claude Code', shellLabel: 'PowerShell' }, inGroup), { label: 'Claude Code', source: 'title' })
+})
+
+test('ungrouped rows ignore projectRoot / tool: the label chain is unchanged', () => {
+  assert.deepEqual(resolveTabLabel({ cwd: ROOT, projectRoot: ROOT, tool: 'claude', title: '\u2733 Claude Code' }), { label: 'Zinc', source: 'cwd' })
+  assert.deepEqual(resolveTabLabel({ cwd: ROOT + '\\src\\main', projectRoot: ROOT }), { label: 'main', source: 'cwd' })
+  assert.deepEqual(resolveTabLabel({ tool: 'claude', shellLabel: 'PowerShell' }), { label: 'PowerShell', source: 'shell' })
+})
+
+test('group secondary text never repeats the group name', () => {
+  const claudeAtRoot = { label: 'Claude', source: 'tool', projectName: 'Zinc', tool: 'claude' }
+  assert.equal(tabSecondaryText(claudeAtRoot, inGroup), undefined, 'the label is the tool, the project is the group')
+  assert.equal(tabSecondaryText(claudeAtRoot, { name: 'Work' }), 'Zinc', 'a differently named group keeps the project')
+  assert.equal(tabSecondaryText({ label: 'src/main', source: 'cwd', projectName: 'Zinc', tool: 'claude' }, inGroup), 'Claude')
+  assert.equal(tabSecondaryText({ label: 'src/main', source: 'cwd', projectName: 'Zinc', tool: 'claude' }, { name: 'zinc' }), 'Claude', 'case-insensitive')
+  assert.equal(tabSecondaryText({ label: 'Fix the rail', source: 'title', projectName: 'Zinc', tool: 'claude' }, inGroup), 'Claude')
+  assert.equal(tabSecondaryText({ label: 'Fix the rail', source: 'title', projectName: 'api', tool: 'claude' }, inGroup), 'api')
+  assert.equal(tabSecondaryText({ label: 'build', source: 'custom', projectName: 'Zinc', tool: null }, inGroup), undefined)
+  assert.equal(tabSecondaryText({ label: 'PowerShell', source: 'shell', projectName: 'Zinc', tool: null }, inGroup), undefined)
+  // Ungrouped behaviour is untouched.
+  assert.equal(tabSecondaryText({ label: 'Zinc', source: 'cwd', projectName: 'Zinc', tool: 'claude' }), 'Claude')
+  assert.equal(tabSecondaryText({ label: 'Fix', source: 'title', projectName: 'Zinc', tool: 'claude' }), 'Zinc')
+})
+
+test('groupOrdinals numbers identical labels in tab order; the first stays plain', () => {
+  assert.deepEqual(groupOrdinals([]), [])
+  assert.deepEqual(groupOrdinals(['Claude', 'Claude', 'src', 'Claude']), [1, 2, 1, 3])
+  assert.deepEqual(groupOrdinals(['a', 'b', 'c']), [1, 1, 1])
+  assert.deepEqual(groupOrdinals(['x', 'X']), [1, 1], 'labels are compared as written')
+  assert.equal(withOrdinal('Claude', 1), 'Claude')
+  assert.equal(withOrdinal('Claude', 2), 'Claude 2')
+  assert.equal(withOrdinal('Claude', 3), 'Claude 3')
+})
+
+test('a group of look-alike Claude tabs reads Claude, Claude 2, Claude 3 and keeps real topics', () => {
+  const members = [
+    { cwd: ROOT, projectRoot: ROOT, tool: 'claude', title: '\u2733 Claude Code' },
+    { cwd: ROOT, projectRoot: ROOT, tool: 'claude', title: '\u25d0' },
+    { cwd: ROOT + '\\app', projectRoot: ROOT, tool: 'claude', title: '\u2733 Claude Code' },
+    { cwd: ROOT, projectRoot: ROOT, tool: 'claude', title: '\u2733 Fix the rail' },
+    { cwd: ROOT, projectRoot: ROOT, tool: 'claude', title: '\u2733 Claude Code' }
+  ]
+  const labels = members.map((m) => resolveTabLabel(m, inGroup).label)
+  assert.deepEqual(labels, ['Claude', 'Claude', 'app', 'Fix the rail', 'Claude'])
+  assert.deepEqual(groupOrdinals(labels).map((n, i) => withOrdinal(labels[i], n)), ['Claude', 'Claude 2', 'app', 'Fix the rail', 'Claude 3'])
+})
+
+test('railEntryTarget walks tabs and group headers and wraps', () => {
+  const entries = [
+    { kind: 'tab', id: 'a' },
+    { kind: 'group', id: 'g1' },
+    { kind: 'group', id: 'g2' },
+    { kind: 'tab', id: 'd' }
+  ]
+  const at = (current, key) => railEntryTarget(entries, current, key)
+  assert.deepEqual(at({ kind: 'tab', id: 'a' }, 'ArrowDown'), { kind: 'group', id: 'g1' })
+  assert.deepEqual(at({ kind: 'group', id: 'g1' }, 'ArrowDown'), { kind: 'group', id: 'g2' })
+  assert.deepEqual(at({ kind: 'group', id: 'g2' }, 'ArrowUp'), { kind: 'group', id: 'g1' })
+  assert.deepEqual(at({ kind: 'tab', id: 'd' }, 'ArrowDown'), { kind: 'tab', id: 'a' })
+  assert.deepEqual(at({ kind: 'tab', id: 'a' }, 'ArrowUp'), { kind: 'tab', id: 'd' })
+  assert.deepEqual(at({ kind: 'group', id: 'g2' }, 'Home'), { kind: 'tab', id: 'a' })
+  assert.deepEqual(at({ kind: 'group', id: 'g1' }, 'End'), { kind: 'tab', id: 'd' })
+  // A tab and a group that share an id are different stops; an unknown stop has no target.
+  assert.equal(at({ kind: 'tab', id: 'g1' }, 'ArrowDown'), null)
+  assert.equal(railEntryTarget([], { kind: 'tab', id: 'a' }, 'Home'), null)
 })
