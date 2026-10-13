@@ -694,6 +694,13 @@ function TerminalSection() {
           onChange={(v) => updateImmediate({ PreciseAiStatus: v })}
         />
       </Card>
+      <Card title={t('CardAutoGroupTitle')} desc={t('CardAutoGroupDesc')}>
+        <Toggle
+          testId="setting-autoGroupTabs"
+          checked={settings.AutoGroupTabs}
+          onChange={(v) => updateImmediate({ AutoGroupTabs: v })}
+        />
+      </Card>
     </>
   )
 }

@@ -73,6 +73,12 @@ export interface ZincSettings {
    * console host it was created with, so a change applies to new tabs only.
    */
   PreciseAiStatus: boolean
+  /**
+   * Sessions in the same project folder (a git root, else the folder itself) are
+   * grouped in the tab rail automatically. A tab the user placed is never moved;
+   * off stops automation from moving anything, existing groups stay as they are.
+   */
+  AutoGroupTabs: boolean
   RestoreSessionsOnStartup: boolean
   /** When restoring tabs, auto-run claude/codex/grok resume commands if a tool was detected. */
   ResumeAiConversations: boolean

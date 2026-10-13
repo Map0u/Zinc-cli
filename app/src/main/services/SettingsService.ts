@@ -240,6 +240,7 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     GrokFullscreenSurfaceTint: normalizeBoolean(raw.GrokFullscreenSurfaceTint, base.GrokFullscreenSurfaceTint),
     ImagePaste: normalizeImagePasteMode(raw.ImagePaste, base.ImagePaste),
     PreciseAiStatus: normalizeBoolean(raw.PreciseAiStatus, base.PreciseAiStatus),
+    AutoGroupTabs: normalizeBoolean(raw.AutoGroupTabs, base.AutoGroupTabs),
     RestoreSessionsOnStartup: normalizeBoolean(raw.RestoreSessionsOnStartup, base.RestoreSessionsOnStartup),
     ResumeAiConversations: normalizeBoolean(raw.ResumeAiConversations, base.ResumeAiConversations),
     Language: normalizeLanguage(raw.Language, base.Language),
@@ -310,6 +311,8 @@ function defaultSettings(): ZincSettings {
     // On: the useConptyDll regression matrix (see docs) was green, and Claude Code's exact
     // working / waiting / done status needs it. Applies to tabs created after a change.
     PreciseAiStatus: true,
+    // On: grouping by project folder is the point of groups; the user's own placement always wins over it.
+    AutoGroupTabs: true,
     RestoreSessionsOnStartup: true,
     ResumeAiConversations: true,
     Language: 'auto',
