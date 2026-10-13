@@ -67,13 +67,17 @@ test('cwdBasename handles both slash styles, trailing separators, drive and UNC 
 test('label order: rename, cleaned title, cwd folder, shell name', () => {
   const exe = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
   assert.deepEqual(resolveTabLabel({ customTitle: 'build', title: 'x', cwd: 'E:\\a' }), { label: 'build', source: 'custom' })
-  assert.deepEqual(resolveTabLabel({ title: '\u2733 Claude Code', cwd: 'E:\\a' }), { label: 'Claude Code', source: 'title' })
+  assert.deepEqual(resolveTabLabel({ title: '\u2733 Fix the rail', cwd: 'E:\\a' }), { label: 'Fix the rail', source: 'title' })
+  // An AI CLI's default title says nothing the folder does not say better.
+  assert.deepEqual(resolveTabLabel({ title: '\u2733 Claude Code', cwd: 'E:\\a' }), { label: 'a', source: 'cwd' })
+  assert.deepEqual(resolveTabLabel({ title: '\u2733 Claude Code' }), { label: 'Claude Code', source: 'title' })
   assert.deepEqual(resolveTabLabel({ title: exe, cwd: 'C:\\Projects\\Zinc' }), { label: 'Zinc', source: 'cwd' })
   assert.deepEqual(resolveTabLabel({ title: exe, shellLabel: 'PowerShell 7' }), { label: 'PowerShell 7', source: 'shell' })
   assert.deepEqual(resolveTabLabel({ shellLabel: 'cmd' }), { label: 'cmd', source: 'shell' })
   assert.deepEqual(resolveTabLabel({}), { label: 'PowerShell', source: 'shell' })
-  // A title that is only a status glyph does not become an empty label.
-  assert.equal(resolveTabLabel({ title: '\u2733', cwd: 'E:\\a' }).label, '\u2733')
+  // A title that is only a status glyph (Claude's working title is a bare ◐ / ◑) never becomes the label.
+  assert.deepEqual(resolveTabLabel({ title: '\u25d0', cwd: 'E:\\a' }), { label: 'a', source: 'cwd' })
+  assert.deepEqual(resolveTabLabel({ title: '\u25d1', shellLabel: 'cmd' }), { label: 'cmd', source: 'shell' })
 })
 
 test('secondary text only says what the label does not', () => {

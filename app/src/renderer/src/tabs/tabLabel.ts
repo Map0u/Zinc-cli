@@ -25,6 +25,12 @@ const TOOL_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', g
 // (✳ ✻ ◐ ◑ ⠋ ● ✔ …); emoji live above U+FFFF and are deliberately kept.
 const LEADING_STATUS_GLYPH = /^(?:[\u2190-\u21ff\u2500-\u27bf\u2800-\u28ff\u2b00-\u2bff·•*][\ufe0e\ufe0f]?)\s+(?=\S)/u
 
+// A title made only of such marks: Claude's working title can be a bare ◐ / ◑.
+const STATUS_ONLY = /^[\u2190-\u21ff\u2500-\u27bf\u2800-\u28ff\u2b00-\u2bff·•*\ufe0e\ufe0f\s]+$/u
+
+/** What an AI CLI titles a tab before it has a topic; the folder name tells tabs apart better. */
+const DEFAULT_AI_TITLES = new Set(['claude code', 'claude', 'codex', 'grok', 'kimi'])
+
 /** Drops a leading spinner / status glyph and the space after it from a Claude-style title. */
 export function stripStatusGlyph(title: string): string {
   return title.replace(LEADING_STATUS_GLYPH, '')
@@ -58,7 +64,8 @@ export function resolveTabLabel(input: TabLabelInput): { label: string; source: 
   if (input.customTitle) return { label: input.customTitle, source: 'custom' }
   if (input.title && !isGenericShellTitle(input.title, input.shellLabel)) {
     const cleaned = stripStatusGlyph(input.title).trim()
-    if (cleaned !== '') return { label: cleaned, source: 'title' }
+    const uninformative = STATUS_ONLY.test(cleaned) || (!!input.cwd && DEFAULT_AI_TITLES.has(cleaned.toLowerCase()))
+    if (cleaned !== '' && !uninformative) return { label: cleaned, source: 'title' }
   }
   if (input.cwd) {
     const name = cwdBasename(input.cwd)
