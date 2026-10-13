@@ -35,6 +35,8 @@ export interface TabGroup {
   id: string
   /** Name the user gave the group. */
   name?: string
+  /** Display name automation filled in (the project folder); never counts as the user touching the group. */
+  title?: string
   collapsed: boolean
   /** Created by auto-grouping and never touched by the user. */
   auto: boolean
@@ -74,12 +76,21 @@ export type MoveTarget =
 
 function cleanGroup(group: TabGroup): TabGroup {
   const name = typeof group.name === 'string' && group.name.trim() !== '' ? group.name : undefined
+  const title = typeof group.title === 'string' && group.title.trim() !== '' ? group.title : undefined
   const key = typeof group.key === 'string' && group.key !== '' ? group.key : undefined
   const collapsed = group.collapsed === true
   const auto = group.auto === true
-  if (group.name === name && group.key === key && group.collapsed === collapsed && group.auto === auto) return group
+  if (
+    group.name === name &&
+    group.title === title &&
+    group.key === key &&
+    group.collapsed === collapsed &&
+    group.auto === auto
+  )
+    return group
   const clean: TabGroup = { id: group.id, collapsed, auto }
   if (name !== undefined) clean.name = name
+  if (title !== undefined) clean.title = title
   if (key !== undefined) clean.key = key
   return clean
 }
@@ -428,6 +439,7 @@ export function renameGroup<T extends RailTabBase>(
   const clean = cleanName(name)
   const next: TabGroup = { id: group.id, collapsed: group.collapsed, auto: clean === undefined ? group.auto : false }
   if (clean !== undefined) next.name = clean
+  if (group.title !== undefined) next.title = group.title
   if (group.key !== undefined) next.key = group.key
   if (next.name === group.name && next.auto === group.auto) return state
   return { tabs: state.tabs, groups: state.groups.map((candidate, i) => (i === index ? next : candidate)) }
@@ -506,4 +518,120 @@ export function moveGroupStep<T extends RailTabBase>(
   const before = items[direction < 0 ? index - 1 : index + 2]
   const beforeId = before === undefined ? null : before.kind === 'tab' ? before.tab.id : before.group.id
   return moveGroup(state.tabs, state.groups, groupId, beforeId)
+}
+
+// ---------------------------------------------------------------------------
+// auto-grouping
+
+/** What automation reads from a tab's context (a subset of `TabContext`). */
+export interface AutoGroupContext {
+  projectRoot: string | null
+  projectName: string | null
+}
+
+export interface AutoGroupOptions {
+  /** Mints the id of a group automation has to create; called only when one is needed. */
+  newGroupId(): string
+}
+
+/**
+ * The project key of a root: separators unified, case folded, trailing separators
+ * dropped (a drive root keeps its own). The same folding as main's ProjectRoot, so
+ * a key derived here agrees with the project root main computed.
+ */
+export function foldProjectKey(path: string): string {
+  const unified = path.replace(/\//g, '\\').toLowerCase()
+  return /^(?:[a-z]:\\|\\\\[^\\]+\\[^\\]+\\?)$/.test(unified) ? unified : unified.replace(/\\+$/, '')
+}
+
+/**
+ * Sessions in one project folder belong together, without anyone doing anything -
+ * but never rigidly. Pure; assigns and clears `groupId`s and lets `normalizeRail`
+ * do the placement (a group appears at its first member, the others are pulled
+ * next to it, nothing else moves) and the dissolving of a group left with one tab.
+ *
+ * - Eligible: a tab that is not `manual` and is ungrouped or in an `auto` group.
+ *   Eligible tabs whose context names a project root are bucketed by the folded
+ *   root. A tab with no context yet, or with no project root (home, a drive root),
+ *   is never touched - it stays wherever it is.
+ * - A bucket joins the group that already carries its key (an `auto` group, or a
+ *   user-named one - see below) and so keeps that group's id, collapsed state and
+ *   name. With no such group, two or more tabs make exactly one new `auto` group.
+ *   A lone tab with nowhere to go ends up ungrouped (it leaves its old auto group).
+ * - A user-named group is never renamed, dissolved or emptied by automation. One
+ *   that carries a `key` (a renamed auto group does) takes same-key eligible tabs
+ *   while it still holds a tab the user did not place; with only `manual` members
+ *   it is the user's arrangement and stays exactly as it is.
+ * - An auto group's `title` follows `projectName`. `manual` is never set.
+ *
+ * Idempotent; returns `state` itself when nothing changes.
+ */
+export function autoGroupRail<T extends RailTabBase>(
+  state: RailState<T>,
+  contexts: ReadonlyMap<string, AutoGroupContext>,
+  options: AutoGroupOptions
+): RailState<T> {
+  const { tabs, groups } = normalizeRail(state.tabs, state.groups)
+  const done = (): RailState<T> => (tabs === state.tabs && groups === state.groups ? state : { tabs, groups })
+  const byId = new Map(groups.map((group) => [group.id, group]))
+
+  // Who can take a bucket: the first group per key, a user-named one with a free member before an auto one.
+  const freeMembers = new Map<string, number>()
+  for (const tab of tabs) {
+    if (tab.groupId !== undefined && !tab.manual) freeMembers.set(tab.groupId, (freeMembers.get(tab.groupId) ?? 0) + 1)
+  }
+  const namedByKey = new Map<string, TabGroup>()
+  const autoByKey = new Map<string, TabGroup>()
+  for (const group of groups) {
+    if (group.key === undefined) continue
+    const key = foldProjectKey(group.key)
+    if (group.auto) {
+      if (!autoByKey.has(key)) autoByKey.set(key, group)
+    } else if ((freeMembers.get(group.id) ?? 0) > 0 && !namedByKey.has(key)) {
+      namedByKey.set(key, group)
+    }
+  }
+
+  const buckets = new Map<string, { members: T[]; name: string | null }>()
+  for (const tab of tabs) {
+    if (tab.manual) continue
+    const own = tab.groupId === undefined ? undefined : byId.get(tab.groupId)
+    if (own && !own.auto) continue
+    const context = contexts.get(tab.id)
+    if (!context || !context.projectRoot) continue
+    const key = foldProjectKey(context.projectRoot)
+    let bucket = buckets.get(key)
+    if (!bucket) buckets.set(key, (bucket = { members: [], name: null }))
+    bucket.members.push(tab)
+    if (bucket.name === null && context.projectName) bucket.name = context.projectName
+  }
+  if (buckets.size === 0) return done()
+
+  const assigned = new Map<T, string | undefined>()
+  const titles = new Map<string, string>()
+  const created: TabGroup[] = []
+  for (const [key, bucket] of buckets) {
+    let target = namedByKey.get(key) ?? autoByKey.get(key)
+    const title = bucket.name === null ? undefined : cleanName(bucket.name)
+    if (!target && bucket.members.length >= 2) {
+      let id = options.newGroupId()
+      while (byId.has(id)) id = options.newGroupId()
+      target = { id, collapsed: false, auto: true, key, ...(title !== undefined ? { title } : {}) }
+      byId.set(id, target)
+      created.push(target)
+    } else if (target && target.auto && title !== undefined && target.title !== title) {
+      titles.set(target.id, title)
+    }
+    for (const tab of bucket.members) assigned.set(tab, target?.id)
+  }
+
+  let nextTabs = tabs
+  assigned.forEach((groupId, tab) => {
+    if (tab.groupId === groupId) return
+    if (nextTabs === tabs) nextTabs = tabs.slice()
+    nextTabs[tabs.indexOf(tab)] = groupId === undefined ? withoutGroup(tab) : { ...tab, groupId }
+  })
+  const retitled = titles.size === 0 ? groups : groups.map((group) => (titles.has(group.id) ? { ...group, title: titles.get(group.id) } : group))
+  if (nextTabs === tabs && retitled === groups && created.length === 0) return done()
+  return normalizeRail(nextTabs, created.length === 0 ? retitled : [...retitled, ...created])
 }
