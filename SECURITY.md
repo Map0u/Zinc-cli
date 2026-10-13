@@ -38,7 +38,7 @@ permission to use.
 - release metadata, checksums, auto-update, and installer payload integrity;
 - preload APIs, IPC validation, context isolation, and navigation controls;
 - PTY input/output and command argument handling;
-- clipboard image persistence and local session/settings files;
+- clipboard image persistence (only when an image is not handed straight to an AI CLI) and local session/settings files;
 - external URL opening and dependency supply chain.
 
 Never commit secrets, signing material, private keys, real user configuration,

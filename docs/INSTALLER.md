@@ -69,7 +69,10 @@ that marker in `finally`. Packaged-app CDP data is isolated under the ignored
 Windows test account or disposable VM: it starts and stops Zinc processes and
 finishes with Zinc uninstalled.
 
-Pasted clipboard images are user data. Zinc accepts only supported image MIME
+By default a clipboard image goes straight to the foreground AI CLI, which
+reads the clipboard itself, and no file is written. Only in the fallback (a
+plain shell, WSL, or the Image paste setting set to file) is the image saved to
+`PastedImages`. Those files are user data. Zinc accepts only supported image MIME
 types with matching file structure, enforces a 25 MiB limit again in the main
 service, and removes regular files older than 30 days only from its own
 `PastedImages` directory at startup. Uninstall does not delete the rest of the

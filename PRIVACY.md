@@ -11,10 +11,17 @@ Zinc uses Electron's per-user `userData` directory to store:
 
 - application settings;
 - session-restore metadata, including tab order and working directories;
-- clipboard images pasted into a terminal, under a `PastedImages` directory.
+- clipboard images pasted into a terminal, under a `PastedImages` directory,
+  only in the fallback case described below.
 
-Pasted images are given an absolute local path that Zinc types into the active
-terminal. On startup, Zinc attempts to remove only regular files in its own
+By default, pressing Ctrl+V with only an image on the clipboard while an AI CLI
+(Claude Code, Codex, Kimi, Grok) is running natively makes Zinc type that CLI's
+own image-paste key, and the CLI reads the clipboard itself: Zinc does not
+read the image or write a file. In every other case (a plain shell, WSL, a
+failed lookup, or when the Image paste setting is set to save as a file), Zinc
+saves the image to `PastedImages` and types its absolute local path into the
+active terminal. Text on the clipboard is always pasted as text. On startup,
+Zinc attempts to remove only regular files in its own
 `PastedImages` directory that are more than 30 days old. Cleanup can be delayed
 if Zinc is not started or a file cannot be accessed. Uninstalling Zinc may
 preserve the whole user-data directory so a reinstall can retain settings.

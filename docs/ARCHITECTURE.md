@@ -31,7 +31,10 @@ directory. `SessionStateService` stores tab order, active tab, working
 directories, and last-seen AI CLI metadata for optional restore. The snapshot
 is rewritten on a short running-app interval, after tab-list changes, and on
 quit, so a crash or power loss does not depend on a clean `before-quit`.
-Clipboard images are saved under a local `PastedImages` directory. See
+Clipboard images are pasted straight to a native AI CLI by default (main types
+the CLI's image-paste key and the CLI reads the clipboard itself); only the
+fallback (plain shell, WSL, or the `ImagePaste: 'file'` setting) saves them
+under a local `PastedImages` directory. See
 [`../PRIVACY.md`](../PRIVACY.md).
 
 Zinc keeps a single-instance lock because settings and session state are not

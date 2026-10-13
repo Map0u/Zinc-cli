@@ -23,7 +23,7 @@ Zinc is built on a clear set of principles:
 
 *   **Simplicity by Design:** A terminal should be powerful yet uncluttered. Zinc ships the essentials and refuses the rest.
 *   **Aesthetic Integration:** A frameless Acrylic-style window and a vertical tab rail that feels at home on a modern Windows desktop.
-*   **Local-First Privacy:** Zero analytics telemetry. Settings, session metadata, and pasted images stay on your machine. Optional update checks contact GitHub Releases only.
+*   **Local-First Privacy:** Zero analytics telemetry. Settings and session metadata stay on your machine, and so do any pasted images Zinc has to save. Optional update checks contact GitHub Releases only.
 
 ## Key Features
 
@@ -34,7 +34,7 @@ Zinc is built on a clear set of principles:
 *   **Session Persistence:** Restore tab order and working directories after a restart.
 *   **Intelligent Interaction:**
     *   **Clickable Links:** Open URLs in your system browser.
-    *   **Image Paste:** Paste clipboard images as local paths into the active terminal.
+    *   **Image Paste:** Ctrl+V sends a clipboard image straight to Claude Code, Codex, Kimi, or Grok (the CLI reads the clipboard itself, no file is saved); in a plain shell, in WSL, or with the "Always save as a file" setting it pastes a local file path instead.
     *   **Continuation Assistance:** A local-only helper that can type `claude --continue` or `grok --continue` for you—no AI core, no upload of terminal content.
 *   **Optional Updates:** Quiet checks against GitHub Releases when enabled.
 *   **Multilingual UI:** English and Simplified Chinese.
@@ -68,7 +68,7 @@ To maintain its focus on being a lean and fast terminal, Zinc deliberately avoid
 Zinc is designed with your privacy as a top priority.
 
 *   **Zero Telemetry:** The application collects no analytics or usage data.
-*   **Local Data Storage:** All settings, session metadata, and pasted image data are stored exclusively on your local machine.
+*   **Local Data Storage:** All settings, session metadata, and any pasted image files (only written when an image is not handed straight to an AI CLI) are stored exclusively on your local machine.
 *   **Network Activity:**
     *   Zinc itself only connects to the internet to check for updates from the GitHub Releases API, an optional feature.
     *   The terminal subprocesses (e.g., PowerShell, WSL, curl) can access the network as they normally would.
