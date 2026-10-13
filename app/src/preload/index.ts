@@ -5,6 +5,7 @@ import type { UpdateState } from '../shared/updateProtocol'
 import type { RendererSessionSnapshot, RestorePayload } from '../shared/sessionState'
 import type { ShortcutAction } from '../shared/keybindings'
 import type { AiCliTool } from '../shared/aiCliTools'
+import { TAB_ACTIVITY_CHANNEL, type TabActivity } from '../shared/tabActivity'
 
 export interface ShellProfile {
   id: string
@@ -49,6 +50,8 @@ export interface ZincApi {
     getForegroundTool: (id: string) => Promise<AiCliTool | null>
     /** Saves a clipboard-pasted image's raw bytes and types its resolved path into the pty (parity §1.5). */
     pasteImage: (id: string, data: Uint8Array, mime: string) => void
+    /** Fires on every change of a tab's activity state (see shared/tabActivity.ts). Returns an unsubscribe function. */
+    onActivity: (callback: (id: string, activity: TabActivity) => void) => () => void
   }
   /** Pushed appearance settings (font/size/cursor/scrollback/opacity) — applies to every open terminal. Returns an unsubscribe function. */
   onTerminalOptions: (callback: (options: TerminalOptionsPush) => void) => () => void
@@ -157,7 +160,12 @@ const api: ZincApi = {
     },
     getCwd: (id) => ipcRenderer.invoke('pty:getCwd', id),
     getForegroundTool: (id) => ipcRenderer.invoke('pty:getForegroundTool', id),
-    pasteImage: (id, data, mime) => ipcRenderer.send('pty:pasteImage', id, data, mime)
+    pasteImage: (id, data, mime) => ipcRenderer.send('pty:pasteImage', id, data, mime),
+    onActivity: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, id: string, activity: TabActivity): void => callback(id, activity)
+      ipcRenderer.on(TAB_ACTIVITY_CHANNEL, listener)
+      return () => ipcRenderer.removeListener(TAB_ACTIVITY_CHANNEL, listener)
+    }
   },
   onTerminalOptions: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, options: TerminalOptionsPush): void => callback(options)
