@@ -1,84 +1,106 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
+import { TAB_DRAG_THRESHOLD_PX, ghostProbeY as ghostProbeYFrom, tabDragDistance } from './tabDragOrder'
 import {
-  TAB_DRAG_THRESHOLD_PX,
-  ghostProbeY as ghostProbeYFrom,
-  liveSlotCenters as liveSlotCentersFrom,
-  resolveDropIndex as resolveDropIndexFrom,
-  tabDragDistance,
-  tabDragShiftY
-} from './tabDragOrder'
+  dropLayout,
+  dropOutcome,
+  planGroupDrag,
+  planTabDrag,
+  resolveSlot,
+  type DragEntry,
+  type DropPlan,
+  type DropTarget
+} from './tabDropPlan'
 
 /** Matches index.css / chrome easing (dropdown + settings slide). */
 const TAB_MOTION_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)'
 const TAB_SETTLE_MS = 160
 /** Lift scale on the ghost (skipped under prefers-reduced-motion). */
 const TAB_DRAG_SCALE = 1.02
+/** The selected-row tint over the popup surface: the ghost stays readable over the rows it passes (a row or header has no paint of its own when it is not selected). */
+const GHOST_BACKGROUND = 'linear-gradient(var(--color-row-selected), var(--color-row-selected)), var(--color-popup-bg)'
 
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+/** What is being dragged: one tab row, or a group's header with all its members. */
+export type RailDragKind = 'tab' | 'group'
+
 /**
- * Pointer-capture session for rail tab reorder.
+ * Pointer-capture session for rail reorder: tab rows and whole groups.
  *
  * Smooth model (avoids between-row flicker):
  * - The tab order stays frozen until pointerup (no live reorder remounts).
- * - Source row stays in flow at opacity 0 (keeps its slot).
- * - A body-level ghost (cloneNode) is position:fixed and tracks the pointer in X/Y.
- * - dropIndex only moves sibling translateY (with midline hysteresis) - written
- *   straight to the rows' styles, so a drag never re-renders React.
+ * - Every visible entry (group headers and rows, not the members of a collapsed
+ *   group) is measured once when the drag starts; nothing is read from layout
+ *   after that, and nothing is hard-coded about row heights.
+ * - The source stays in flow at opacity 0 (a row, or the whole group block, which
+ *   keeps its slot). A body-level ghost (cloneNode) is position:fixed and tracks
+ *   the pointer in X/Y; for a group it is the header plus the member count.
+ * - The drop slot (tabDropPlan.ts) only moves translateY on the entries that slide
+ *   (with hysteresis) - written straight to their styles, so a drag never
+ *   re-renders React.
  * - Order commits once on drop, then the ghost settles into the target slot.
  */
-interface TabDragSession {
+interface DragSession {
   pointerId: number
-  tabId: string
-  fromIndex: number
-  dropIndex: number
+  kind: RailDragKind
+  id: string
   startX: number
   startY: number
   grabOffsetX: number
   grabOffsetY: number
   width: number
   height: number
+  /** Height the drop planner judges the ghost by: the row, or a group's whole block. */
+  probeHeight: number
   active: boolean
-  didReorder: boolean
   clientX: number
   clientY: number
   frame: number | null
   settling: boolean
   /** Fixed floating clone appended to document.body. */
   ghost: HTMLElement | null
-  /** Source row kept in flow (opacity 0) while the ghost is up. */
+  /** Kept in flow with opacity 0 while the ghost is up: the row, or the group's wrapper. */
   sourceEl: HTMLElement | null
-  /** Row elements in order, captured at drag start (the order is frozen during the drag). Rows of collapsed groups are not on screen and not in here. */
-  rows: HTMLElement[]
-  /** Every element that takes part in the shift - rows and group headers - in DOM order. */
-  els: HTMLElement[]
-  /** For each row, its index in `els`. */
-  rowEl: number[]
-  /** Top / bottom of each `els` entry in the scrolling stack's own coordinates, measured once at drag start. */
-  edgeTop: number[]
-  edgeBottom: number[]
-  /** Viewport Y of each row center at drag start (pre-shift). */
-  slotCenters: number[]
-  /** list.scrollTop when slotCenters were captured - adjust centers on scroll. */
+  /** The frozen layout's drop slots; null when there is nothing to move past. */
+  plan: DropPlan | null
+  slot: number
+  /** For each planned entry, the element that slides (null: the dragged ones, and members that slide with their group's wrapper). */
+  els: (HTMLElement | null)[]
+  /** The shift last written to each of `els`. */
+  applied: number[]
+  /** Top of the first entry: the origin of the drop line's coordinates in the scrolling stack. */
+  originY: number
+  /** list.scrollTop when the layout was measured - the frozen coordinates are adjusted by the scroll since. */
   baseScrollTop: number
+  /** The list's own top / bottom, for the edge auto-scroll. */
+  listTop: number
+  listBottom: number
+  /** The group wrapper that carries the "joins this group" accent right now. */
+  accentEl: HTMLElement | null
+  /** Group wrappers by id, for the accent. */
+  wrappers: Map<string, HTMLElement>
 }
 
 /** What the drag needs from the rail; read fresh on every use. */
 export interface RailDragHost {
   list(): HTMLElement | null
   dropLine(): HTMLElement | null
-  ids(): readonly string[]
   activeId(): string | null
-  isRenaming(id: string): boolean
+  isRenaming(kind: RailDragKind, id: string): boolean
   select(id: string): void
-  move(fromIndex: number, toIndex: number): void
+  /** A tab dropped on `target` (a different place than it came from). */
+  dropTab(id: string, target: DropTarget): void
+  /** A group dropped before the top-level unit `before` (a tab id or group id), or at the end when null. */
+  dropGroup(id: string, before: string | null): void
 }
 
 export class RailDrag {
-  private session: TabDragSession | null = null
+  private session: DragSession | null = null
   private clickSuppressed = false
+  /** A drag was cancelled with the button still down: the pointerup that ends the press is not a click. */
+  private swallowUp: number | null = null
 
   constructor(private readonly host: RailDragHost) {}
 
@@ -87,82 +109,91 @@ export class RailDrag {
     return this.session !== null
   }
 
-  /** True just after a drag ends: the click that follows pointerup must not select or clone. */
+  /** True just after a drag ends: the click that follows pointerup must not select, toggle or clone. */
   get suppressClick(): boolean {
     return this.clickSuppressed
+  }
+
+  private suppressNextClick(): void {
+    this.clickSuppressed = true
+    window.setTimeout(() => {
+      this.clickSuppressed = false
+    }, 0)
   }
 
   private rowElement(tabId: string): HTMLElement | null {
     return this.host.list()?.querySelector<HTMLElement>(`[data-tabid="${CSS.escape(tabId)}"]`) ?? null
   }
 
-  /** Slot centers in current viewport space (base capture + scroll delta only). */
-  private liveSlotCenters(session: TabDragSession): number[] {
-    const scrollTop = this.host.list()?.scrollTop ?? session.baseScrollTop
-    return liveSlotCentersFrom(session.slotCenters, session.baseScrollTop, scrollTop)
+  private headerElement(groupId: string): HTMLElement | null {
+    return this.host.list()?.querySelector<HTMLElement>(`[data-groupheader="${CSS.escape(groupId)}"]`) ?? null
   }
 
-  /** Ghost vertical center (users judge insertion by the floating row, not the cursor tip). */
-  private ghostProbeY(session: TabDragSession): number {
-    return ghostProbeYFrom(session.clientY, session.grabOffsetY, session.height)
-  }
-
-  /** Apply dropIndex change immediately (pointer path) - not only on the scroll rAF. */
-  private syncDropIndex(session: TabDragSession): void {
-    const nextDrop = resolveDropIndexFrom({
-      centers: this.liveSlotCenters(session),
-      fromIndex: session.fromIndex,
-      dropIndex: session.dropIndex,
-      probeY: this.ghostProbeY(session)
-    })
-    if (nextDrop === session.dropIndex) return
-    session.dropIndex = nextDrop
-    session.didReorder = nextDrop !== session.fromIndex
-    this.paintSiblings(session)
+  /** Pick the drop slot under the ghost (pointer path - not only the scroll rAF) and repaint when it changed. */
+  private syncSlot(session: DragSession): void {
+    const plan = session.plan
+    if (!plan) return
+    const scrolled = (this.host.list()?.scrollTop ?? session.baseScrollTop) - session.baseScrollTop
+    // The frozen coordinates are the viewport's at drag start: bring the ghost into them.
+    const probe = ghostProbeYFrom(session.clientY, session.grabOffsetY, session.probeHeight) + scrolled
+    const next = resolveSlot(plan, session.slot, probe)
+    if (next === session.slot) return
+    session.slot = next
+    this.paintSlot(session, plan)
   }
 
   /**
-   * Sibling shifts + insertion line, as direct style writes. Everything between
-   * the origin and the drop slot - group headers included - slides by the
-   * dragged row's own stride (every row is the same height), so a header between
-   * two rows moves with them. Interim: group-aware drop targets arrive with the
-   * variable-height rework.
+   * Slides, drop line and group accent for the current slot, as direct style
+   * writes. Whatever sits between the origin and the slot slides by the dragged
+   * thing's own height plus the gap.
    */
-  private paintSiblings(session: TabDragSession): void {
-    const fromEl = session.rowEl[session.fromIndex]
-    const dropEl = session.rowEl[session.dropIndex]
+  private paintSlot(session: DragSession, plan: DropPlan): void {
+    const draggedGroup = session.kind === 'group' ? session.id : plan.entries[plan.first].groupId
+    const layout = dropLayout(plan, session.slot, draggedGroup)
     session.els.forEach((el, index) => {
-      if (index === fromEl) return
-      const shiftY = tabDragShiftY(index, fromEl, dropEl)
-      el.style.transform = `translate3d(0, ${shiftY}px, 0)`
+      if (!el || session.applied[index] === layout.shifts[index]) return
+      session.applied[index] = layout.shifts[index]
+      el.style.transform = `translate3d(0, ${layout.shifts[index]}px, 0)`
     })
     const line = this.host.dropLine()
-    if (!line) return
-    if (session.fromIndex === session.dropIndex) {
-      line.removeAttribute('data-active')
-      return
+    if (line) {
+      if (layout.lineTop === null) {
+        line.removeAttribute('data-active')
+      } else {
+        line.style.top = `${layout.lineTop - session.originY}px`
+        if (layout.nested) line.dataset.nested = 'true'
+        else line.removeAttribute('data-nested')
+        line.dataset.active = 'true'
+      }
     }
-    // On the opened gap: above the slot's element when moving up, below it when moving down.
-    const lineTop = session.dropIndex < session.fromIndex ? session.edgeTop[dropEl] : session.edgeBottom[dropEl]
-    line.style.top = `${lineTop}px`
-    line.dataset.active = 'true'
+    const accentEl = layout.accent === null ? null : (session.wrappers.get(layout.accent) ?? null)
+    if (accentEl !== session.accentEl) {
+      session.accentEl?.removeAttribute('data-droptarget')
+      accentEl?.setAttribute('data-droptarget', 'true')
+      session.accentEl = accentEl
+    }
+    this.paintGhost(session)
   }
 
-  /** Idempotent: drops the list's drag state and every sibling's inline shift. */
-  private clearSiblings(session: TabDragSession): void {
+  /** Idempotent: drops the list's drag state, every entry's inline slide, the line and the accent. */
+  private clearSiblings(session: DragSession): void {
     this.host.list()?.removeAttribute('data-dragging')
     for (const el of session.els) {
+      if (!el) continue
       el.style.transform = ''
       el.style.willChange = ''
     }
+    session.accentEl?.removeAttribute('data-droptarget')
+    session.accentEl = null
     const line = this.host.dropLine()
     if (line) {
       line.removeAttribute('data-active')
+      line.removeAttribute('data-nested')
       line.style.top = ''
     }
   }
 
-  private paintGhost(session: TabDragSession): void {
+  private paintGhost(session: DragSession): void {
     const ghost = session.ghost
     if (!ghost) return
     const x = session.clientX - session.grabOffsetX
@@ -170,13 +201,15 @@ export class RailDrag {
     const scale = prefersReducedMotion() ? 1 : TAB_DRAG_SCALE
     ghost.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`
     // Accent ring when the drop slot is no longer the origin - pairs with the line.
-    ghost.dataset.docked = session.dropIndex !== session.fromIndex ? 'true' : 'false'
+    const plan = session.plan
+    ghost.dataset.docked = plan && dropOutcome(plan, session.slot) !== null ? 'true' : 'false'
   }
 
-  private mountGhost(session: TabDragSession, source: HTMLElement): void {
+  private mountGhost(session: DragSession, clone: HTMLElement, hide: HTMLElement): void {
     const reduced = prefersReducedMotion()
-    const ghost = source.cloneNode(true) as HTMLElement
+    const ghost = clone.cloneNode(true) as HTMLElement
     ghost.removeAttribute('data-tabid')
+    ghost.removeAttribute('data-groupheader')
     ghost.removeAttribute('role')
     ghost.removeAttribute('tabindex')
     ghost.removeAttribute('title')
@@ -185,6 +218,12 @@ export class RailDrag {
     // Strip interactive controls from the clone so it can't steal events.
     for (const node of ghost.querySelectorAll('button, input, a')) {
       node.remove()
+    }
+    // A group's ghost always shows how many tabs it carries.
+    const count = ghost.querySelector('[data-groupcount]')
+    if (count) {
+      count.classList.remove('hidden')
+      count.classList.add('flex')
     }
     ghost.style.position = 'fixed'
     ghost.style.left = '0'
@@ -202,22 +241,26 @@ export class RailDrag {
     ghost.style.boxSizing = 'border-box'
     ghost.style.cursor = 'grabbing'
     ghost.style.opacity = '1'
-    ghost.style.background = getComputedStyle(source).backgroundColor || 'var(--color-row-selected)'
+    ghost.style.background = GHOST_BACKGROUND
     ghost.style.boxShadow = reduced
       ? 'none'
       : '0 12px 32px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,255,255,0.07)'
     document.body.appendChild(ghost)
     session.ghost = ghost
+    this.hideSource(session, hide)
+    this.paintGhost(session)
+  }
+
+  /** Keeps the source's slot in flow but invisible and inert while the ghost stands in for it. */
+  private hideSource(session: DragSession, source: HTMLElement): void {
+    if (session.sourceEl && session.sourceEl !== source) this.showSource(session)
     session.sourceEl = source
     source.dataset.dragging = 'true'
     source.style.opacity = '0'
     source.style.pointerEvents = 'none'
-    this.paintGhost(session)
   }
 
-  private unmountGhost(session: TabDragSession): void {
-    session.ghost?.remove()
-    session.ghost = null
+  private showSource(session: DragSession): void {
     const source = session.sourceEl
     if (source) {
       source.removeAttribute('data-dragging')
@@ -227,18 +270,23 @@ export class RailDrag {
     session.sourceEl = null
   }
 
-  private autoScrollList(clientY: number): boolean {
+  private unmountGhost(session: DragSession): void {
+    session.ghost?.remove()
+    session.ghost = null
+    this.showSource(session)
+  }
+
+  private autoScrollList(session: DragSession): boolean {
     const list = this.host.list()
     if (!list) return false
-    const rect = list.getBoundingClientRect()
     const edge = 32
     const maxStep = 16
     let delta = 0
-    if (clientY < rect.top + edge) {
-      const t = (rect.top + edge - clientY) / edge
+    if (session.clientY < session.listTop + edge) {
+      const t = (session.listTop + edge - session.clientY) / edge
       delta = -Math.ceil(maxStep * Math.min(1, Math.max(0.2, t)))
-    } else if (clientY > rect.bottom - edge) {
-      const t = (clientY - (rect.bottom - edge)) / edge
+    } else if (session.clientY > session.listBottom - edge) {
+      const t = (session.clientY - (session.listBottom - edge)) / edge
       delta = Math.ceil(maxStep * Math.min(1, Math.max(0.2, t)))
     }
     if (delta === 0) return false
@@ -247,57 +295,51 @@ export class RailDrag {
     return list.scrollTop !== before
   }
 
-  /** rAF: edge auto-scroll only; drop index is synced on the pointer path. */
+  /** rAF: edge auto-scroll only; the drop slot is synced on the pointer path. */
   private runFrame(): void {
     const session = this.session
     if (!session?.active || session.settling) return
     session.frame = null
 
-    const scrolled = this.autoScrollList(session.clientY)
+    const scrolled = this.autoScrollList(session)
     if (scrolled) {
-      // Scroll moves slots under the ghost - re-resolve drop after the scroll step.
-      this.syncDropIndex(session)
+      // Scroll moves the slots under the ghost - re-resolve after the scroll step.
+      this.syncSlot(session)
       this.paintGhost(session)
       session.frame = window.requestAnimationFrame(() => this.runFrame())
     }
   }
 
-  private scheduleFrame(session: TabDragSession): void {
+  private scheduleFrame(session: DragSession): void {
     if (session.frame != null || session.settling) return
     session.frame = window.requestAnimationFrame(() => this.runFrame())
   }
 
-  private finish(session: TabDragSession): void {
+  private finish(session: DragSession): void {
     // A delayed settle callback must not clear the UI of a newer drag.
     if (this.session !== session) return
     this.session = null
     this.unmountGhost(session)
     this.clearSiblings(session)
-    if (session.didReorder || session.active) {
-      this.clickSuppressed = true
-      window.setTimeout(() => {
-        this.clickSuppressed = false
-      }, 0)
-    }
+    if (session.active) this.suppressNextClick()
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
   }
 
   /**
-   * Commit the order once, then settle the ghost onto the target row's box.
-   * One order write -> no between-row remount flicker during the gesture.
+   * Commit the drop once, then settle the ghost onto where the dragged thing now
+   * is. One order write -> no between-row remount flicker during the gesture.
    */
-  private settleAndCommit(session: TabDragSession): void {
+  private settleAndCommit(session: DragSession): void {
     session.settling = true
-    const from = session.fromIndex
-    const to = session.dropIndex
-    // Drop sibling shifts and the list's drag state before the order commits so
+    const outcome = session.plan ? dropOutcome(session.plan, session.slot) : null
+    // Drop the slides and the list's drag state before the order commits so
     // transforms don't fight the new order for a frame (that fight is the
     // between-row flash). Both land in the same task, before paint.
     this.clearSiblings(session)
-    if (from !== to) {
-      session.didReorder = true
-      this.host.move(from, to)
+    if (outcome) {
+      if (session.kind === 'group') this.host.dropGroup(session.id, 'top' in outcome ? (outcome.before ?? null) : null)
+      else this.host.dropTab(session.id, outcome)
     }
 
     const ghost = session.ghost
@@ -306,18 +348,27 @@ export class RailDrag {
       return
     }
 
-    // After commit, measure the source row (same id) in its new slot.
+    // After commit, measure where the dragged thing now sits. A tab that joined a
+    // collapsed group has no row on screen: the ghost sinks into that group's header.
     requestAnimationFrame(() => {
       if (this.session !== session) return
-      const target = this.rowElement(session.tabId)?.getBoundingClientRect()
-      if (!target || !session.ghost) {
+      const sinks = outcome !== null && 'into' in outcome && outcome.index === null
+      const target =
+        session.kind === 'group' || sinks
+          ? this.headerElement(sinks && outcome && 'into' in outcome ? outcome.into : session.id)
+          : this.rowElement(session.id)
+      const rect = target?.getBoundingClientRect()
+      if (!target || !rect || !session.ghost) {
         this.finish(session)
         return
       }
+      // A tab that changed group is a new element (re-parented): keep it hidden under the ghost until it lands.
+      if (session.kind === 'tab' && !sinks) this.hideSource(session, target)
       const g = session.ghost
-      g.style.transition = `transform ${TAB_SETTLE_MS}ms ${TAB_MOTION_EASE}, box-shadow ${TAB_SETTLE_MS}ms ease`
-      g.style.transform = `translate3d(${target.left}px, ${target.top}px, 0) scale(1)`
+      g.style.transition = `transform ${TAB_SETTLE_MS}ms ${TAB_MOTION_EASE}, box-shadow ${TAB_SETTLE_MS}ms ease, opacity ${TAB_SETTLE_MS}ms ${TAB_MOTION_EASE}`
+      g.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0) scale(1)`
       g.style.boxShadow = 'none'
+      if (sinks) g.style.opacity = '0'
 
       let finished = false
       const done = (): void => {
@@ -343,6 +394,8 @@ export class RailDrag {
       session.frame = null
     }
     if (session.active) {
+      // The click that follows this release (same task) must not toggle a group header or select a row.
+      this.suppressNextClick()
       this.settleAndCommit(session)
       return
     }
@@ -357,47 +410,119 @@ export class RailDrag {
       window.cancelAnimationFrame(session.frame)
       session.frame = null
     }
+    // The press may still be down: its pointerup must not count as a click.
+    if (session.active && !session.settling) this.swallowUp = session.pointerId
     // If the order was already committed on pointerup, just remove the
-    // settling ghost and restore the source row.
+    // settling ghost and restore the source.
     this.finish(session)
   }
 
-  pointerDown(event: ReactPointerEvent<HTMLDivElement>, tabId: string): void {
+  /** Esc: cancels a lifted drag (not one that is already settling). True when it did. */
+  escape(): boolean {
+    const session = this.session
+    if (!session?.active || session.settling) return false
+    this.cancel()
+    return true
+  }
+
+  pointerDown(event: ReactPointerEvent<HTMLDivElement>, id: string, kind: RailDragKind = 'tab'): void {
     if (event.button !== 0) return
     if ((event.target as HTMLElement).closest('button, input, textarea, a')) return
-    if (this.host.isRenaming(tabId)) return
+    if (this.host.isRenaming(kind, id)) return
     if (this.session?.settling || this.session?.active) return
-    const fromIndex = this.host.ids().indexOf(tabId)
-    if (fromIndex < 0) return
+    this.swallowUp = null
     const rect = event.currentTarget.getBoundingClientRect()
     this.session = {
       pointerId: event.pointerId,
-      tabId,
-      fromIndex,
-      dropIndex: fromIndex,
+      kind,
+      id,
       startX: event.clientX,
       startY: event.clientY,
       grabOffsetX: event.clientX - rect.left,
       grabOffsetY: event.clientY - rect.top,
       width: rect.width,
       height: rect.height,
+      probeHeight: rect.height,
       active: false,
-      didReorder: false,
       clientX: event.clientX,
       clientY: event.clientY,
       frame: null,
       settling: false,
       ghost: null,
       sourceEl: null,
-      rows: [],
+      plan: null,
+      slot: 0,
       els: [],
-      rowEl: [],
-      edgeTop: [],
-      edgeBottom: [],
-      slotCenters: [],
-      baseScrollTop: 0
+      applied: [],
+      originY: 0,
+      baseScrollTop: 0,
+      listTop: 0,
+      listBottom: 0,
+      accentEl: null,
+      wrappers: new Map()
     }
     event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  /**
+   * The one layout read of a drag: every entry on screen - rows and group
+   * headers, not the members of a collapsed group - with its box.
+   */
+  private freeze(session: DragSession, list: HTMLElement): void {
+    const nodes = Array.from(list.querySelectorAll<HTMLElement>('[data-tabid], [data-groupheader]')).filter(
+      (el) => !el.closest('[data-collapsed="true"]')
+    )
+    const rects = nodes.map((el) => el.getBoundingClientRect())
+    const entries: DragEntry[] = nodes.map((el, index) => {
+      const top = rects[index].top
+      const height = rects[index].height
+      const groupId = el.getAttribute('data-groupheader')
+      if (groupId !== null) {
+        const wrapper = el.closest<HTMLElement>('[data-groupid]')
+        if (wrapper) session.wrappers.set(groupId, wrapper)
+        return {
+          id: groupId,
+          kind: 'header',
+          groupId,
+          top,
+          height,
+          count: Number(el.getAttribute('data-count')),
+          collapsed: el.getAttribute('aria-expanded') === 'false'
+        }
+      }
+      const owner = el.closest<HTMLElement>('[data-groupid]')
+      if (owner) {
+        const id = owner.getAttribute('data-groupid')
+        if (id !== null && !session.wrappers.has(id)) session.wrappers.set(id, owner)
+      }
+      return {
+        id: el.getAttribute('data-tabid') ?? '',
+        kind: 'row',
+        groupId: owner?.getAttribute('data-groupid') ?? undefined,
+        top,
+        height
+      }
+    })
+    const plan = session.kind === 'group' ? planGroupDrag(entries, session.id) : planTabDrag(entries, session.id)
+    session.plan = plan
+    session.originY = entries[0]?.top ?? 0
+    session.baseScrollTop = list.scrollTop
+    const listRect = list.getBoundingClientRect()
+    session.listTop = listRect.top
+    session.listBottom = listRect.bottom
+    if (!plan) return
+    session.slot = plan.origin
+    if (session.kind === 'group') {
+      session.probeHeight = entries[plan.last].top + entries[plan.last].height - entries[plan.first].top
+    }
+    // A group slides as one block (its wrapper); a tab drag slides rows and headers one by one.
+    session.els = nodes.map((el, index) => {
+      if (index >= plan.first && index <= plan.last) return null
+      if (session.kind === 'tab') return el
+      if (el.hasAttribute('data-groupheader')) return el.closest<HTMLElement>('[data-groupid]')
+      return el.closest('[data-groupid]') ? null : el
+    })
+    session.applied = nodes.map(() => 0)
   }
 
   pointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -410,51 +535,49 @@ export class RailDrag {
       if (tabDragDistance(event.clientX - session.startX, event.clientY - session.startY) < TAB_DRAG_THRESHOLD_PX) {
         return
       }
+      const list = this.host.list()
+      if (!list) {
+        this.cancel()
+        return
+      }
       session.active = true
       const rect = event.currentTarget.getBoundingClientRect()
       session.width = rect.width
       session.height = rect.height
+      session.probeHeight = rect.height
       session.grabOffsetX = event.clientX - rect.left
       session.grabOffsetY = event.clientY - rect.top
-      const list = this.host.list()
-      // What is on screen: rows and group headers, not the members of a collapsed group.
-      session.els = Array.from(list?.querySelectorAll<HTMLElement>('[data-tabid], [data-groupheader]') ?? []).filter(
-        (el) => !el.closest('[data-collapsed="true"]')
-      )
-      session.rows = session.els.filter((el) => el.hasAttribute('data-tabid'))
-      session.rowEl = session.rows.map((row) => session.els.indexOf(row))
-      const rects = session.els.map((el) => el.getBoundingClientRect())
-      // The first element sits at the stack's top edge, so it is the origin of the drop line's coordinates.
-      const origin = rects[0]?.top ?? 0
-      session.edgeTop = rects.map((r) => r.top - origin)
-      session.edgeBottom = rects.map((r) => r.bottom - origin)
-      session.slotCenters = session.rows.map((row) => {
-        const r = rects[session.els.indexOf(row)]
-        return r.top + r.height / 2
-      })
-      session.baseScrollTop = list?.scrollTop ?? 0
-      this.mountGhost(session, event.currentTarget)
-      if (list) list.dataset.dragging = 'true'
+      this.freeze(session, list)
+      const wrapper = session.kind === 'group' ? event.currentTarget.closest<HTMLElement>('[data-groupid]') : null
+      this.mountGhost(session, event.currentTarget, wrapper ?? event.currentTarget)
+      list.dataset.dragging = 'true'
       for (const el of session.els) {
-        if (el === event.currentTarget) continue
+        if (!el) continue
         el.style.willChange = 'transform'
         el.style.transform = 'translate3d(0, 0, 0)'
       }
       document.body.style.cursor = 'grabbing'
       document.body.style.userSelect = 'none'
-      if (session.tabId !== this.host.activeId()) this.host.select(session.tabId)
+      if (session.kind === 'tab' && session.id !== this.host.activeId()) this.host.select(session.id)
     }
 
     event.preventDefault()
-    // Ghost + drop index on the move event (no rAF lag for either).
-    this.syncDropIndex(session)
+    // Ghost + drop slot on the move event (no rAF lag for either).
+    this.syncSlot(session)
     this.paintGhost(session)
     this.scheduleFrame(session)
   }
 
   pointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
     const session = this.session
-    if (!session || session.pointerId !== event.pointerId) return
+    if (!session) {
+      if (this.swallowUp === event.pointerId) {
+        this.swallowUp = null
+        this.suppressNextClick()
+      }
+      return
+    }
+    if (session.pointerId !== event.pointerId) return
     // Mark the drop as settled before release can emit lostpointercapture.
     this.end(event.pointerId)
     try {

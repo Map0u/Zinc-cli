@@ -1,4 +1,4 @@
-import { memo, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import { SegoeIcon } from '../segoeFluentIcons'
 import { ActivitySlot } from './TabRow'
@@ -9,6 +9,11 @@ export interface GroupHeaderHandlers {
   onToggle(id: string): void
   onContextMenu(event: MouseEvent<HTMLDivElement>, id: string): void
   onKeyDown(event: KeyboardEvent<HTMLDivElement>, id: string): void
+  onPointerDown(event: PointerEvent<HTMLDivElement>, id: string): void
+  onPointerMove(event: PointerEvent<HTMLDivElement>): void
+  onPointerUp(event: PointerEvent<HTMLDivElement>): void
+  onPointerCancel(event: PointerEvent<HTMLDivElement>): void
+  onLostPointerCapture(event: PointerEvent<HTMLDivElement>): void
   /** `refocus`: the key that ended the rename (Enter / Escape) wants focus back on the header; a click elsewhere does not. */
   onRenameCommit(id: string, raw: string, refocus: boolean): void
   onRenameCancel(refocus: boolean): void
@@ -60,6 +65,7 @@ export const GroupHeader = memo(function GroupHeader({
       tabIndex={activeInside ? 0 : -1}
       aria-expanded={!collapsed}
       aria-label={`${name}, ${count}`}
+      data-count={count}
       title={name}
       className={`tab-rail-group-header mx-3 flex h-8 cursor-pointer select-none items-center rounded pl-1 pr-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         activeInside ? 'bg-row-selected/60' : 'hover:bg-row-hover'
@@ -67,6 +73,11 @@ export const GroupHeader = memo(function GroupHeader({
       onClick={() => handlers.onToggle(groupId)}
       onContextMenu={(e) => handlers.onContextMenu(e, groupId)}
       onKeyDown={(e) => handlers.onKeyDown(e, groupId)}
+      onPointerDown={(e) => handlers.onPointerDown(e, groupId)}
+      onPointerMove={handlers.onPointerMove}
+      onPointerUp={handlers.onPointerUp}
+      onPointerCancel={handlers.onPointerCancel}
+      onLostPointerCapture={handlers.onLostPointerCapture}
     >
       <span
         className="tab-rail-chevron icon-font flex h-5 w-4 shrink-0 items-center justify-center text-[9px] text-fg-tertiary"
@@ -93,14 +104,15 @@ export const GroupHeader = memo(function GroupHeader({
       ) : (
         <span className="ml-1 min-w-0 flex-1 truncate px-1 text-[12px] font-medium text-fg-secondary">{name}</span>
       )}
-      {collapsed && !renaming && (
-        <span className="flex shrink-0 items-center gap-1.5">
-          <span className="flex w-4 items-center justify-center" aria-hidden>
+      {/* Always in the DOM so a dragged group's ghost can show how many tabs it carries; hidden while the group is open. */}
+      <span data-groupcount className={`${collapsed && !renaming ? 'flex' : 'hidden'} shrink-0 items-center gap-1.5`} aria-hidden>
+        {collapsed && (
+          <span className="flex w-4 items-center justify-center">
             <ActivitySlot state={status} />
           </span>
-          <span className="min-w-[1ch] text-right text-[11px] tabular-nums text-fg-tertiary">{count}</span>
-        </span>
-      )}
+        )}
+        <span className="min-w-[1ch] text-right text-[11px] tabular-nums text-fg-tertiary">{count}</span>
+      </span>
     </div>
   )
 })

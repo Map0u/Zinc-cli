@@ -61,16 +61,9 @@ async function loadComponent(path, mocks = {}) {
     `,
     '../../shared/sessionState': `export const MAX_TAB_TITLE_LENGTH = 256, MAX_GROUP_KEY_LENGTH = 1024`,
     './tabs/tabDragOrder': `
-      export const TAB_DRAG_THRESHOLD_PX = 5, TAB_ROW_STRIDE_PX = 42
-      export const ghostProbeY = (y) => y
-      export const liveSlotCenters = (centers) => centers
       export const moveItem = (items, from, to) => {
         const result = [...items]; result.splice(to, 0, result.splice(from, 1)[0]); return result
       }
-      export const resolveDropIndex = () => globalThis.__zincTest.dropIndex
-      export const tabDragDistance = Math.hypot
-      export const tabDragShiftY = () => 0
-      export const tabDropLineTop = () => null
     `,
     './update/UpdateContext': `export const useUpdate = () => ({ showBadge: false, openDialog() {}, state: null })`,
     './update/UpdateDialog': `export const UpdateDialog = () => null`,

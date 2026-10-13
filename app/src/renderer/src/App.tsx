@@ -34,6 +34,7 @@ import { moveItem } from './tabs/tabDragOrder'
 import {
   createGroup,
   dissolveGroup,
+  moveGroup,
   moveGroupStep,
   moveTabs,
   moveTabStep,
@@ -360,9 +361,14 @@ export default function App() {
     setActiveId(restored[idx]?.id ?? null)
   }
 
-  /** A drag dropped a tab on another tab's slot. */
+  /** A drag dropped a tab into a group or at a top-level position. */
   function moveTab(id: string, target: MoveTarget): void {
     setRail((prev) => moveTabs(prev.tabs, prev.groups, id, target))
+  }
+
+  /** A drag dropped a whole group before a top-level tab / group (null = at the end). */
+  function moveGroupTo(id: string, before: string | null): void {
+    setRail((prev) => moveGroup(prev.tabs, prev.groups, id, before))
   }
 
   /** Alt+Up / Alt+Down: one visible position for a tab, or for a whole group. */
@@ -870,6 +876,7 @@ export default function App() {
     onClose: closeTab,
     onClone: (id: string) => void cloneTab(id),
     onMoveTab: moveTab,
+    onMoveGroup: moveGroupTo,
     onMoveStep: moveStep,
     onContextMenu: showTabContextMenu,
     onRenameCommit: commitTabRename,
@@ -888,6 +895,7 @@ export default function App() {
       onClose: (id) => railActionsRef.current.onClose(id),
       onClone: (id) => railActionsRef.current.onClone(id),
       onMoveTab: (id, target) => railActionsRef.current.onMoveTab(id, target),
+      onMoveGroup: (id, before) => railActionsRef.current.onMoveGroup(id, before),
       onMoveStep: (id, direction, isGroup) => railActionsRef.current.onMoveStep(id, direction, isGroup),
       onContextMenu: (id, x, y, el) => railActionsRef.current.onContextMenu(id, x, y, el),
       onRenameCommit: (id, raw) => railActionsRef.current.onRenameCommit(id, raw),

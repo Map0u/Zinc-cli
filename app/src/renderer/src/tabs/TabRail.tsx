@@ -5,7 +5,7 @@ import { TabRow, type TabRowHandlers } from './TabRow'
 import {
   buildRailItems,
   visibleEntries,
-  visibleTabIds,
+  type MoveTarget,
   type RailEntry,
   type RailItem,
   type TabGroup
@@ -33,8 +33,10 @@ export interface TabRailProps {
   onSwitch(id: string): void
   onClose(id: string): void
   onClone(id: string): void
-  /** A drag dropped `id` on the slot of another tab, before or after it. */
-  onMoveTab(id: string, target: { before: string } | { after: string }): void
+  /** A drag dropped tab `id` into a group at an index, or at a top-level position. */
+  onMoveTab(id: string, target: MoveTarget): void
+  /** A drag dropped group `id` before the top-level unit `before` (a tab id or group id), or at the end when null. */
+  onMoveGroup(id: string, before: string | null): void
   /** Alt+Up / Alt+Down on a tab or on a group header (`isGroup`). */
   onMoveStep(id: string, direction: -1 | 1, isGroup: boolean): void
   onContextMenu(id: string, x: number, y: number, returnFocus: HTMLElement): void
@@ -175,16 +177,15 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
     const drag = new RailDrag({
       list: () => listRef.current,
       dropLine: () => dropLineRef.current,
-      ids: () => visibleTabIds(latest.current.tabs, latest.current.groups),
       activeId: () => latest.current.activeId,
-      isRenaming: (id) => latest.current.renamingId === id,
+      isRenaming: (kind, id) => (kind === 'group' ? latest.current.renamingGroupId : latest.current.renamingId) === id,
       select: (id) => latest.current.onSwitch(id),
-      move: (from, to) => {
-        const { tabs, groups, onMoveTab } = latest.current
-        const ids = visibleTabIds(tabs, groups)
-        if (ids[from] === undefined || ids[to] === undefined) return
-        onMoveTab(ids[from], to > from ? { after: ids[to] } : { before: ids[to] })
-      }
+      dropTab: (id, target) =>
+        latest.current.onMoveTab(
+          id,
+          'into' in target ? { intoGroup: target.into, index: target.index ?? undefined } : { ungrouped: true, at: target.top }
+        ),
+      dropGroup: (id, before) => latest.current.onMoveGroup(id, before)
     })
     const rowHandlers: TabRowHandlers = {
       onClick: (id) => {
@@ -224,7 +225,7 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
           onContextMenu(id, x, y, event.currentTarget)
         }
       },
-      onPointerDown: (event, id) => drag.pointerDown(event, id),
+      onPointerDown: (event, id) => drag.pointerDown(event, id, 'tab'),
       onPointerMove: (event) => drag.pointerMove(event),
       onPointerUp: (event) => drag.pointerUp(event),
       onPointerCancel: (event) => drag.pointerCancel(event),
@@ -234,7 +235,9 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
     }
     const groupHandlers: GroupHeaderHandlers = {
       // One click toggles; there is deliberately no double-click rename (its first clicks would flash collapse-expand).
-      onToggle: (id) => latest.current.onToggleGroup(id),
+      onToggle: (id) => {
+        if (!drag.suppressClick) latest.current.onToggleGroup(id)
+      },
       onContextMenu: (event, id) => {
         event.preventDefault()
         event.stopPropagation()
@@ -270,6 +273,11 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
           onGroupContextMenu(id, x, y, event.currentTarget)
         }
       },
+      onPointerDown: (event, id) => drag.pointerDown(event, id, 'group'),
+      onPointerMove: (event) => drag.pointerMove(event),
+      onPointerUp: (event) => drag.pointerUp(event),
+      onPointerCancel: (event) => drag.pointerCancel(event),
+      onLostPointerCapture: (event) => drag.lostPointerCapture(event),
       onRenameCommit: (id, raw, refocusHeader) => {
         latest.current.onGroupRenameCommit(id, raw)
         if (refocusHeader) refocus({ kind: 'group', id })
@@ -285,9 +293,17 @@ export const TabRail = memo(function TabRail(props: TabRailProps) {
 
   useEffect(() => {
     const cancel = (): void => drag.cancel()
+    // Esc puts a lifted drag back (and is not also an Esc for whatever has focus).
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== 'Escape' || !drag.escape()) return
+      event.preventDefault()
+      event.stopPropagation()
+    }
     window.addEventListener('blur', cancel)
+    document.addEventListener('keydown', onKeyDown, true)
     return () => {
       window.removeEventListener('blur', cancel)
+      document.removeEventListener('keydown', onKeyDown, true)
       cancel()
     }
   }, [drag])
