@@ -1,7 +1,22 @@
 import { copyFileSync, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { MAX_TAB_TITLE_LENGTH, SessionTool } from '../../shared/sessionState'
-import type { RestorePayload, RestoreTab, SessionState, SessionTabState } from '../../shared/sessionState'
+import {
+  isSessionId,
+  MAX_GROUP_KEY_LENGTH,
+  MAX_GROUP_NAME_LENGTH,
+  MAX_SESSION_GROUPS,
+  MAX_TAB_TITLE_LENGTH,
+  SessionTool
+} from '../../shared/sessionState'
+import type {
+  RendererGroupSnapshot,
+  RestoreGroup,
+  RestorePayload,
+  RestoreTab,
+  SessionGroupState,
+  SessionState,
+  SessionTabState
+} from '../../shared/sessionState'
 import {
   isSafeSessionId,
   mergeTabPersistState,
@@ -42,16 +57,61 @@ export interface PersistOptions {
   scanTools?: boolean
   /** Empty tab lists may overwrite the file only on the unified quit path. */
   quitting?: boolean
+  /** The rail's tab groups; tabs name theirs through `groupId`. Omitted = no groups. */
+  groups?: readonly RendererGroupSnapshot[]
 }
 
-function toTabState(shellId: string | undefined, customTitle: string | undefined, known: LastKnownTab): SessionTabState {
+function toTabState(
+  shellId: string | undefined,
+  customTitle: string | undefined,
+  known: LastKnownTab,
+  groupId?: string,
+  manual?: boolean
+): SessionTabState {
   return {
     WorkingDirectory: known.cwd,
     Tool: known.tool,
     ...(shellId ? { ShellId: shellId } : {}),
     ...(known.sessionId ? { SessionId: known.sessionId } : {}),
-    ...(customTitle ? { CustomTitle: customTitle } : {})
+    ...(customTitle ? { CustomTitle: customTitle } : {}),
+    ...(groupId ? { GroupId: groupId } : {}),
+    ...(manual ? { Pinned: true } : {})
   }
+}
+
+function toGroupState(group: RendererGroupSnapshot): SessionGroupState {
+  return {
+    Id: group.id,
+    ...(group.name ? { Name: group.name } : {}),
+    ...(group.collapsed ? { Collapsed: true } : {}),
+    ...(group.auto ? { Auto: true } : {}),
+    ...(group.key ? { Key: group.key } : {})
+  }
+}
+
+/**
+ * Groups out of a session file. Anything malformed is dropped rather than
+ * failing the whole restore: a hand-edited or newer file must still open its tabs.
+ */
+function readGroups(raw: unknown): RestoreGroup[] {
+  if (!Array.isArray(raw)) return []
+  const groups: RestoreGroup[] = []
+  const seen = new Set<string>()
+  for (const entry of raw.slice(0, MAX_SESSION_GROUPS)) {
+    const item = entry as Partial<SessionGroupState> | null
+    if (!item || !isSessionId(item.Id) || seen.has(item.Id)) continue
+    seen.add(item.Id)
+    const name = typeof item.Name === 'string' ? item.Name.trim().slice(0, MAX_GROUP_NAME_LENGTH).trim() : ''
+    const key = typeof item.Key === 'string' && item.Key.length <= MAX_GROUP_KEY_LENGTH ? item.Key : ''
+    groups.push({
+      id: item.Id,
+      collapsed: item.Collapsed === true,
+      auto: item.Auto === true,
+      ...(name ? { name } : {}),
+      ...(key ? { key } : {})
+    })
+  }
+  return groups
 }
 
 /**
@@ -255,6 +315,9 @@ export class SessionStateService {
       // `--settings` so its SessionStart hook reports the new session id back.
       const claudeSettings = resumeAiConversations ? this.claudeSettingsProvider() ?? undefined : undefined
 
+      const groups = readGroups(raw.Groups)
+      const groupIds = new Set(groups.map((group) => group.id))
+
       const tabs: RestoreTab[] = tabsRaw.map((t, index) => {
         const cwd = cwdFor(t)
         const shellId = typeof t?.ShellId === 'string' && t.ShellId.length > 0 ? t.ShellId : undefined
@@ -282,11 +345,15 @@ export class SessionStateService {
           typeof t?.CustomTitle === 'string' && t.CustomTitle.trim().length > 0
             ? t.CustomTitle.trim().slice(0, MAX_TAB_TITLE_LENGTH)
             : undefined
+        // A tab naming a group the file does not list (or an old file with none) restores ungrouped.
+        const groupId = typeof t?.GroupId === 'string' && groupIds.has(t.GroupId) ? t.GroupId : undefined
         return {
           cwd,
           shellId,
           ...(customTitle ? { customTitle } : {}),
-          ...(startupCommand ? { startupCommand } : {})
+          ...(startupCommand ? { startupCommand } : {}),
+          ...(groupId ? { groupId } : {}),
+          ...(t?.Pinned === true ? { manual: true } : {})
         }
       })
 
@@ -301,7 +368,7 @@ export class SessionStateService {
         ...(typeof t?.ShellId === 'string' ? { ShellId: t.ShellId } : {}),
         ...(resumeAiConversations && sessionIds.has(index) ? { SessionId: sessionIds.get(index) } : {})
       }))
-      return { tabs, activeIndex }
+      return { tabs, activeIndex, ...(groups.length > 0 ? { groups } : {}) }
     } catch (err) {
       // A damaged snapshot must not block startup, but save the original bytes
       // before a later persist replaces them. Never overwrite an existing
@@ -347,7 +414,7 @@ export class SessionStateService {
    * is not written over a good file. Empty tab lists write only on quit.
    */
   persist(
-    tabsSnapshot: Array<{ id: string; shellId?: string; customTitle?: string }>,
+    tabsSnapshot: Array<{ id: string; shellId?: string; customTitle?: string; groupId?: string; manual?: boolean }>,
     activeIndex: number,
     resolveShellCwd: (id: string) => string | null,
     resolveToolMatch: (id: string) => PersistToolMatch | null,
@@ -362,7 +429,7 @@ export class SessionStateService {
     this.pruneLastKnown(tabsSnapshot.map((tab) => tab.id))
 
     let usedFallbackCount = 0
-    const tabs: SessionTabState[] = tabsSnapshot.map(({ id, shellId, customTitle }) => {
+    const tabs: SessionTabState[] = tabsSnapshot.map(({ id, shellId, customTitle, groupId, manual }) => {
       let shellCwd: string | null = null
       try {
         shellCwd = resolveShellCwd(id)
@@ -410,7 +477,7 @@ export class SessionStateService {
       if (merged.usedFallbackOnly) usedFallbackCount += 1
       else this.lastKnown.set(id, merged.state)
 
-      return toTabState(shellId, customTitle, merged.state)
+      return toTabState(shellId, customTitle, merged.state, groupId, manual)
     })
 
     // A single unknown/dead tab's generic homedir + None row is not a valid
@@ -429,7 +496,12 @@ export class SessionStateService {
       return false
     }
 
-    const state: SessionState = { Tabs: tabs, ActiveIndex: activeIndex }
+    const groups = (options.groups ?? []).filter((group) => tabsSnapshot.some((tab) => tab.groupId === group.id))
+    const state: SessionState = {
+      Tabs: tabs,
+      ActiveIndex: activeIndex,
+      ...(groups.length > 0 ? { Groups: groups.map(toGroupState) } : {})
+    }
     try {
       atomicWriteFileSync(this.filePath, JSON.stringify(state, null, 2))
       return true

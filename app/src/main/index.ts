@@ -1108,6 +1108,7 @@ function persistSessionState(
       budgetMs: Math.max(0, deadline - Date.now()),
       scanTools: scanTools && snapshotSucceeded,
       quitting,
+      groups: latestSessionSnapshot.groups,
     },
   );
 }
