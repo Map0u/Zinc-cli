@@ -57,6 +57,18 @@ test('a cwd change after a quiet spell is pushed at once; bursts coalesce to one
   finish(service)
 })
 
+test('a prompt-reported cwd skips the coalescing wait', () => {
+  const { state, service } = setup()
+  service.track('t1')
+  service.noteOutput('t1')
+  test.mock.timers.tick(0)
+  state.cwd = '/work/b'
+  service.noteOutput('t1', true)
+  test.mock.timers.tick(0)
+  assert.equal(state.sent.at(-1)[1].cwd, '/work/b')
+  finish(service)
+})
+
 test('unchanged output pushes nothing', () => {
   const { state, service } = setup()
   service.track('t1')

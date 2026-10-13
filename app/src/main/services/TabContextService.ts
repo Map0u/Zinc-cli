@@ -11,7 +11,7 @@ export interface TabContextDeps {
   send(id: string, context: TabContext): void
 }
 
-/** At most one evaluation per tab per this interval; the first one after a quiet spell is immediate. */
+/** At most one output-driven evaluation per tab per this interval; the first one after a quiet spell is immediate. */
 const COALESCE_MS = 250
 /** Tool lookups walk the process table, so they are rate-limited harder than the cheap cwd read. */
 const TOOL_RECHECK_MS = 3_000
@@ -53,12 +53,15 @@ export class TabContextService {
     this.tabs.delete(id)
   }
 
-  /** Any output from the tab's pty: the cwd, and now and then the foreground tool, may have changed. */
-  noteOutput(id: string): void {
+  /**
+   * Any output from the tab's pty: the cwd, and now and then the foreground tool, may have changed.
+   * A freshly prompt-reported cwd is a real change rather than noise, so it skips the coalescing wait.
+   */
+  noteOutput(id: string, cwdReported = false): void {
     const state = this.tabs.get(id)
     if (!state) return
     state.toolDirty = true
-    this.arm(id, state, state.evaluatedAt + COALESCE_MS)
+    this.arm(id, state, cwdReported ? 0 : state.evaluatedAt + COALESCE_MS)
   }
 
   /** Re-pushes every known context, for a renderer that just subscribed and missed the earlier ones. */

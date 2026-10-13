@@ -482,7 +482,7 @@ const ptyManager = new PtyManager(
     foregroundToolCache.delete(id);
     tabContexts.drop(id);
   },
-  (id) => tabContexts.noteOutput(id),
+  (id, cwdReported) => tabContexts.noteOutput(id, cwdReported),
 );
 // Per-tab cwd / project / tool, pushed to the rail whenever one changes.
 function userFolders(): string[] {

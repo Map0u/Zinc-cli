@@ -72,8 +72,8 @@ export class PtyManager {
   constructor(
     private readonly claudeSettingsProvider: () => string | null = () => null,
     private readonly onSessionEnded: (id: string) => void = () => {},
-    /** Called for every chunk of shell output, so cwd / tool tracking can wake up on activity instead of polling. */
-    private readonly onOutput: (id: string) => void = () => {},
+    /** Called for every chunk of shell output so cwd / tool tracking can wake on activity instead of polling; `cwdReported` is true when the chunk carried a new prompt-reported cwd. */
+    private readonly onOutput: (id: string, cwdReported: boolean) => void = () => {},
   ) {}
 
   /** Spawns a shell for `id` and hands the renderer its output port. Replaces any existing session for the same id. */
@@ -178,8 +178,9 @@ export class PtyManager {
         // time some already-buffered data drains through node-pty's pipe —
         // never buffer/post to a port we've torn down.
         if (session.closed) return;
+        const reportedBefore = session.reportedCwd;
         recordCwd(data);
-        this.onOutput(id);
+        this.onOutput(id, session.reportedCwd !== reportedBefore);
         const buf = Buffer.from(data, "utf8");
         session.pending.push(buf);
         session.pendingBytes += buf.byteLength;
