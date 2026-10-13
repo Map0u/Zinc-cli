@@ -8,8 +8,11 @@ export const MAX_TAB_TITLE_LENGTH = 256
 /** Longest group name a snapshot carries (keep in step with `MAX_GROUP_NAME_LENGTH` in tabs/tabGroups.ts). */
 export const MAX_GROUP_NAME_LENGTH = 256
 
-/** Most groups a snapshot or session file may carry. */
-export const MAX_SESSION_GROUPS = 128
+/** Most groups a snapshot or session file may carry: as many as tabs, since a group has at least one. */
+export const MAX_SESSION_GROUPS = 256
+
+/** Most tabs a snapshot may carry. */
+export const MAX_SESSION_TABS = 256
 
 /** Longest auto-group key (a folded project path). */
 export const MAX_GROUP_KEY_LENGTH = 1024
@@ -52,6 +55,8 @@ export interface SessionTabState {
 export interface SessionGroupState {
   Id: string
   Name?: string
+  /** Name automatic grouping gave an auto group (the project folder); absent in files written before it. */
+  Title?: string
   Collapsed?: boolean
   /** Created by automatic grouping and never touched by the user. */
   Auto?: boolean
@@ -86,6 +91,7 @@ export interface RendererTabSnapshot {
 export interface RendererGroupSnapshot {
   id: string
   name?: string
+  title?: string
   collapsed: boolean
   auto: boolean
   key?: string
@@ -117,6 +123,7 @@ export interface RestoreTab {
 export interface RestoreGroup {
   id: string
   name?: string
+  title?: string
   collapsed: boolean
   auto: boolean
   key?: string
@@ -134,7 +141,7 @@ export interface RestorePayload {
 export function isValidRendererSnapshot(value: unknown): value is RendererSessionSnapshot {
   if (!value || typeof value !== 'object') return false
   const snapshot = value as Partial<RendererSessionSnapshot>
-  if (!Array.isArray(snapshot.tabs) || snapshot.tabs.length > 256) return false
+  if (!Array.isArray(snapshot.tabs) || snapshot.tabs.length > MAX_SESSION_TABS) return false
   if (!Number.isInteger(snapshot.activeIndex) || snapshot.activeIndex! < -1 || snapshot.activeIndex! >= snapshot.tabs.length)
     return false
   const groupIds = new Set<string>()
@@ -143,6 +150,7 @@ export function isValidRendererSnapshot(value: unknown): value is RendererSessio
     for (const group of snapshot.groups) {
       if (!group || !isSessionId(group.id) || groupIds.has(group.id)) return false
       if (group.name !== undefined && (typeof group.name !== 'string' || group.name.length > MAX_GROUP_NAME_LENGTH)) return false
+      if (group.title !== undefined && (typeof group.title !== 'string' || group.title.length > MAX_GROUP_NAME_LENGTH)) return false
       if (typeof group.collapsed !== 'boolean') return false
       if (group.auto !== undefined && typeof group.auto !== 'boolean') return false
       if (group.key !== undefined && (typeof group.key !== 'string' || group.key.length > MAX_GROUP_KEY_LENGTH)) return false

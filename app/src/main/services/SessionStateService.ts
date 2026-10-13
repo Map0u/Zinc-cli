@@ -83,6 +83,7 @@ function toGroupState(group: RendererGroupSnapshot): SessionGroupState {
   return {
     Id: group.id,
     ...(group.name ? { Name: group.name } : {}),
+    ...(group.title ? { Title: group.title } : {}),
     ...(group.collapsed ? { Collapsed: true } : {}),
     ...(group.auto ? { Auto: true } : {}),
     ...(group.key ? { Key: group.key } : {})
@@ -102,12 +103,14 @@ function readGroups(raw: unknown): RestoreGroup[] {
     if (!item || !isSessionId(item.Id) || seen.has(item.Id)) continue
     seen.add(item.Id)
     const name = typeof item.Name === 'string' ? item.Name.trim().slice(0, MAX_GROUP_NAME_LENGTH).trim() : ''
+    const title = typeof item.Title === 'string' ? item.Title.trim().slice(0, MAX_GROUP_NAME_LENGTH).trim() : ''
     const key = typeof item.Key === 'string' && item.Key.length <= MAX_GROUP_KEY_LENGTH ? item.Key : ''
     groups.push({
       id: item.Id,
       collapsed: item.Collapsed === true,
       auto: item.Auto === true,
       ...(name ? { name } : {}),
+      ...(title ? { title } : {}),
       ...(key ? { key } : {})
     })
   }

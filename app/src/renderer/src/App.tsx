@@ -284,6 +284,7 @@ export default function App() {
               collapsed: g.collapsed,
               auto: g.auto,
               ...(g.name ? { name: g.name } : {}),
+              ...(g.title ? { title: g.title } : {}),
               ...(g.key && g.key.length <= MAX_GROUP_KEY_LENGTH ? { key: g.key } : {})
             }))
           }
@@ -332,7 +333,14 @@ export default function App() {
     const restoredGroups: TabGroup[] = (payload.groups ?? []).map((g) => {
       const id = `grp-${nextGroupIdRef.current++}`
       groupIds.set(g.id, id)
-      return { id, collapsed: g.collapsed, auto: g.auto, ...(g.name ? { name: g.name } : {}), ...(g.key ? { key: g.key } : {}) }
+      return {
+        id,
+        collapsed: g.collapsed,
+        auto: g.auto,
+        ...(g.name ? { name: g.name } : {}),
+        ...(g.title ? { title: g.title } : {}),
+        ...(g.key ? { key: g.key } : {})
+      }
     })
     const restored: Tab[] = payload.tabs.map((t) => {
       const id = `tab-${nextIdRef.current++}`

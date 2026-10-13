@@ -96,6 +96,24 @@ test('the validator caps the number of groups', () => {
   assert.equal(isValidRendererSnapshot({ tabs: [{ id: 'tab-1' }], activeIndex: 0, groups: many(MAX_SESSION_GROUPS + 1) }), false)
 })
 
+test('256 single-tab groups on 256 tabs are a valid snapshot; 257 groups are not', () => {
+  assert.equal(MAX_SESSION_GROUPS, 256)
+  const tabs = Array.from({ length: 256 }, (_, i) => ({ id: `tab-${i}`, groupId: `grp-${i}` }))
+  const groups = (n) => Array.from({ length: n }, (_, i) => group(`grp-${i}`, { auto: true, key: `c:\\p${i}`, title: `p${i}` }))
+  assert.equal(isValidRendererSnapshot({ tabs, activeIndex: 0, groups: groups(256) }), true)
+  assert.equal(isValidRendererSnapshot({ tabs, activeIndex: 0, groups: groups(257) }), false)
+  assert.equal(isValidRendererSnapshot({ tabs: [...tabs, { id: 'tab-256' }], activeIndex: 0, groups: groups(256) }), false, 'tab cap')
+})
+
+test('the validator checks a group title: optional, a string, at most the name limit', () => {
+  const ok = (extra) => isValidRendererSnapshot({ tabs: [{ id: 'tab-1' }], activeIndex: 0, groups: [group('g', extra)] })
+  assert.equal(ok({ title: 'Zinc' }), true)
+  assert.equal(ok({}), true)
+  assert.equal(ok({ title: 'x'.repeat(MAX_GROUP_NAME_LENGTH) }), true)
+  assert.equal(ok({ title: 'x'.repeat(MAX_GROUP_NAME_LENGTH + 1) }), false)
+  assert.equal(ok({ title: 7 }), false)
+})
+
 test('the validator ignores unknown extra fields on the snapshot, tabs and groups', () => {
   const snapshot = {
     tabs: [{ id: 'tab-1', groupId: 'grp-1', pinned: true, future: { a: 1 } }],
@@ -182,6 +200,43 @@ test('round trip: persist, then load restores membership, order, names, collapse
       { id: 'g7', collapsed: false, auto: true, key: 'e:\\zinc' }
     ])
     assert.equal(payload.activeIndex, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('an auto group keeps its key, title and collapsed state through persist and load; a file without Title restores without one', () => {
+  const { dir, filePath } = tempSessionFile()
+  try {
+    const service = new SessionStateService(filePath)
+    const tabs = [
+      { id: 'a', shellId: 'pwsh', groupId: 'g1' },
+      { id: 'b', shellId: 'pwsh', groupId: 'g1' },
+      { id: 'c', shellId: 'pwsh', groupId: 'g2' },
+      { id: 'd', shellId: 'pwsh', groupId: 'g2' }
+    ]
+    const groups = [
+      group('g1', { auto: true, key: 'c:\\work\\alpha', title: 'Alpha', collapsed: true }),
+      group('g2', { auto: true, key: 'c:\\work\\beta' })
+    ]
+    assert.equal(persistWith(service, tabs, groups, dir), true)
+    const written = JSON.parse(readFileSync(filePath, 'utf8'))
+    assert.deepEqual(written.Groups, [
+      { Id: 'g1', Title: 'Alpha', Collapsed: true, Auto: true, Key: 'c:\\work\\alpha' },
+      { Id: 'g2', Auto: true, Key: 'c:\\work\\beta' }
+    ])
+    const payload = new SessionStateService(filePath).loadRestorePayload(true, false)
+    assert.deepEqual(payload.groups, [
+      { id: 'g1', title: 'Alpha', collapsed: true, auto: true, key: 'c:\\work\\alpha' },
+      { id: 'g2', collapsed: false, auto: true, key: 'c:\\work\\beta' }
+    ])
+    // A hand-edited title is tamed: not a string -> dropped, too long -> cut.
+    written.Groups[0].Title = 5
+    written.Groups[1].Title = 'x'.repeat(MAX_GROUP_NAME_LENGTH + 20)
+    writeFileSync(filePath, JSON.stringify(written))
+    const tamed = new SessionStateService(filePath).loadRestorePayload(true, false)
+    assert.equal('title' in tamed.groups[0], false)
+    assert.equal(tamed.groups[1].title.length, MAX_GROUP_NAME_LENGTH)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
