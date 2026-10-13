@@ -50,6 +50,12 @@ export interface ZincApi {
     getForegroundTool: (id: string) => Promise<AiCliTool | null>
     /** Saves a clipboard-pasted image's raw bytes and types its resolved path into the pty (parity §1.5). */
     pasteImage: (id: string, data: Uint8Array, mime: string) => void
+    /**
+     * Image paste in 'cli' mode: if this tab's foreground is a native AI CLI, main
+     * types its image-paste key (the CLI reads the clipboard itself) and resolves
+     * true. False means nothing was sent and the caller should fall back to `pasteImage`.
+     */
+    pasteImageToCli: (id: string) => Promise<boolean>
     /** Fires on every change of a tab's activity state (see shared/tabActivity.ts). Returns an unsubscribe function. */
     onActivity: (callback: (id: string, activity: TabActivity) => void) => () => void
     /** Fires whenever a tab's cwd / project root / foreground tool changes. Returns an unsubscribe function. */
@@ -163,6 +169,7 @@ const api: ZincApi = {
     getCwd: (id) => ipcRenderer.invoke('pty:getCwd', id),
     getForegroundTool: (id) => ipcRenderer.invoke('pty:getForegroundTool', id),
     pasteImage: (id, data, mime) => ipcRenderer.send('pty:pasteImage', id, data, mime),
+    pasteImageToCli: (id) => ipcRenderer.invoke('pty:pasteImageToCli', id),
     onActivity: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, id: string, activity: TabActivity): void => callback(id, activity)
       ipcRenderer.on(TAB_ACTIVITY_CHANNEL, listener)

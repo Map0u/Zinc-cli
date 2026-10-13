@@ -5,6 +5,7 @@ import { isUnsafeAccelerator } from '../../shared/shortcutAccelerator'
 import type {
   AccentSource,
   CursorStyle,
+  ImagePasteMode,
   LanguagePref,
   SettingsPatch,
   ThemePreference,
@@ -62,6 +63,7 @@ const VALID_LANGUAGES: LanguagePref[] = ['auto', 'en', 'zh']
 const VALID_THEME_PREFERENCES: ThemePreference[] = ['auto', 'light', 'dark']
 const VALID_ACCENT_SOURCES: AccentSource[] = ['scheme', 'system']
 const VALID_CURSOR_STYLES: CursorStyle[] = ['block', 'bar', 'underline']
+const VALID_IMAGE_PASTE_MODES: ImagePasteMode[] = ['cli', 'file']
 
 // Kept in sync with renderer/src/colorSchemes.ts's registry ids — main never
 // touches palette data itself, just validates/persists the selected id.
@@ -149,6 +151,12 @@ function normalizeCursorStyle(value: unknown, fallback: CursorStyle): CursorStyl
     : fallback
 }
 
+function normalizeImagePasteMode(value: unknown, fallback: ImagePasteMode): ImagePasteMode {
+  return typeof value === 'string' && (VALID_IMAGE_PASTE_MODES as string[]).includes(value)
+    ? (value as ImagePasteMode)
+    : fallback
+}
+
 /**
  * Rejects a hand-edited (or otherwise malformed) settings.json where two
  * actions were given the same accelerator. Without this, `rebuildReverse()`
@@ -230,6 +238,7 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     Scrollback: clampNumber(raw.Scrollback, base.Scrollback, NUMERIC_BOUNDS.Scrollback),
     GpuRendering: normalizeBoolean(raw.GpuRendering, base.GpuRendering),
     GrokFullscreenSurfaceTint: normalizeBoolean(raw.GrokFullscreenSurfaceTint, base.GrokFullscreenSurfaceTint),
+    ImagePaste: normalizeImagePasteMode(raw.ImagePaste, base.ImagePaste),
     RestoreSessionsOnStartup: normalizeBoolean(raw.RestoreSessionsOnStartup, base.RestoreSessionsOnStartup),
     ResumeAiConversations: normalizeBoolean(raw.ResumeAiConversations, base.ResumeAiConversations),
     Language: normalizeLanguage(raw.Language, base.Language),
@@ -296,6 +305,7 @@ function defaultSettings(): ZincSettings {
     // Off by default: it deliberately overrides the palette the user picked,
     // so it has to be asked for.
     GrokFullscreenSurfaceTint: false,
+    ImagePaste: 'cli',
     RestoreSessionsOnStartup: true,
     ResumeAiConversations: true,
     Language: 'auto',

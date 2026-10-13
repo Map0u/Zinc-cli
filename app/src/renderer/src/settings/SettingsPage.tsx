@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { useSettings } from './SettingsContext'
 import { useI18n, type LocaleKey } from '../i18n/I18nContext'
-import type { AccentSource, CursorStyle, LanguagePref, ThemePreference } from '../../../shared/settingsTypes'
+import type { AccentSource, CursorStyle, ImagePasteMode, LanguagePref, ThemePreference } from '../../../shared/settingsTypes'
 import { COLOR_SCHEMES, getColorScheme, resolveVariant } from '../colorSchemes'
 import { useResolvedThemeMode } from '../themeMode'
 import { DEFAULT_KEYBINDINGS, SHORTCUT_ACTIONS, type Keybindings, type ShortcutAction } from '../../../shared/keybindings'
@@ -538,6 +538,11 @@ const CURSOR_STYLE_OPTIONS: Array<{
   { value: 'underline', labelKey: 'CursorStyleUnderline' }
 ]
 
+const IMAGE_PASTE_OPTIONS: Array<{ value: ImagePasteMode; labelKey: 'ImagePasteCli' | 'ImagePasteFile' }> = [
+  { value: 'cli', labelKey: 'ImagePasteCli' },
+  { value: 'file', labelKey: 'ImagePasteFile' }
+]
+
 function AppearanceSection() {
   const { t } = useI18n()
   const { settings, updateImmediate, updateDebounced } = useSettings()
@@ -672,6 +677,14 @@ function TerminalSection() {
           max={100000}
           step={1000}
           onDebouncedChange={(v) => updateDebounced({ Scrollback: v })}
+        />
+      </Card>
+      <Card title={t('CardImagePasteTitle')} desc={t('CardImagePasteDesc')}>
+        <Dropdown
+          testId="setting-imagePaste"
+          value={settings.ImagePaste}
+          options={IMAGE_PASTE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+          onChange={(v) => updateImmediate({ ImagePaste: v })}
         />
       </Card>
     </>

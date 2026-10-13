@@ -18,6 +18,13 @@ export type AccentSource = 'scheme' | 'system'
 /** xterm.js cursor shape — block (filled cell), bar (I-beam), or underline. */
 export type CursorStyle = 'block' | 'bar' | 'underline'
 
+/**
+ * How Ctrl+V pastes a clipboard image. 'cli': the foreground AI CLI reads the
+ * clipboard itself (Zinc types its image-paste key, no file is written);
+ * 'file': Zinc always saves the image and types the file's path.
+ */
+export type ImagePasteMode = 'cli' | 'file'
+
 /** Full shape of settings.json (parity §1.2 field list + a schema `version`). */
 export interface ZincSettings {
   version: 1
@@ -57,6 +64,8 @@ export interface ZincSettings {
    * self-painted canvas.
    */
   GrokFullscreenSurfaceTint: boolean
+  /** Where a pasted clipboard image goes — see `ImagePasteMode`. */
+  ImagePaste: ImagePasteMode
   RestoreSessionsOnStartup: boolean
   /** When restoring tabs, auto-run claude/codex/grok resume commands if a tool was detected. */
   ResumeAiConversations: boolean

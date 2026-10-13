@@ -40,6 +40,8 @@ export interface TerminalOptionsPush {
   gpuRendering?: boolean
   /** When true, the terminal card takes Grok's own surface color while Grok's full-screen TUI is on screen. */
   grokFullscreenSurfaceTint?: boolean
+  /** 'cli' | 'file' — see shared/settingsTypes.ts's ImagePasteMode. */
+  imagePaste?: 'cli' | 'file'
 }
 
 /**

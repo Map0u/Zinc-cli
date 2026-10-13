@@ -49,6 +49,7 @@ import {
 import { prepareClaudeRestoreResolver } from "./services/ClaudeBackgroundJobs";
 import type { AiCliTool } from "../shared/aiCliTools";
 import { TAB_CONTEXT_CHANNEL, TAB_CONTEXT_SUBSCRIBE_CHANNEL } from "../shared/tabActivity";
+import { decideImagePaste, IMAGE_PASTE_KEY } from "../shared/imagePaste";
 import {
   MAIN_FALLBACK_ACCELERATORS,
   SHORTCUT_ACTIONS,
@@ -143,6 +144,7 @@ function terminalOptionsFrom(settings: ZincSettings): TerminalOptionsPush {
     terminalOpacity: settings.TerminalOpacity,
     gpuRendering: settings.GpuRendering,
     grokFullscreenSurfaceTint: settings.GrokFullscreenSurfaceTint,
+    imagePaste: settings.ImagePaste,
   };
 }
 
@@ -635,14 +637,44 @@ ipcMain.handle(
   },
 );
 
-// Clipboard image paste (parity §1.5): saves the bytes, decides Windows vs.
-// WSL path form by checking whether this tab's shell has a codex/claude
-// child (M5's detector, reused here), then types the bare path string into
-// the pty — no trailing newline, matching the WinUI behavior. Failed saves
-// and detection are logged without printing clipboard data. The file write is
-// asynchronous (main-thread disk I/O delays keystroke forwarding); pastes for
-// one tab are delivered in order, and a tab whose pty run changed while the
-// file was being written gets nothing typed into it.
+// Clipboard image paste, 'cli' mode: the renderer asks first. When the tab's
+// foreground is a native AI CLI, the CLI reads the clipboard itself on ESC v
+// (Alt+V) and no file is written. The key is typed here, synchronously and
+// behind any file paste still being saved, so keys typed right after Ctrl+V
+// (same renderer channel, so they arrive after this call) stay behind it.
+// false = nothing sent, the renderer falls back to pty:pasteImage.
+ipcMain.handle("pty:pasteImageToCli", (event: IpcMainInvokeEvent, id: string): boolean => {
+  if (!isTrustedIpcSender(event) || settingsService.get().ImagePaste !== "cli") return false;
+  const senderId = event.sender.id;
+  let match: ReturnType<typeof detectActiveToolMatch> = null;
+  try {
+    match = detectActiveToolMatch(ptyManager.getPid(id, senderId), recentProcessSnapshot());
+  } catch (err) {
+    console.warn("[pty:pasteImageToCli] process detection failed", err);
+  }
+  const action = decideImagePaste({
+    hasText: false,
+    hasImage: true,
+    mode: "cli",
+    tool: match?.tool ?? null,
+    runtime: match?.runtime ?? null,
+  });
+  if (action !== "send-key") return false;
+  const key = new TextEncoder().encode(IMAGE_PASTE_KEY);
+  pasteImageService.afterPendingPastes(id, () => ptyManager.write(id, key, senderId));
+  return true;
+});
+
+// Clipboard image paste, file path (parity §1.5): saves the bytes, decides
+// Windows vs. WSL path form by checking whether this tab's shell has a
+// codex/claude child (M5's detector, reused here), then types the path into
+// the pty — no trailing newline, matching the WinUI behavior. Under an AI CLI
+// the path is wrapped in bracketed paste, since a bare typed path is not
+// attached as an image (verified with Claude Code); a plain shell gets it
+// bare. Failed saves and detection are logged without printing clipboard
+// data. The file write is asynchronous (main-thread disk I/O delays keystroke
+// forwarding); pastes for one tab are delivered in order, and a tab whose pty
+// run changed while the file was being written gets nothing typed into it.
 ipcMain.on(
   "pty:pasteImage",
   (event: IpcMainEvent, id: string, data: Uint8Array, mime: string) => {
@@ -657,17 +689,17 @@ ipcMain.on(
         mime,
         (filePath) => {
           let pathText = filePath;
-          let isWsl = false;
+          let match: ReturnType<typeof detectActiveToolMatch> = null;
           try {
-            isWsl = detectActiveToolMatch(
+            match = detectActiveToolMatch(
               ptyManager.getPid(id, senderId),
               recentProcessSnapshot(),
-            )?.runtime === "wsl";
+            );
           } catch (err) {
             // Keep the existing Windows-path fallback when the detector is unavailable.
             console.warn("[pty:pasteImage] process detection failed", err);
           }
-          if (isWsl) {
+          if (match?.runtime === "wsl") {
             const wslPath = toWslPath(filePath);
             if (wslPath === null) {
               console.warn(
@@ -678,6 +710,14 @@ ipcMain.on(
             }
             pathText = wslPath;
           }
+          const action = decideImagePaste({
+            hasText: false,
+            hasImage: true,
+            mode: "file",
+            tool: match?.tool ?? null,
+            runtime: match?.runtime ?? null,
+          });
+          if (action === "file-bracketed") pathText = `\x1b[200~${pathText}\x1b[201~`;
           ptyManager.write(id, new TextEncoder().encode(pathText), senderId);
         },
       )

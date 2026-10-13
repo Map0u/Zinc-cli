@@ -49,7 +49,8 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   // Match SettingsService: 0 = raw Acrylic through the terminal card.
   terminalOpacity: 0,
   gpuRendering: false,
-  grokFullscreenSurfaceTint: false
+  grokFullscreenSurfaceTint: false,
+  imagePaste: 'cli'
 }
 
 /**
@@ -710,10 +711,15 @@ export class TerminalHostRegistry {
     return lines.join('\n')
   }
 
-  /** Looks for an image file among a paste event's clipboard items (parity §1.5). */
+  /**
+   * Intercepts a clipboard image paste (parity §1.5). Text on the clipboard
+   * wins (a spreadsheet cell or a web selection also carries an image), so only
+   * an image with no text is taken over.
+   */
   private handlePaste(id: string, event: ClipboardEvent): void {
     const items = event.clipboardData?.items
     if (!items) return
+    if ((event.clipboardData?.getData('text/plain') ?? '') !== '') return
     let imageFile: File | null = null
     for (const item of items) {
       if (item.kind === 'file' && item.type.startsWith('image/')) {
@@ -727,15 +733,30 @@ export class TerminalHostRegistry {
     event.stopImmediatePropagation()
 
     const mime = imageFile.type
-    imageFile
-      .arrayBuffer()
-      .then((buffer) => {
-        window.zinc.pty.pasteImage(id, new Uint8Array(buffer), mime)
+    // Read now, while the clipboard item is live; only the file fallback uses it.
+    const bytes = imageFile.arrayBuffer()
+    const saveToFile = (): void => {
+      bytes
+        .then((buffer) => {
+          window.zinc.pty.pasteImage(id, new Uint8Array(buffer), mime)
+        })
+        .catch(() => {
+          // Silent on failure per spec — a failed read just means the paste
+          // has no visible effect.
+        })
+    }
+    if ((this.currentOptions.imagePaste ?? DEFAULT_OPTIONS.imagePaste) !== 'cli') {
+      saveToFile()
+      return
+    }
+    // Main types the CLI's own image-paste key when an AI CLI is in front;
+    // otherwise (or if the lookup fails) the image goes through a saved file.
+    window.zinc.pty
+      .pasteImageToCli(id)
+      .then((handled) => {
+        if (!handled) saveToFile()
       })
-      .catch(() => {
-        // Silent on failure per spec — a failed read just means the paste
-        // has no visible effect.
-      })
+      .catch(saveToFile)
   }
 
   /**
