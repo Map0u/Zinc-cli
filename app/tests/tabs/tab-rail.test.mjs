@@ -159,16 +159,16 @@ test('keyed store notifies only the key that changed and skips equal writes', ()
 // --- labels inside a group ---------------------------------------------------
 
 const inGroup = { name: 'Zinc' }
-const ROOT = 'C:\\Projects\\Zinc'
+const ROOT = 'C:\\Work\\Zinc'
 
 test('cwdRelativeToRoot: below the root only, short forward-slash form, case-insensitive on Windows paths', () => {
   assert.equal(cwdRelativeToRoot(ROOT + '\\src', ROOT), 'src')
   assert.equal(cwdRelativeToRoot(ROOT + '\\src\\main', ROOT), 'src/main')
   assert.equal(cwdRelativeToRoot(ROOT + '\\app\\src\\renderer\\src', ROOT), '\u2026/renderer/src')
-  assert.equal(cwdRelativeToRoot('e:/save/zinc/APP/', ROOT + '\\'), 'APP')
+  assert.equal(cwdRelativeToRoot('c:/work/zinc/APP/', ROOT + '\\'), 'APP')
   assert.equal(cwdRelativeToRoot(ROOT, ROOT), null)
   assert.equal(cwdRelativeToRoot(ROOT + '\\', ROOT), null)
-  assert.equal(cwdRelativeToRoot('C:\\Projects\\ZincOther\\src', ROOT), null, 'a sibling that shares a prefix is not below the root')
+  assert.equal(cwdRelativeToRoot('C:\\Work\\ZincOther\\src', ROOT), null, 'a sibling that shares a prefix is not below the root')
   assert.equal(cwdRelativeToRoot('D:\\elsewhere', ROOT), null)
   assert.equal(cwdRelativeToRoot(ROOT + '\\src', ''), null)
 })
