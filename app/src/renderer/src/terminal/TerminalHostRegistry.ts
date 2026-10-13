@@ -43,7 +43,7 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   fontSize: 16,
   cursorBlink: true,
   cursorStyle: 'block',
-  scrollback: 10000,
+  scrollback: 3000,
   colorScheme: DEFAULT_COLOR_SCHEME_ID,
   themeMode: 'auto',
   // Match SettingsService: 0 = raw Acrylic through the terminal card.

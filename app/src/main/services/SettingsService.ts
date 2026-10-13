@@ -289,7 +289,7 @@ function defaultSettings(): ZincSettings {
     // Parity §1.2: the WinUI default hardcoded a dev-machine path; 0.2.0 uses the
     // current user's profile dir instead (Windows' %USERPROFILE%).
     StartingDirectory: homedir(),
-    Scrollback: 10000,
+    Scrollback: 3000,
     // Off by default: the WebGL renderer draws glyphs a little differently from
     // the DOM renderer, so it is something the user opts into.
     GpuRendering: false,

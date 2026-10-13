@@ -128,7 +128,7 @@ test('applyOptions ignores equal values and fits only on geometry changes', () =
   registry.fitTerminal = () => { fits++ }
   registry.applyOptions({
     fontFamily: 'JetBrains Mono', fontSize: 16, cursorBlink: true,
-    cursorStyle: 'block', scrollback: 10000, colorScheme: 'default',
+    cursorStyle: 'block', scrollback: 3000, colorScheme: 'default',
     themeMode: 'auto', terminalOpacity: 0,
     grokFullscreenSurfaceTint: false
   })
