@@ -31,7 +31,9 @@ const {
 const { SessionStateService } = await import(
   bundle(join(root, 'src/main/services/SessionStateService.ts'), 'SessionStateService.mjs')
 )
-const { SessionTool } = await import(bundle(join(root, 'src/shared/sessionState.ts'), 'sessionState.mjs'))
+const { SessionTool, MAX_TAB_TITLE_LENGTH, isValidRendererSnapshot } = await import(
+  bundle(join(root, 'src/shared/sessionState.ts'), 'sessionState.mjs')
+)
 
 test.after(() => {
   rmSync(outDir, { recursive: true, force: true })
@@ -831,4 +833,77 @@ test('mixed known/unknown Claude tabs in one cwd do not collide', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('a renamed tab survives persist and restore, and unnamed tabs write no CustomTitle', () => {
+  const { dir, filePath } = tempSessionFile()
+  try {
+    const cwd = mkdtempSync(join(dir, 'proj-'))
+    const service = new SessionStateService(filePath)
+    assert.equal(
+      service.persist(
+        [{ id: 'tab-1', shellId: 'pwsh', customTitle: 'build box' }, { id: 'tab-2', shellId: 'pwsh' }],
+        0, () => cwd, () => null, () => null, { scanTools: false }
+      ),
+      true
+    )
+    const saved = JSON.parse(readFileSync(filePath, 'utf8'))
+    assert.equal(saved.Tabs[0].CustomTitle, 'build box')
+    assert.equal('CustomTitle' in saved.Tabs[1], false)
+    const payload = new SessionStateService(filePath).loadRestorePayload(true, true)
+    assert.deepEqual(payload.tabs.map((tab) => tab.customTitle), ['build box', undefined])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a session file written before tab renames were saved still restores', () => {
+  const { dir, filePath } = tempSessionFile()
+  try {
+    const cwd = mkdtempSync(join(dir, 'old-'))
+    writeFileSync(
+      filePath,
+      JSON.stringify({ Tabs: [{ WorkingDirectory: cwd, Tool: SessionTool.None, ShellId: 'pwsh' }], ActiveIndex: 0 })
+    )
+    const payload = new SessionStateService(filePath).loadRestorePayload(true, true)
+    assert.equal(payload.tabs.length, 1)
+    assert.equal(payload.tabs[0].cwd, cwd)
+    assert.equal('customTitle' in payload.tabs[0], false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('restore ignores a malformed or oversized CustomTitle instead of failing', () => {
+  const { dir, filePath } = tempSessionFile()
+  try {
+    const cwd = mkdtempSync(join(dir, 'bad-'))
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        Tabs: [
+          { WorkingDirectory: cwd, Tool: 0, CustomTitle: 42 },
+          { WorkingDirectory: cwd, Tool: 0, CustomTitle: '   ' },
+          { WorkingDirectory: cwd, Tool: 0, CustomTitle: 'x'.repeat(MAX_TAB_TITLE_LENGTH + 50) }
+        ],
+        ActiveIndex: 0
+      })
+    )
+    const payload = new SessionStateService(filePath).loadRestorePayload(true, true)
+    assert.deepEqual(payload.tabs.map((tab) => tab.customTitle?.length), [undefined, undefined, MAX_TAB_TITLE_LENGTH])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('main accepts snapshots with and without customTitle and rejects bad ones', () => {
+  const ok = (tabs, activeIndex = 0) => isValidRendererSnapshot({ tabs, activeIndex })
+  assert.equal(ok([{ id: 'tab-1', shellId: 'pwsh' }]), true)
+  assert.equal(ok([{ id: 'tab-1', customTitle: 'build box' }]), true)
+  assert.equal(ok([{ id: 'tab-1', customTitle: 'x'.repeat(MAX_TAB_TITLE_LENGTH) }]), true)
+  assert.equal(ok([{ id: 'tab-1', customTitle: 'x'.repeat(MAX_TAB_TITLE_LENGTH + 1) }]), false)
+  assert.equal(ok([{ id: 'tab-1', customTitle: 7 }]), false)
+  assert.equal(ok([{ id: 'tab-1' }, { id: 'tab-1' }]), false)
+  assert.equal(ok([], -1), true)
+  assert.equal(ok([{ id: 'tab-1' }], 3), false)
 })

@@ -40,7 +40,7 @@ import type {
   TerminalOptionsPush,
 } from "../shared/ptyProtocol";
 import type { SettingsPatch, ZincSettings } from "../shared/settingsTypes";
-import { SessionTool } from "../shared/sessionState";
+import { SessionTool, isValidRendererSnapshot } from "../shared/sessionState";
 import type { RendererSessionSnapshot } from "../shared/sessionState";
 import {
   extractClaudeAttachJobId,
@@ -825,22 +825,6 @@ function ensurePeriodicSessionPersist(): void {
     persistSessionState({ scanTools: true });
   }, SESSION_SAVE_INTERVAL_MS);
   persistIntervalTimer.unref();
-}
-
-function isValidRendererSnapshot(value: unknown): value is RendererSessionSnapshot {
-  if (!value || typeof value !== 'object') return false;
-  const snapshot = value as Partial<RendererSessionSnapshot>;
-  if (!Array.isArray(snapshot.tabs) || snapshot.tabs.length > 256) return false;
-  if (!Number.isInteger(snapshot.activeIndex) || snapshot.activeIndex! < -1 || snapshot.activeIndex! >= snapshot.tabs.length)
-    return false;
-  const ids = new Set<string>();
-  for (const tab of snapshot.tabs) {
-    if (!tab || typeof tab.id !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(tab.id)) return false;
-    if (tab.shellId !== undefined && (typeof tab.shellId !== 'string' || tab.shellId.length > 128)) return false;
-    if (ids.has(tab.id)) return false;
-    ids.add(tab.id);
-  }
-  return true;
 }
 
 ipcMain.on(

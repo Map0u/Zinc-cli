@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { SessionTool } from '../../shared/sessionState'
+import { MAX_TAB_TITLE_LENGTH, SessionTool } from '../../shared/sessionState'
 import type { RestorePayload, RestoreTab, SessionState, SessionTabState } from '../../shared/sessionState'
 import {
   isSafeSessionId,
@@ -44,12 +44,13 @@ export interface PersistOptions {
   quitting?: boolean
 }
 
-function toTabState(id: string, shellId: string | undefined, known: LastKnownTab): SessionTabState {
+function toTabState(shellId: string | undefined, customTitle: string | undefined, known: LastKnownTab): SessionTabState {
   return {
     WorkingDirectory: known.cwd,
     Tool: known.tool,
     ...(shellId ? { ShellId: shellId } : {}),
-    ...(known.sessionId ? { SessionId: known.sessionId } : {})
+    ...(known.sessionId ? { SessionId: known.sessionId } : {}),
+    ...(customTitle ? { CustomTitle: customTitle } : {})
   }
 }
 
@@ -276,7 +277,17 @@ export class SessionStateService {
               claudeAttachJobId: claudeAttach.get(index)
             })
           : undefined
-        return { cwd, shellId, ...(startupCommand ? { startupCommand } : {}) }
+        // Old session files have no CustomTitle; anything else must be a sane string.
+        const customTitle =
+          typeof t?.CustomTitle === 'string' && t.CustomTitle.trim().length > 0
+            ? t.CustomTitle.trim().slice(0, MAX_TAB_TITLE_LENGTH)
+            : undefined
+        return {
+          cwd,
+          shellId,
+          ...(customTitle ? { customTitle } : {}),
+          ...(startupCommand ? { startupCommand } : {})
+        }
       })
 
       // Keep the source rows until the first persist: tabs spawn before the
@@ -336,7 +347,7 @@ export class SessionStateService {
    * is not written over a good file. Empty tab lists write only on quit.
    */
   persist(
-    tabsSnapshot: Array<{ id: string; shellId?: string }>,
+    tabsSnapshot: Array<{ id: string; shellId?: string; customTitle?: string }>,
     activeIndex: number,
     resolveShellCwd: (id: string) => string | null,
     resolveToolMatch: (id: string) => PersistToolMatch | null,
@@ -351,7 +362,7 @@ export class SessionStateService {
     this.pruneLastKnown(tabsSnapshot.map((tab) => tab.id))
 
     let usedFallbackCount = 0
-    const tabs: SessionTabState[] = tabsSnapshot.map(({ id, shellId }) => {
+    const tabs: SessionTabState[] = tabsSnapshot.map(({ id, shellId, customTitle }) => {
       let shellCwd: string | null = null
       try {
         shellCwd = resolveShellCwd(id)
@@ -399,7 +410,7 @@ export class SessionStateService {
       if (merged.usedFallbackOnly) usedFallbackCount += 1
       else this.lastKnown.set(id, merged.state)
 
-      return toTabState(id, shellId, merged.state)
+      return toTabState(shellId, customTitle, merged.state)
     })
 
     // A single unknown/dead tab's generic homedir + None row is not a valid
