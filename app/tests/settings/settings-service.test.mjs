@@ -7,7 +7,7 @@ import test from 'node:test'
 import { buildSync } from 'esbuild'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../..')
-const outDir = mkdtempSync(join(tmpdir(), 'zinc-settings-wheel-'))
+const outDir = mkdtempSync(join(tmpdir(), 'zinc-settings-service-'))
 const outFile = join(outDir, 'SettingsService.mjs')
 
 // Bundle the shipped SettingsService so the test exercises real load/normalize.
@@ -26,44 +26,7 @@ test.after(() => {
   rmSync(outDir, { recursive: true, force: true })
 })
 
-test('KimiFullscreenWheelPaging defaults to true when the field is absent from settings.json', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'zinc-settings-'))
-  const filePath = join(dir, 'settings.json')
-  try {
-    writeFileSync(
-      filePath,
-      JSON.stringify({ version: 1, FontSize: 14 }, null, 2),
-      'utf8'
-    )
-
-    const settings = new SettingsService(filePath).get()
-    assert.equal(settings.KimiFullscreenWheelPaging, true)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('KimiFullscreenWheelPaging preserves a stored false and round-trips through updateImmediate', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'zinc-settings-'))
-  const filePath = join(dir, 'settings.json')
-  try {
-    writeFileSync(
-      filePath,
-      JSON.stringify({ version: 1, KimiFullscreenWheelPaging: false }, null, 2),
-      'utf8'
-    )
-
-    const service = new SettingsService(filePath)
-    assert.equal(service.get().KimiFullscreenWheelPaging, false)
-
-    const updated = service.updateImmediate({ KimiFullscreenWheelPaging: true })
-    assert.equal(updated.KimiFullscreenWheelPaging, true)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('KimiFullscreenWheelPaging preserves a stored false when settings.json starts with a UTF-8 BOM', () => {
+test('settings load with a UTF-8 BOM', () => {
   const dir = mkdtempSync(join(tmpdir(), 'zinc-settings-'))
   const filePath = join(dir, 'settings.json')
   try {
@@ -71,13 +34,13 @@ test('KimiFullscreenWheelPaging preserves a stored false when settings.json star
     // BOM bytes ourselves so this hits the same on-disk shape Windows produces.
     const body = JSON.stringify({
       version: 1,
-      KimiFullscreenWheelPaging: false,
+      CursorBlink: false,
       FontSize: 14
     })
     writeFileSync(filePath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(body, 'utf8')]))
 
     const settings = new SettingsService(filePath).get()
-    assert.equal(settings.KimiFullscreenWheelPaging, false)
+    assert.equal(settings.CursorBlink, false)
     assert.equal(settings.FontSize, 14)
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -92,7 +55,7 @@ for (const encoding of ['utf-16le', 'utf-16be']) {
       try {
         const body = Buffer.from(JSON.stringify({
           version: 1,
-          KimiFullscreenWheelPaging: false,
+          CursorBlink: false,
           FontFamily: '中文 Mono',
           FontSize: 14
         }), 'utf16le')
@@ -102,7 +65,7 @@ for (const encoding of ['utf-16le', 'utf-16be']) {
         writeFileSync(filePath, bytes)
 
         const settings = new SettingsService(filePath).get()
-        assert.equal(settings.KimiFullscreenWheelPaging, false)
+        assert.equal(settings.CursorBlink, false)
         assert.equal(settings.FontFamily, '中文 Mono')
         assert.equal(settings.FontSize, 14)
         assert.deepEqual(readFileSync(filePath), bytes)
@@ -199,18 +162,21 @@ test('a failed quit-time write logs a diagnostic without crashing', () => {
   }
 })
 
-test('KimiFullscreenWheelPaging falls back to true for a non-boolean value', () => {
+test('the removed KimiFullscreenWheelPaging key is ignored on load and gone after the next write', () => {
   const dir = mkdtempSync(join(tmpdir(), 'zinc-settings-'))
   const filePath = join(dir, 'settings.json')
   try {
-    writeFileSync(
-      filePath,
-      JSON.stringify({ version: 1, KimiFullscreenWheelPaging: 'yes' }, null, 2),
-      'utf8'
-    )
+    writeFileSync(filePath, JSON.stringify({ version: 1, KimiFullscreenWheelPaging: false, FontSize: 14 }))
 
-    const settings = new SettingsService(filePath).get()
-    assert.equal(settings.KimiFullscreenWheelPaging, true)
+    const service = new SettingsService(filePath)
+    const settings = service.get()
+    assert.equal(settings.FontSize, 14)
+    assert.equal('KimiFullscreenWheelPaging' in settings, false)
+
+    service.updateImmediate({ FontSize: 18 })
+    const stored = JSON.parse(readFileSync(filePath, 'utf8'))
+    assert.equal(stored.FontSize, 18)
+    assert.equal('KimiFullscreenWheelPaging' in stored, false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

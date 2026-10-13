@@ -136,7 +136,6 @@ function terminalOptionsFrom(settings: ZincSettings): TerminalOptionsPush {
     themeMode: settings.ThemePreference,
     terminalOpacity: settings.TerminalOpacity,
     gpuRendering: settings.GpuRendering,
-    kimiFullscreenWheelPaging: settings.KimiFullscreenWheelPaging,
     grokFullscreenSurfaceTint: settings.GrokFullscreenSurfaceTint,
   };
 }
@@ -542,7 +541,7 @@ ipcMain.handle("pty:getCwd", (event: IpcMainInvokeEvent, id: string) =>
 );
 
 // Which AI CLI is in this tab right now. The renderer asks on every switch
-// into the alternate buffer so full-screen wheel paging can apply to Kimi
+// into the alternate buffer so the Grok surface tint can apply to Grok
 // only; entering a TUI is rare, but a quick vim in/out would still pay for a
 // full process-table walk each time, hence the short TTL. Deliberately not
 // routed through SessionStateService: that layer's sticky-tool merge exists

@@ -674,13 +674,6 @@ function TerminalSection() {
           onDebouncedChange={(v) => updateDebounced({ Scrollback: v })}
         />
       </Card>
-      <Card title={t('CardKimiFullscreenWheelPagingTitle')} desc={t('CardKimiFullscreenWheelPagingDesc')}>
-        <Toggle
-          testId="setting-kimiFullscreenWheelPaging"
-          checked={settings.KimiFullscreenWheelPaging}
-          onChange={(v) => updateImmediate({ KimiFullscreenWheelPaging: v })}
-        />
-      </Card>
     </>
   )
 }

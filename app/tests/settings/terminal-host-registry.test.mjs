@@ -33,11 +33,6 @@ async function loadRegistry() {
     './transparentSgrStream': `
       export class TransparentSgrStream { push(data) { return data } reset() { return new Uint8Array(0) } }
     `,
-    './kimiFullscreenWheelPaging': `
-      export const createWheelPagerState = () => ({})
-      export const decideKimiFullscreenWheel = () => ({ consume: false })
-      export const shouldInterceptKimiFullscreenWheel = () => false
-    `,
     './grokFullscreenSurface': `
       export const shouldTintSurfaceForGrok = () => false
       export const surfaceBaseFor = () => [0, 0, 0]
@@ -103,7 +98,6 @@ function createHost() {
     loadAddon(addon) { this.addons.push(addon) }
     onTitleChange() {}
     attachCustomKeyEventHandler() {}
-    attachCustomWheelEventHandler() {}
     onData() {}
     onResize() {}
     refresh() { this.refreshes++ }
@@ -136,7 +130,7 @@ test('applyOptions ignores equal values and fits only on geometry changes', () =
     fontFamily: 'JetBrains Mono', fontSize: 16, cursorBlink: true,
     cursorStyle: 'block', scrollback: 10000, colorScheme: 'default',
     themeMode: 'auto', terminalOpacity: 0,
-    kimiFullscreenWheelPaging: true, grokFullscreenSurfaceTint: false
+    grokFullscreenSurfaceTint: false
   })
   assert.deepEqual(term.writes, [])
   assert.equal(term.refreshes, 0)

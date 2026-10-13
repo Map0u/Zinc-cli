@@ -43,8 +43,6 @@
   "CardScrollbackTitle": "滚动缓冲行数",
   "CardGpuRenderingTitle": "GPU 渲染",
   "CardGpuRenderingDesc": "用 GPU 绘制当前标签页，输出刷得很猛的程序更省力；字形的抗锯齿与默认渲染略有差别",
-  "CardKimiFullscreenWheelPagingTitle": "Kimi 全屏滚轮适配",
-  "CardKimiFullscreenWheelPagingDesc": "Kimi 全屏 TUI 时，滚轮按 PageUp / PageDown 整页翻对话，不再一行行滚",
   "CardGrokSurfaceTintTitle": "Grok 全屏配色适配",
   "CardGrokSurfaceTintDesc": "Grok 全屏界面出现时，终端卡片底色改用 Grok 自己的灰，不再在它周围留一圈别的颜色；其余部分和配色不变。终端透明度为 0 时不生效",
   "CardRestoreTitle": "启动时恢复会话",

@@ -43,8 +43,6 @@
   "CardScrollbackTitle": "Scrollback lines",
   "CardGpuRenderingTitle": "GPU rendering",
   "CardGpuRenderingDesc": "Draw the visible tab on the GPU, which is lighter for programs that redraw constantly; glyph anti-aliasing differs slightly from the default renderer",
-  "CardKimiFullscreenWheelPagingTitle": "Kimi full-screen wheel paging",
-  "CardKimiFullscreenWheelPagingDesc": "In Kimi's full-screen TUI, the wheel pages (PgUp/PgDn) through the conversation instead of scrolling one line at a time",
   "CardGrokSurfaceTintTitle": "Grok full-screen surface tint",
   "CardGrokSurfaceTintDesc": "While Grok's full-screen TUI is on screen, the terminal card takes Grok's own surface colour instead of leaving a differently coloured frame around it. Everything else keeps your scheme. No effect at terminal opacity 0",
   "CardRestoreTitle": "Restore sessions on startup",

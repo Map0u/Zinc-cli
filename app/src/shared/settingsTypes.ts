@@ -50,8 +50,6 @@ export interface ZincSettings {
    * default DOM renderer, so it is opt-in.
    */
   GpuRendering: boolean
-  /** When on, the mouse wheel pages (PgUp/PgDn) instead of line-scrolling inside Kimi's full-screen TUI. */
-  KimiFullscreenWheelPaging: boolean
   /**
    * When on, the terminal card takes Grok's own surface color while Grok's
    * full-screen TUI is on screen, instead of the selected scheme's. Lets the

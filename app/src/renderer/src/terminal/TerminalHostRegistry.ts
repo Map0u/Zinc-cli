@@ -16,12 +16,6 @@ import { DEFAULT_COLOR_SCHEME_ID, getColorScheme, resolveVariant, type ThemeMode
 import { getSystemThemeMode, onSystemThemeModeChange } from '../themeMode'
 import { shouldTransparentizeTerminalBackgrounds, terminalThemeBackground } from './transparentTerminalBackground'
 import { TransparentSgrStream } from './transparentSgrStream'
-import {
-  createWheelPagerState,
-  decideKimiFullscreenWheel,
-  shouldInterceptKimiFullscreenWheel,
-  type WheelPagerState
-} from './kimiFullscreenWheelPaging'
 import { shouldTintSurfaceForGrok, surfaceBaseFor } from './grokFullscreenSurface'
 import type { IDisposable } from '@xterm/xterm'
 
@@ -55,7 +49,6 @@ const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   // Match SettingsService: 0 = raw Acrylic through the terminal card.
   terminalOpacity: 0,
   gpuRendering: false,
-  kimiFullscreenWheelPaging: true,
   grokFullscreenSurfaceTint: false
 }
 
@@ -87,12 +80,10 @@ interface HostEntry {
   transparentBgHandlers: IDisposable[]
   /** Rewrites black TUI backgrounds in the pty byte stream while the card is transparent; null otherwise. */
   sgrStream: TransparentSgrStream | null
-  /** Capture-phase wheel listener that pages Kimi's full-screen TUI; removed on destroy. */
-  wheelListener: ((event: WheelEvent) => void) | null
   /**
    * AI CLI detected under this tab's shell, refreshed once per switch into
    * the alternate buffer (null until the answer arrives, when nothing is
-   * detected, or in the normal buffer). Gates wheel paging to Kimi.
+   * detected, or in the normal buffer). Gates the Grok surface tint.
    */
   tool: AiCliTool | null
   /**
@@ -100,8 +91,6 @@ interface HostEntry {
    * switch has already happened is stale and must be dropped.
    */
   toolLookupSeq: number
-  /** Accumulates sub-notch wheel movement while the host is paging. */
-  wheelPager: WheelPagerState
   /** True while this tab wears Grok's surface color — see grokFullscreenSurface.ts. */
   grokSurface: boolean
   /** Container size changed while hidden; the fit is deferred until the tab is shown. */
@@ -126,7 +115,6 @@ export type TerminalNotice = 'copyFailed' | 'pasteFailed' | 'startFailed' | 'ope
 
 export class TerminalHostRegistry {
   private readonly hosts = new Map<string, HostEntry>()
-  private readonly consumedWheels = new WeakSet<WheelEvent>()
   private readonly titleHandlers = new Set<(id: string, title: string) => void>()
   private readonly noticeHandlers = new Set<(notice: TerminalNotice) => void>()
   private readonly surfaceHandlers = new Set<(id: string, tinted: boolean) => void>()
@@ -309,10 +297,8 @@ export class TerminalHostRegistry {
       port: null,
       transparentBgHandlers: [],
       sgrStream: null,
-      wheelListener: null,
       tool: null,
       toolLookupSeq: 0,
-      wheelPager: createWheelPagerState(),
       grokSurface: false,
       geometryDirty: false,
       webgl: null,
@@ -324,17 +310,6 @@ export class TerminalHostRegistry {
     entry.contextMenuListener = (event) => this.handleContextMenu(entry, event)
     container.addEventListener('contextmenu', entry.contextMenuListener)
 
-    // Full-screen TUIs (Kimi's alt screen among them) must own the wheel
-    // exclusively: if xterm also turns the same tick into ↑/↓ or a viewport
-    // scroll, the TUI pages and line-scrolls at once. Capture + non-passive
-    // stops the compositor; attachCustomWheelEventHandler is xterm's own
-    // join so SGR mouse / alt-buffer arrows / viewport scroll all stand down.
-    // Mouse tracking is not a guard — Kimi toggles it around redraws.
-    entry.wheelListener = (event: WheelEvent) => {
-      this.handleWheel(entry, event)
-    }
-    container.addEventListener('wheel', entry.wheelListener, { capture: true, passive: false })
-    term.attachCustomWheelEventHandler((event) => this.handleWheel(entry, event))
     term.buffer.onBufferChange(() => this.refreshToolForBuffer(entry))
     this.syncFullscreenState(entry)
 
@@ -612,7 +587,7 @@ export class TerminalHostRegistry {
     const appearanceChanged = changed('colorScheme') || changed('themeMode')
     const opacityChanged = changed('terminalOpacity')
     const gpuRenderingChanged = changed('gpuRendering')
-    const fullscreenChanged = changed('kimiFullscreenWheelPaging') || changed('grokFullscreenSurfaceTint')
+    const fullscreenChanged = changed('grokFullscreenSurfaceTint')
     this.currentOptions = { ...previous, ...options }
     if (options.themeMode !== undefined && (options.themeMode === 'auto' || options.themeMode === 'light' || options.themeMode === 'dark')) {
       this.themePreference = options.themeMode
@@ -668,9 +643,6 @@ export class TerminalHostRegistry {
     entry.resizeObserver.disconnect()
     if (entry.resizeTimer !== null) window.clearTimeout(entry.resizeTimer)
     if (entry.contextMenuListener) entry.container.removeEventListener('contextmenu', entry.contextMenuListener)
-    if (entry.wheelListener) {
-      entry.container.removeEventListener('wheel', entry.wheelListener, { capture: true })
-    }
     this.clearTransparentBackgroundHandlers(entry)
     this.closePort(entry)
     if (entry.exitNoticeTimer !== null) window.clearTimeout(entry.exitNoticeTimer)
@@ -767,59 +739,12 @@ export class TerminalHostRegistry {
   }
 
   /**
-   * While the setting is on and the host is on the alternate buffer, steal
-   * the wheel from xterm and page with PgUp/PgDn. Returns false when xterm
-   * must not process the event (attachCustomWheelEventHandler contract).
-   */
-  private handleWheel(entry: HostEntry, event: WheelEvent): boolean {
-    // Capture on the container and xterm's custom handler can both see the
-    // same tick. Dedup before accumulating a notch.
-    if (this.consumedWheels.has(event)) {
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      return false
-    }
-
-    const decision = decideKimiFullscreenWheel(
-      {
-        enabled: this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging,
-        hostReady: entry.state === 'ready',
-        bufferType: entry.term.buffer.active.type,
-        tool: entry.tool
-      },
-      entry.wheelPager,
-      event.deltaY,
-      event.deltaMode
-    )
-    if (!decision.consume) return true
-
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    this.consumedWheels.add(event)
-    if (decision.sequence) {
-      window.zinc.pty.write(entry.id, new TextEncoder().encode(decision.sequence))
-    }
-    return false
-  }
-
-  private syncWheelPagingFlag(entry: HostEntry): void {
-    const on = shouldInterceptKimiFullscreenWheel({
-      enabled: this.currentOptions.kimiFullscreenWheelPaging ?? DEFAULT_OPTIONS.kimiFullscreenWheelPaging,
-      hostReady: entry.state === 'ready',
-      bufferType: entry.term.buffer.active.type,
-      tool: entry.tool
-    })
-    entry.container.dataset.zincWheelPaging = on ? '1' : '0'
-  }
-
-  /**
    * Recomputes everything that depends on "which full-screen TUI is running in
-   * this tab": wheel paging and the Grok surface tint. Both read the same three
-   * signals (setting, buffer type, detected tool), so they are refreshed
-   * together at every point where one of those can have changed.
+   * this tab": today just the Grok surface tint, which reads three signals
+   * (setting, buffer type, detected tool) that are refreshed together at every
+   * point where one of them can have changed.
    */
   private syncFullscreenState(entry: HostEntry): void {
-    this.syncWheelPagingFlag(entry)
     this.syncGrokSurface(entry)
   }
 
@@ -853,13 +778,13 @@ export class TerminalHostRegistry {
 
   /**
    * Entering the alternate buffer means *some* full-screen TUI started — vim,
-   * less, htop, Codex and Grok all land here too, and only Kimi may have the
-   * wheel. The renderer cannot see which CLI is running, so ask main once per
+   * less, htop, Codex and Grok all land here too, and only Grok gets the surface
+   * tint. The renderer cannot see which CLI is running, so ask main once per
    * switch (rare event, so no polling) and cache it on the entry.
    *
    * Everything about this is deliberately fail-open: until the answer lands,
    * and whenever it is null or the call throws, `entry.tool` stays null and no
-   * wheel is intercepted — which is exactly xterm's pre-0.6.7 behaviour.
+   * tint is applied.
    */
   private refreshToolForBuffer(entry: HostEntry): void {
     const seq = ++entry.toolLookupSeq
@@ -881,7 +806,7 @@ export class TerminalHostRegistry {
         this.syncFullscreenState(entry)
       })
       .catch(() => {
-        // Detection is best-effort; a failure just leaves paging off.
+        // Detection is best-effort; a failure just leaves the tint off.
       })
   }
 
@@ -1066,7 +991,7 @@ export class TerminalHostRegistry {
     before: { viewportY: number; wasAtBottom: boolean; alternate: boolean }
   ): void {
     // Alternate buffer has no scrollback. Forcing "at bottom" on every PTY
-    // chunk fights a paging TUI redraw and any leftover native wheel scroll.
+    // chunk fights a full-screen TUI redraw.
     if (before.alternate) return
 
     const restore = (): void => {
