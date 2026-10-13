@@ -39,3 +39,10 @@ export interface TabContext {
 
 /** Main → renderer IPC channel carrying `(id, TabContext)` on every change. */
 export const TAB_CONTEXT_CHANNEL = 'pty:context'
+
+/**
+ * Renderer → main, sent by `onContext` right after it attaches its listener:
+ * main answers by re-pushing the last context of every live tab, so a
+ * subscriber that mounts after a tab was created still gets its first value.
+ */
+export const TAB_CONTEXT_SUBSCRIBE_CHANNEL = 'pty:context-subscribe'

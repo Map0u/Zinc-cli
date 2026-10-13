@@ -15,9 +15,12 @@ import type {
   Input,
 } from "electron";
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { applyWindowMaterial } from "./windowMaterial";
 import { PtyManager } from "./pty/PtyManager";
+import { TabContextService } from "./services/TabContextService";
+import { createProjectRootResolver } from "./services/ProjectRoot";
 import { SettingsService } from "./services/SettingsService";
 import { SessionStateService } from "./services/SessionStateService";
 import { ClaudeSessionBindings } from "./services/ClaudeSessionBindings";
@@ -43,6 +46,7 @@ import {
 } from "../shared/sessionPersist";
 import { prepareClaudeRestoreResolver } from "./services/ClaudeBackgroundJobs";
 import type { AiCliTool } from "../shared/aiCliTools";
+import { TAB_CONTEXT_CHANNEL, TAB_CONTEXT_SUBSCRIBE_CHANNEL } from "../shared/tabActivity";
 import {
   MAIN_FALLBACK_ACCELERATORS,
   SHORTCUT_ACTIONS,
@@ -474,8 +478,39 @@ settingsService.onChange((settings) => {
 
 const ptyManager = new PtyManager(
   () => claudeSessionBindings.settingsFilePath(),
-  (id) => foregroundToolCache.delete(id),
+  (id) => {
+    foregroundToolCache.delete(id);
+    tabContexts.drop(id);
+  },
+  (id) => tabContexts.noteOutput(id),
 );
+// Per-tab cwd / project / tool, pushed to the rail whenever one changes.
+function userFolders(): string[] {
+  const home = homedir();
+  // getPath follows the shell's known-folder redirects (localized names, OneDrive); the literal
+  // names cover a profile where that redirect is missing or points elsewhere.
+  const redirected = (["desktop", "downloads", "documents"] as const).map((name) => {
+    try {
+      return app.getPath(name);
+    } catch {
+      return "";
+    }
+  });
+  const literal = ["Desktop", "Downloads", "Documents"].flatMap((name) => [join(home, name), join(home, "OneDrive", name)]);
+  return [...redirected, ...literal].filter(Boolean);
+}
+const projectRoots = createProjectRootResolver({ home: homedir(), folders: userFolders() });
+const tabContexts = new TabContextService({
+  getCwd: (id) => ptyManager.getCwdInternal(id),
+  getTool: (id) => detectForegroundTool(id, ptyManager.getPidInternal(id)),
+  resolveRoot: (cwd) => projectRoots.resolve(cwd),
+  send: (id, context) => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(TAB_CONTEXT_CHANNEL, id, context);
+  },
+});
+ipcMain.on(TAB_CONTEXT_SUBSCRIBE_CHANNEL, (event: IpcMainEvent) => {
+  if (isTrustedIpcSender(event)) tabContexts.resend();
+});
 const pendingPtyCreates = new Map<string, { senderId: number; cancelled: boolean }>();
 
 ipcMain.handle(
@@ -496,6 +531,7 @@ ipcMain.handle(
         : settingsService.get().DefaultShellId;
       const resolution = resolveShellId(shells, requestedId);
       ptyManager.create(id, options, event.sender, resolution.shell);
+      tabContexts.track(id);
     } finally {
       if (pendingPtyCreates.get(id) === pending) pendingPtyCreates.delete(id);
     }
@@ -564,24 +600,29 @@ function recentProcessSnapshot(): ReturnType<typeof snapshotProcesses> {
   return rows;
 }
 
+// Shared by the renderer's query above and the tab-context tracker, so both ride
+// one cache and one process snapshot.
+function detectForegroundTool(id: string, pid: number | null): AiCliTool | null {
+  const cached = foregroundToolCache.get(id);
+  if (cached && Date.now() - cached.at < FOREGROUND_TOOL_TTL_MS)
+    return cached.tool;
+  let tool: AiCliTool | null = null;
+  try {
+    // No preferredTool: a tab's last-known tool must not colour the answer.
+    if (pid !== null) tool = detectActiveToolMatch(pid, recentProcessSnapshot())?.tool ?? null;
+  } catch (err) {
+    console.warn("[pty:getForegroundTool] detection failed", err);
+    throw err;
+  }
+  foregroundToolCache.set(id, { at: Date.now(), tool });
+  return tool;
+}
+
 ipcMain.handle(
   "pty:getForegroundTool",
   (event: IpcMainInvokeEvent, id: string): AiCliTool | null => {
     if (!isTrustedIpcSender(event)) return null;
-    const cached = foregroundToolCache.get(id);
-    if (cached && Date.now() - cached.at < FOREGROUND_TOOL_TTL_MS)
-      return cached.tool;
-    let tool: AiCliTool | null = null;
-    try {
-      // No preferredTool: a tab's last-known tool must not colour the answer.
-      const pid = ptyManager.getPid(id, event.sender.id);
-      if (pid !== null) tool = detectActiveToolMatch(pid, recentProcessSnapshot())?.tool ?? null;
-    } catch (err) {
-      console.warn("[pty:getForegroundTool] detection failed", err);
-      throw err;
-    }
-    foregroundToolCache.set(id, { at: Date.now(), tool });
-    return tool;
+    return detectForegroundTool(id, ptyManager.getPid(id, event.sender.id));
   },
 );
 

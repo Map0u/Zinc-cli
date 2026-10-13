@@ -5,7 +5,7 @@ import type { UpdateState } from '../shared/updateProtocol'
 import type { RendererSessionSnapshot, RestorePayload } from '../shared/sessionState'
 import type { ShortcutAction } from '../shared/keybindings'
 import type { AiCliTool } from '../shared/aiCliTools'
-import { TAB_ACTIVITY_CHANNEL, TAB_CONTEXT_CHANNEL, type TabActivity, type TabContext } from '../shared/tabActivity'
+import { TAB_ACTIVITY_CHANNEL, TAB_CONTEXT_CHANNEL, TAB_CONTEXT_SUBSCRIBE_CHANNEL, type TabActivity, type TabContext } from '../shared/tabActivity'
 
 export interface ShellProfile {
   id: string
@@ -171,6 +171,7 @@ const api: ZincApi = {
     onContext: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, id: string, context: TabContext): void => callback(id, context)
       ipcRenderer.on(TAB_CONTEXT_CHANNEL, listener)
+      ipcRenderer.send(TAB_CONTEXT_SUBSCRIBE_CHANNEL)
       return () => ipcRenderer.removeListener(TAB_CONTEXT_CHANNEL, listener)
     }
   },
