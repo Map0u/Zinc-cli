@@ -156,7 +156,8 @@ async function waitForReadyHost(page, id, message) {
 async function waitForContextMenu(page, message) {
   await waitFor(
     page,
-    () => document.querySelectorAll('[role="menu"] [role="menuitem"]').length === 2,
+    // Rename and Duplicate stay the first two items; the group actions follow them.
+    () => document.querySelectorAll('[role="menu"] [role="menuitem"]').length >= 2,
     undefined,
     message
   )
