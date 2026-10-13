@@ -20,3 +20,22 @@ export interface TabActivity {
 
 /** Main → renderer IPC channel carrying `(id, TabActivity)` on every state change. */
 export const TAB_ACTIVITY_CHANNEL = 'pty:activity'
+
+/**
+ * Where a tab is and what runs in it, pushed by main whenever any field
+ * changes. `projectRoot` is the enclosing git work tree (or the cwd itself
+ * when there is none), and is null when the cwd is not a plausible project:
+ * a drive root, the home directory or one of its ancestors, Desktop /
+ * Downloads / Documents, or a repo rooted at home (dotfiles).
+ */
+export interface TabContext {
+  cwd: string | null
+  projectRoot: string | null
+  /** Display name for `projectRoot` (its basename). */
+  projectName: string | null
+  /** Foreground AI CLI, if any. */
+  tool: 'claude' | 'codex' | 'grok' | 'kimi' | null
+}
+
+/** Main → renderer IPC channel carrying `(id, TabContext)` on every change. */
+export const TAB_CONTEXT_CHANNEL = 'pty:context'

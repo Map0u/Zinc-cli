@@ -5,7 +5,7 @@ import type { UpdateState } from '../shared/updateProtocol'
 import type { RendererSessionSnapshot, RestorePayload } from '../shared/sessionState'
 import type { ShortcutAction } from '../shared/keybindings'
 import type { AiCliTool } from '../shared/aiCliTools'
-import { TAB_ACTIVITY_CHANNEL, type TabActivity } from '../shared/tabActivity'
+import { TAB_ACTIVITY_CHANNEL, TAB_CONTEXT_CHANNEL, type TabActivity, type TabContext } from '../shared/tabActivity'
 
 export interface ShellProfile {
   id: string
@@ -52,6 +52,8 @@ export interface ZincApi {
     pasteImage: (id: string, data: Uint8Array, mime: string) => void
     /** Fires on every change of a tab's activity state (see shared/tabActivity.ts). Returns an unsubscribe function. */
     onActivity: (callback: (id: string, activity: TabActivity) => void) => () => void
+    /** Fires whenever a tab's cwd / project root / foreground tool changes. Returns an unsubscribe function. */
+    onContext: (callback: (id: string, context: TabContext) => void) => () => void
   }
   /** Pushed appearance settings (font/size/cursor/scrollback/opacity) — applies to every open terminal. Returns an unsubscribe function. */
   onTerminalOptions: (callback: (options: TerminalOptionsPush) => void) => () => void
@@ -165,6 +167,11 @@ const api: ZincApi = {
       const listener = (_event: Electron.IpcRendererEvent, id: string, activity: TabActivity): void => callback(id, activity)
       ipcRenderer.on(TAB_ACTIVITY_CHANNEL, listener)
       return () => ipcRenderer.removeListener(TAB_ACTIVITY_CHANNEL, listener)
+    },
+    onContext: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, id: string, context: TabContext): void => callback(id, context)
+      ipcRenderer.on(TAB_CONTEXT_CHANNEL, listener)
+      return () => ipcRenderer.removeListener(TAB_CONTEXT_CHANNEL, listener)
     }
   },
   onTerminalOptions: (callback) => {
