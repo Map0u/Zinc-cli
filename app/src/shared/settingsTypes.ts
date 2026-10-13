@@ -66,6 +66,13 @@ export interface ZincSettings {
   GrokFullscreenSurfaceTint: boolean
   /** Where a pasted clipboard image goes — see `ImagePasteMode`. */
   ImagePaste: ImagePasteMode
+  /**
+   * Run new tabs on node-pty's bundled ConPTY host so Claude Code can report its
+   * exact turn state (working / waiting / done) over OSC 7501. Off: the status
+   * is guessed from Claude's title glyph (working vs idle only). A tab keeps the
+   * console host it was created with, so a change applies to new tabs only.
+   */
+  PreciseAiStatus: boolean
   RestoreSessionsOnStartup: boolean
   /** When restoring tabs, auto-run claude/codex/grok resume commands if a tool was detected. */
   ResumeAiConversations: boolean

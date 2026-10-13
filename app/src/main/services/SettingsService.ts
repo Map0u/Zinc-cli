@@ -239,6 +239,7 @@ function normalizeSettings(raw: Partial<ZincSettings>, base: ZincSettings): Zinc
     GpuRendering: normalizeBoolean(raw.GpuRendering, base.GpuRendering),
     GrokFullscreenSurfaceTint: normalizeBoolean(raw.GrokFullscreenSurfaceTint, base.GrokFullscreenSurfaceTint),
     ImagePaste: normalizeImagePasteMode(raw.ImagePaste, base.ImagePaste),
+    PreciseAiStatus: normalizeBoolean(raw.PreciseAiStatus, base.PreciseAiStatus),
     RestoreSessionsOnStartup: normalizeBoolean(raw.RestoreSessionsOnStartup, base.RestoreSessionsOnStartup),
     ResumeAiConversations: normalizeBoolean(raw.ResumeAiConversations, base.ResumeAiConversations),
     Language: normalizeLanguage(raw.Language, base.Language),
@@ -306,6 +307,9 @@ function defaultSettings(): ZincSettings {
     // so it has to be asked for.
     GrokFullscreenSurfaceTint: false,
     ImagePaste: 'cli',
+    // On: the useConptyDll regression matrix (see docs) was green, and Claude Code's exact
+    // working / waiting / done status needs it. Applies to tabs created after a change.
+    PreciseAiStatus: true,
     RestoreSessionsOnStartup: true,
     ResumeAiConversations: true,
     Language: 'auto',

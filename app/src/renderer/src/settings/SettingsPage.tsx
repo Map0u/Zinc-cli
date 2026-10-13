@@ -687,6 +687,13 @@ function TerminalSection() {
           onChange={(v) => updateImmediate({ ImagePaste: v })}
         />
       </Card>
+      <Card title={t('CardPreciseAiStatusTitle')} desc={t('CardPreciseAiStatusDesc')}>
+        <Toggle
+          testId="setting-preciseAiStatus"
+          checked={settings.PreciseAiStatus}
+          onChange={(v) => updateImmediate({ PreciseAiStatus: v })}
+        />
+      </Card>
     </>
   )
 }

@@ -47,6 +47,8 @@
   "CardImagePasteDesc": "剪贴板里是图片时按 Ctrl+V。直接粘贴：由 AI CLI（Claude Code、Codex、Kimi、Grok）自己读取剪贴板，不落盘；其他场景或选择保存为文件时，Zinc 会把图片存成文件并输入它的路径",
   "ImagePasteCli": "直接交给 AI CLI",
   "ImagePasteFile": "始终保存为文件",
+  "CardPreciseAiStatusTitle": "精确的 AI 状态",
+  "CardPreciseAiStatusDesc": "新标签改用内置的控制台宿主，Claude Code 才能如实报告“在工作 / 等你操作 / 已完成”；关闭时只能凭标题猜出“工作中”和“空闲”。只对新开的标签生效",
   "CardGrokSurfaceTintTitle": "Grok 全屏配色适配",
   "CardGrokSurfaceTintDesc": "Grok 全屏界面出现时，终端卡片底色改用 Grok 自己的灰，不再在它周围留一圈别的颜色；其余部分和配色不变。终端透明度为 0 时不生效",
   "CardRestoreTitle": "启动时恢复会话",
