@@ -43,9 +43,15 @@ export class ConoutRelayHost {
       if (message.type === "ready") this.ready.get(message.conoutPipeName)?.();
     });
     worker.on("error", (err) => console.error("[conout-relay]", err));
-    // An unexpected exit strands the pipes it owned; the next tab starts a fresh worker.
-    worker.on("exit", () => {
-      if (this.worker === worker) this.worker = null;
+    // An unexpected exit takes every pipe it owned with it (ConPTY's conout pipe
+    // cannot be reconnected). Forget them so they cannot pin the next worker open;
+    // their tabs end the way a tab whose private worker died would.
+    worker.on("exit", (code) => {
+      if (this.worker !== worker) return;
+      this.worker = null;
+      console.error(`[conout-relay] worker exited unexpectedly (code ${code}); ${this.open.size} pty pipe(s) lost`);
+      this.open.clear();
+      this.ready.clear();
     });
     this.worker = worker;
     return worker;
@@ -87,6 +93,9 @@ export function createSharedConoutConnection(host: ConoutRelayHost) {
 
     connectSocket(socket: Socket): void {
       socket.connect(getRelayPipeName(this.conoutPipeName));
+      // node-pty only disposes on kill(); a shell that exits by itself closes the
+      // socket and is never killed, so release the relay when the consumer is gone.
+      socket.once("close", () => this.dispose());
     }
   };
 }

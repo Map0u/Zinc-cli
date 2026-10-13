@@ -94,3 +94,87 @@ test('one worker relays several conout pipes independently, then goes away with 
   for (const { socket } of sources) socket.destroy()
   for (const server of conouts) server.close()
 })
+
+// A tab as node-pty drives it: a fake ConPTY conout server, the connection, and the main-side out socket.
+async function openTab(mod, tag) {
+  const name = pipeName(tag)
+  const tab = { name, source: null, socket: new Socket(), text: '' }
+  tab.server = createServer((socket) => (tab.source = socket))
+  await new Promise((resolve) => tab.server.listen(name, resolve))
+  tab.conn = new mod.ConoutConnection(name, false)
+  tab.socket.setEncoding('utf8')
+  tab.socket.on('data', (chunk) => (tab.text += chunk))
+  await new Promise((resolve) => tab.conn.onReady(resolve))
+  tab.conn.connectSocket(tab.socket)
+  for (let i = 0; i < 50 && !tab.source; i++) await delay(20)
+  assert.ok(tab.source, 'the relay connected to the conout pipe')
+  return tab
+}
+const closeTab = (tab) => {
+  tab.socket.destroy()
+  tab.source?.destroy()
+  tab.server.close()
+}
+// Runs even when an assertion fails halfway, so a failure reports instead of hanging on open handles.
+const cleanUp = (t, host, tabs) =>
+  t.after(() => {
+    tabs.forEach(closeTab)
+    void host.worker?.terminate()
+  })
+
+test('a shell that exits by itself (socket closed, never killed) releases its relay', async (t) => {
+  const mod = { ConoutConnection: FakeConnection }
+  const { host } = installSharedConout(mod, workerPath)
+  const tabs = []
+  cleanUp(t, host, tabs)
+  const a = await openTab(mod, 'exit-a')
+  tabs.push(a)
+  const b = await openTab(mod, 'exit-b')
+  tabs.push(b)
+  const worker = host.worker
+  a.source.write('bye\n')
+  for (let i = 0; i < 50 && !a.text.includes('bye'); i++) await delay(20)
+  assert.equal(a.text, 'bye\n')
+
+  a.socket.destroy()
+  await delay(1400)
+  assert.equal(host.worker, worker, 'the other tab keeps the worker')
+  b.source.write('still here\n')
+  for (let i = 0; i < 50 && !b.text.includes('here'); i++) await delay(20)
+  assert.equal(b.text, 'still here\n')
+
+  b.socket.destroy()
+  await delay(1400)
+  assert.equal(host.worker, null, 'both exited, worker terminated')
+})
+
+test('a worker that dies unexpectedly is replaced, and its lost pipes do not pin the replacement', async (t) => {
+  const mod = { ConoutConnection: FakeConnection }
+  const { host } = installSharedConout(mod, workerPath)
+  const tabs = []
+  cleanUp(t, host, tabs)
+  const log = console.error
+  console.error = () => {}
+  t.after(() => (console.error = log))
+  const a = await openTab(mod, 'die-a')
+  tabs.push(a)
+  const b = await openTab(mod, 'die-b')
+  tabs.push(b)
+  await host.worker.terminate()
+  for (let i = 0; i < 50 && host.worker; i++) await delay(20)
+  console.error = log
+  assert.equal(host.worker, null, 'the dead worker is forgotten')
+
+  const c = await openTab(mod, 'die-c')
+  tabs.push(c)
+  assert.ok(host.worker, 'the next tab starts a fresh worker')
+  c.source.write('fresh\n')
+  for (let i = 0; i < 50 && !c.text.includes('fresh'); i++) await delay(20)
+  assert.equal(c.text, 'fresh\n')
+
+  c.conn.dispose()
+  await delay(1400)
+  assert.equal(host.worker, null, 'the lost pipes of a and b do not keep the new worker alive')
+  a.conn.dispose()
+  b.conn.dispose()
+})
