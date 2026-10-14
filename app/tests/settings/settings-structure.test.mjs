@@ -54,7 +54,7 @@ test('Terminal keeps the terminal itself; image paste, precise AI status and aut
 
 test('a card wraps long text inside its own column instead of pushing its control onto a row of its own', () => {
   const card = page.slice(page.indexOf('function Card('), page.indexOf('/** Off-state is a hollow'))
-  assert.match(card, /min-w-0 flex-1 basis-64/)
+  assert.match(card, /min-w-24 flex-1 basis-0/)
   assert.match(card, /rounded-surface/)
 })
 
