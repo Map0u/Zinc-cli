@@ -329,6 +329,15 @@ export const TabRail = memo(forwardRef<TabRailHandle, TabRailProps>(function Tab
     }
   }, [drag])
 
+  // A tab closing or a group opening under a lifted drag leaves the frozen layout stale: put the drag back.
+  const structure = useMemo(
+    () => `${tabs.map((tab) => `${tab.id}:${tab.groupId ?? ''}`).join()}|${groups.map((group) => `${group.id}:${group.collapsed ? 1 : 0}`).join()}`,
+    [tabs, groups]
+  )
+  useEffect(() => {
+    drag.structureChanged()
+  }, [drag, structure])
+
   // Keep the active row on screen: new tab, Ctrl+Tab wrap, close-picks-neighbour,
   // coming back from Settings. Not mid-drag, where the list scrolls on purpose.
   // A row inside a group that has just opened is measured again once the open

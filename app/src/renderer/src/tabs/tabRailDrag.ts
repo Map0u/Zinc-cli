@@ -81,6 +81,9 @@ interface DragSession {
   accentEl: HTMLElement | null
   /** Group wrappers by id, for the accent. */
   wrappers: Map<string, HTMLElement>
+  /** The list and the listener that re-resolves the slot when the wheel scrolls it under a still pointer. */
+  scrollList: HTMLElement | null
+  onScroll: (() => void) | null
 }
 
 /** What the drag needs from the rail; read fresh on every use. */
@@ -178,6 +181,9 @@ export class RailDrag {
   /** Idempotent: drops the list's drag state, every entry's inline slide, the line and the accent. */
   private clearSiblings(session: DragSession): void {
     this.host.list()?.removeAttribute('data-dragging')
+    if (session.scrollList && session.onScroll) session.scrollList.removeEventListener('scroll', session.onScroll)
+    session.scrollList = null
+    session.onScroll = null
     for (const el of session.els) {
       if (!el) continue
       el.style.transform = ''
@@ -396,6 +402,8 @@ export class RailDrag {
     if (session.active) {
       // The click that follows this release (same task) must not toggle a group header or select a row.
       this.suppressNextClick()
+      // A wheel may have scrolled the list since the last pointer move: drop where the ghost is now.
+      this.syncSlot(session)
       this.settleAndCommit(session)
       return
     }
@@ -415,6 +423,17 @@ export class RailDrag {
     // If the order was already committed on pointerup, just remove the
     // settling ghost and restore the source.
     this.finish(session)
+  }
+
+  /**
+   * The rail's structure (tabs, their groups, collapsed groups) changed under a lifted
+   * drag - a tab closed, a group opened from the keyboard: the frozen layout no longer
+   * describes the rail, so the drag is put back instead of dropped on stale slots.
+   * A drag that is already settling is the commit's own change and carries on.
+   */
+  structureChanged(): void {
+    const session = this.session
+    if (session?.active && !session.settling) this.cancel()
   }
 
   /** Esc: cancels a lifted drag (not one that is already settling). True when it did. */
@@ -459,7 +478,9 @@ export class RailDrag {
       listTop: 0,
       listBottom: 0,
       accentEl: null,
-      wrappers: new Map()
+      wrappers: new Map(),
+      scrollList: null,
+      onScroll: null
     }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -551,6 +572,9 @@ export class RailDrag {
       const wrapper = session.kind === 'group' ? event.currentTarget.closest<HTMLElement>('[data-groupid]') : null
       this.mountGhost(session, event.currentTarget, wrapper ?? event.currentTarget)
       list.dataset.dragging = 'true'
+      session.scrollList = list
+      session.onScroll = () => this.syncSlot(session)
+      list.addEventListener('scroll', session.onScroll, { passive: true })
       for (const el of session.els) {
         if (!el) continue
         el.style.willChange = 'transform'

@@ -382,3 +382,55 @@ test('with animation: the order commits at release, the ghost glides to where th
   assert.equal(landed.style.opacity, '')
   assert.equal(drag.busy, false)
 })
+
+test('a wheel scroll under a still pointer moves the slot, and the drop uses it', () => {
+  const { drag, byId, list, log, event } = setup(['a', 'b', 'c'])
+  const scrolls = []
+  list.addEventListener = (type, handler) => type === 'scroll' && scrolls.push(handler)
+  list.removeEventListener = (type, handler) => { const i = scrolls.indexOf(handler); if (type === 'scroll' && i >= 0) scrolls.splice(i, 1) }
+  drag.pointerDown(event(byId.a, 20, 120), 'a')
+  drag.pointerMove(event(byId.a, 40, 125))
+  assert.equal(scrolls.length, 1)
+  // No pointer move: the list scrolls by two rows and the listener re-resolves the slot (the ghost is now over c).
+  list.scrollTop = 84
+  scrolls[0]()
+  assert.equal(byId.c.style.transform, 'translate3d(0, -42px, 0)')
+  // The same without the listener having run: the release itself syncs first.
+  list.scrollTop = 0
+  scrolls[0]()
+  list.scrollTop = 84
+  drag.pointerUp(event(byId.a, 40, 125))
+  assert.deepEqual(moves(log, 'tab').map((e) => e[2]), [{ top: 2 }])
+  assert.equal(scrolls.length, 0) // the listener goes with the drag
+})
+
+test('a structure change under a lifted drag puts it back; one under a settling drag does not', () => {
+  const lifted = setup(['a', 'b', 'c'])
+  lifted.drag.structureChanged() // nothing lifted: nothing to do
+  lifted.drag.pointerDown(lifted.event(lifted.byId.a, 20, 120), 'a')
+  lifted.drag.structureChanged() // pressed, not yet a drag
+  assert.equal(lifted.drag.busy, true)
+  lifted.drag.pointerMove(lifted.event(lifted.byId.a, 40, 125))
+  lifted.drag.pointerMove(lifted.event(lifted.byId.a, 40, 200))
+  lifted.drag.structureChanged()
+  assert.equal(lifted.drag.busy, false)
+  assert.equal(lifted.bodyChildren.at(-1).removed, true)
+  assert.equal(lifted.byId.a.style.opacity, '')
+  assert.equal(lifted.list.dataset.dragging, undefined)
+  assert.deepEqual(moves(lifted.log, 'tab'), [])
+  // The press may still be down: its release is not a click, and nothing is dropped.
+  lifted.drag.pointerUp(lifted.event(lifted.byId.a, 40, 200))
+  assert.deepEqual(moves(lifted.log, 'tab'), [])
+  assert.equal(lifted.drag.suppressClick, true)
+
+  // The commit's own change arrives while the ghost settles: the settle goes on.
+  const settling = setup(['a', 'b', 'c'], { reduced: false })
+  settling.drag.pointerDown(settling.event(settling.byId.a, 20, 120), 'a')
+  settling.drag.pointerMove(settling.event(settling.byId.a, 40, 125))
+  settling.drag.pointerMove(settling.event(settling.byId.a, 40, 200))
+  settling.drag.pointerUp(settling.event(settling.byId.a, 40, 200))
+  assert.equal(moves(settling.log, 'tab').length, 1)
+  settling.drag.structureChanged()
+  assert.equal(settling.drag.busy, true)
+  assert.equal(settling.bodyChildren.at(-1).removed, undefined)
+})
