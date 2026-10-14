@@ -557,7 +557,7 @@ function AppearanceSection() {
 
   return (
     <>
-      <Card title={t('CardThemeModeTitle')} desc={t('CardThemeModeDesc')}>
+      <Card title={t('CardThemeModeTitle')}>
         <Dropdown
           testId="setting-themeMode"
           value={settings.ThemePreference}
@@ -613,7 +613,7 @@ function AppearanceSection() {
         />
       </Card>
       <GroupHeading>{t('GroupScale')}</GroupHeading>
-      <Card title={t('UiZoomLabel')} desc={t('UiZoomHint')}>
+      <Card title={t('UiZoomLabel')}>
         <Dropdown
           testId="setting-uiZoom"
           value={String(nearestUiZoomFactor(settings.UiZoom))}
@@ -653,7 +653,7 @@ function TerminalSection() {
           onDebouncedChange={(v) => updateDebounced({ FontSize: v })}
         />
       </Card>
-      <Card title={t('CardCursorStyleTitle')} desc={t('CardCursorStyleDesc')}>
+      <Card title={t('CardCursorStyleTitle')}>
         <Dropdown
           testId="setting-cursorStyle"
           value={settings.CursorStyle}

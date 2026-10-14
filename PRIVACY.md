@@ -47,7 +47,7 @@ To group tabs by project, Zinc reads the working directory of each tab (the shel
 reports it, or Zinc reads it from the running process) and looks for a `.git` entry
 in that folder and its parents on the local disk. Nothing is run and nothing leaves
 the machine. The resulting folder path and name are kept in memory and, for groups,
-in the local session state described above. The setting "Group tabs by project" turns
+in the local session state described above. The setting "Auto-group by project" turns
 automatic grouping off.
 
 ## Network Activity
