@@ -6,6 +6,27 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-14
+
+### Changed
+
+- Settings has a new "Tabs & AI" page holding "Auto-group by project",
+  "Precise AI status" and "Image paste", which sat on the Terminal page in
+  0.8.0. Terminal keeps font, cursor and performance. "Group tabs by project" is
+  now "Auto-group by project" and "Grok full-screen surface tint" is "Grok
+  full-screen tint".
+- Settings text is shorter: a description stays only where the title and the
+  options do not already say it, and the ones that repeated their control
+  (appearance mode, cursor style, UI zoom) are gone.
+- Corner radii come in two steps: cards, menus, dialogs, toasts and the window
+  card are 8 px; fields, buttons and rail rows are 4 px.
+
+### Fixed
+
+- The Image paste dropdown no longer opens past the edge of its card. A long
+  description now stays beside the control instead of pushing it onto its own
+  row.
+
 ## [0.8.0] - 2026-10-14
 
 ### Added

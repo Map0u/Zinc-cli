@@ -8,6 +8,22 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.8.1',
+    date: '2026-10-14',
+    zh: [
+      '设置页重新分了页：新增“标签与 AI”页，收纳“项目自动分组”“精确 AI 状态”“图片粘贴”；“终端”页只保留字体、光标和性能相关的设置。“按项目分组标签”现在叫“项目自动分组”，“Grok 全屏配色适配”叫“Grok 全屏配色”。',
+      '设置页文案缩短：只在标题和选项说不清时才留一句说明，重复下拉选项的说明已删除。',
+      '界面圆角统一为两档：卡片、菜单、弹窗、窗口卡片 8 px，输入框、按钮、标签行 4 px。',
+      '修复：“图片粘贴”的下拉框会冲出卡片边缘。较长的说明现在留在控件左侧，不再把控件挤到单独一行。'
+    ],
+    en: [
+      'Settings has a new "Tabs & AI" page holding "Auto-group by project", "Precise AI status" and "Image paste"; Terminal keeps font, cursor and performance. "Group tabs by project" is now "Auto-group by project" and "Grok full-screen surface tint" is "Grok full-screen tint".',
+      'Settings text is shorter: a description stays only where the title and the options do not already say it, and the ones that repeated their control are gone.',
+      'Corner radii come in two steps: cards, menus, dialogs and the window card are 8 px; fields, buttons and rail rows are 4 px.',
+      'Fixed: the Image paste dropdown no longer opens past the edge of its card; a long description now stays beside the control instead of pushing it onto its own row.'
+    ]
+  },
+  {
     version: '0.8.0',
     date: '2026-10-14',
     zh: [
