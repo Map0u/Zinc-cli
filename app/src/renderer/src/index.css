@@ -301,10 +301,16 @@
   scroll-margin-block: 4px;
 }
 
-/* Rail activity slot: a working tab's glyph turns; reduced motion leaves it still (its glyph already differs from every other state). */
+/*
+  Rail activity slot: a working tab's glyph turns; reduced motion leaves it still (its glyph already differs from every other state).
+  The turn is stepped, not continuous, on purpose: a smooth rotate keeps the compositor producing a frame every vsync for as long
+  as any AI session works (hours). Measured on the test seat with 14 working tabs and an idle window, per 20 s: smooth rotate cost
+  ~0.46 s renderer + ~0.39 s GPU process CPU and left ~13% of frames over 33 ms; 8 steps a second cost the same as no animation
+  (~0.06 s renderer, ~0 s GPU) with no long frames. A static glyph is the floor, but a terminal-spinner tick keeps the "alive" cue.
+*/
 .tab-rail-activity-working {
   display: inline-block;
-  animation: tab-rail-spin 1s linear infinite;
+  animation: tab-rail-spin 1s steps(8) infinite;
 }
 
 .tab-rail-activity-error {
