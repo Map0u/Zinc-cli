@@ -24,6 +24,7 @@ import { useUpdate } from '../update/UpdateContext'
 export type Category =
   | 'appearance'
   | 'terminal'
+  | 'tabs'
   | 'startup'
   | 'shortcuts'
   | 'about'
@@ -32,6 +33,7 @@ export type Category =
 export const SETTINGS_CATEGORIES: Array<{ id: Category; labelKey: LocaleKey; icon: string }> = [
   { id: 'appearance', labelKey: 'CatAppearance', icon: SegoeIcon.Appearance },
   { id: 'terminal', labelKey: 'CatTerminal', icon: SegoeIcon.Terminal },
+  { id: 'tabs', labelKey: 'CatTabsAi', icon: SegoeIcon.Tabs },
   { id: 'startup', labelKey: 'CatStartup', icon: SegoeIcon.Session },
   { id: 'shortcuts', labelKey: 'CatShortcuts', icon: SegoeIcon.Shortcuts },
   { id: 'about', labelKey: 'CatAbout', icon: SegoeIcon.About }
@@ -77,7 +79,7 @@ function SettingsCategoryButton({
         if (nextCategory) onSelect(nextCategory.id)
         items[nextIndex]?.focus()
       }}
-      className={`mx-3 flex h-10 w-[calc(100%-1.5rem)] items-center rounded pl-0.5 pr-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`mx-3 flex h-10 w-[calc(100%-1.5rem)] items-center rounded-control pl-0.5 pr-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         selected ? 'bg-row-selected' : 'hover:bg-row-hover'
       }`}
     >
@@ -94,7 +96,7 @@ function SettingsCategoryButton({
   )
 }
 
-/** Settings' category rail: appearance → terminal → startup → shortcuts → about. */
+/** Settings' category rail: appearance → terminal → tabs & AI → startup → shortcuts → about. */
 export function SettingsRailBody({
   category,
   onSelect,
@@ -120,7 +122,7 @@ export function SettingsRailBody({
           aria-label={t('BackToTerminal')}
           data-testid="settings-back"
           onClick={onBack}
-          className="icon-font flex h-9 w-10 items-center justify-center rounded text-sm text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="icon-font flex h-9 w-10 items-center justify-center rounded-control text-sm text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {SegoeIcon.Back}
         </button>
@@ -147,6 +149,7 @@ export const SettingsContentBody = memo(function SettingsContentBody({ category 
       <div className="flex flex-col gap-1">
         {category === 'appearance' && <AppearanceSection />}
         {category === 'terminal' && <TerminalSection />}
+        {category === 'tabs' && <TabsSection />}
         {category === 'startup' && <StartupSection />}
         {category === 'shortcuts' && <ShortcutsSection />}
         {category === 'about' && <AboutSection />}
@@ -166,7 +169,10 @@ function GroupHeading({ children }: { children: string }) {
 }
 
 /** Matches the `SettingCard` style (CardBackgroundFillColorDefault/CardStrokeColorDefault,
- * 1px border, CornerRadius 4, Padding 16,10) and the StackPanel's Spacing="4" between cards. */
+ * 1px border, Padding 16,10) and the StackPanel's Spacing="4" between cards. A card is a surface,
+ * so it takes the window's radius. The text column grows to fill the row and wraps inside itself
+ * (a long description no longer drops the control onto a row of its own); only a really narrow
+ * window wraps the control below the text. */
 function Card({
   title,
   desc,
@@ -180,9 +186,9 @@ function Card({
 }) {
   return (
     <div
-      className={`mb-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded border border-card-border bg-card-bg px-4 py-2.5 ${className}`}
+      className={`mb-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-surface border border-card-border bg-card-bg px-4 py-2.5 ${className}`}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1 basis-64">
         <div className="text-[13px] text-fg-primary">{title}</div>
         {desc && <div className="mt-0.5 text-[11px] text-text-tertiary">{desc}</div>}
       </div>
@@ -235,7 +241,7 @@ function TextField({
       onBlur={() => {
         if (draft !== value) onCommit(draft)
       }}
-      className="w-64 rounded-md border border-control-border bg-control-bg px-2.5 py-1.5 text-sm text-fg-primary transition-colors hover:border-control-border-hover focus:border-accent focus:bg-control-bg-focused focus:outline-none"
+      className="w-64 rounded-control border border-control-border bg-control-bg px-2.5 py-1.5 text-sm text-fg-primary transition-colors hover:border-control-border-hover focus:border-accent focus:bg-control-bg-focused focus:outline-none"
     />
   )
 }
@@ -267,7 +273,7 @@ function NumberField({
   }
 
   return (
-    <div className="flex w-24 overflow-hidden rounded-md border border-control-border bg-control-bg transition-colors hover:border-control-border-hover focus-within:border-accent focus-within:bg-control-bg-focused">
+    <div className="flex w-24 overflow-hidden rounded-control border border-control-border bg-control-bg transition-colors hover:border-control-border-hover focus-within:border-accent focus-within:bg-control-bg-focused">
       <input
         type="number"
         data-testid={testId}
@@ -454,7 +460,7 @@ function Dropdown<T extends string>({
             else openAt(selectedIndex)
           }
         }}
-        className={`flex w-40 items-center justify-between gap-2 rounded-md border bg-control-bg px-2.5 py-1.5 text-sm text-fg-primary transition-colors hover:border-control-border-hover focus:bg-control-bg-focused focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        className={`flex w-40 items-center justify-between gap-2 rounded-control border bg-control-bg px-2.5 py-1.5 text-sm text-fg-primary transition-colors hover:border-control-border-hover focus:bg-control-bg-focused focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
           open ? 'border-accent' : 'border-control-border'
         }`}
       >
@@ -491,7 +497,7 @@ function Dropdown<T extends string>({
               items[nextIndex]?.focus()
             }
           }}
-          className="absolute right-0 z-20 mt-1.5 w-40 origin-top-right overflow-hidden rounded-lg border border-popup-border bg-popup-bg py-1 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] animate-[dropdown-in_120ms_cubic-bezier(0.16,1,0.3,1)]"
+          className="absolute right-0 z-20 mt-1.5 w-40 origin-top-right overflow-hidden rounded-surface border border-popup-border bg-popup-bg py-1 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] animate-[dropdown-in_120ms_cubic-bezier(0.16,1,0.3,1)]"
         >
           {options.map((opt) => (
             <button
@@ -505,7 +511,7 @@ function Dropdown<T extends string>({
                 onChange(opt.value)
                 closeAndReturnFocus()
               }}
-              className={`mx-1 flex w-[calc(100%-0.5rem)] items-center rounded px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+              className={`mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-control px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                 opt.value === value ? 'bg-row-selected text-fg-primary' : 'text-fg-secondary hover:bg-row-hover'
               }`}
             >
@@ -662,6 +668,7 @@ function TerminalSection() {
           onChange={(v) => updateImmediate({ CursorBlink: v })}
         />
       </Card>
+      <GroupHeading>{t('GroupPerformance')}</GroupHeading>
       <Card title={t('CardGpuRenderingTitle')} desc={t('CardGpuRenderingDesc')}>
         <Toggle
           testId="setting-gpuRendering"
@@ -679,14 +686,27 @@ function TerminalSection() {
           onDebouncedChange={(v) => updateDebounced({ Scrollback: v })}
         />
       </Card>
-      <Card title={t('CardImagePasteTitle')} desc={t('CardImagePasteDesc')}>
-        <Dropdown
-          testId="setting-imagePaste"
-          value={settings.ImagePaste}
-          options={IMAGE_PASTE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
-          onChange={(v) => updateImmediate({ ImagePaste: v })}
+    </>
+  )
+}
+
+/** Tabs & AI: how the tab rail arranges itself and how AI CLI sessions are told apart and fed. */
+function TabsSection() {
+  const { t } = useI18n()
+  const { settings, updateImmediate } = useSettings()
+
+  if (!settings) return null
+
+  return (
+    <>
+      <Card title={t('CardAutoGroupTitle')} desc={t('CardAutoGroupDesc')}>
+        <Toggle
+          testId="setting-autoGroupTabs"
+          checked={settings.AutoGroupTabs}
+          onChange={(v) => updateImmediate({ AutoGroupTabs: v })}
         />
       </Card>
+      <GroupHeading>{t('GroupAiSessions')}</GroupHeading>
       <Card title={t('CardPreciseAiStatusTitle')} desc={t('CardPreciseAiStatusDesc')}>
         <Toggle
           testId="setting-preciseAiStatus"
@@ -694,11 +714,12 @@ function TerminalSection() {
           onChange={(v) => updateImmediate({ PreciseAiStatus: v })}
         />
       </Card>
-      <Card title={t('CardAutoGroupTitle')} desc={t('CardAutoGroupDesc')}>
-        <Toggle
-          testId="setting-autoGroupTabs"
-          checked={settings.AutoGroupTabs}
-          onChange={(v) => updateImmediate({ AutoGroupTabs: v })}
+      <Card title={t('CardImagePasteTitle')} desc={t('CardImagePasteDesc')}>
+        <Dropdown
+          testId="setting-imagePaste"
+          value={settings.ImagePaste}
+          options={IMAGE_PASTE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+          onChange={(v) => updateImmediate({ ImagePaste: v })}
         />
       </Card>
     </>
@@ -871,14 +892,14 @@ function ShortcutsSection() {
                   placeholder={t('ShortcutRecordPrompt')}
                   onKeyDown={(e) => handleRecordKeyDown(action, e)}
                   onBlur={stopRecording}
-                  className="w-56 rounded-md border border-accent bg-control-bg-focused px-2.5 py-1.5 text-sm text-text-secondary focus:outline-none"
+                  className="w-56 rounded-control border border-accent bg-control-bg-focused px-2.5 py-1.5 text-sm text-text-secondary focus:outline-none"
                 />
               ) : (
                 <button
                   type="button"
                   data-testid={`shortcut-bind-${action}`}
                   onClick={() => startRecording(action)}
-                  className="w-56 rounded-md border border-control-border bg-control-bg px-2.5 py-1.5 text-left text-sm text-fg-primary transition-colors hover:border-control-border-hover"
+                  className="w-56 rounded-control border border-control-border bg-control-bg px-2.5 py-1.5 text-left text-sm text-fg-primary transition-colors hover:border-control-border-hover"
                 >
                   {accelerator || t('ShortcutUnbound')}
                 </button>
@@ -887,7 +908,7 @@ function ShortcutsSection() {
                 type="button"
                 data-testid={`shortcut-clear-${action}`}
                 onClick={() => clearBinding(action)}
-                className="rounded px-2 py-1 text-xs text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
+                className="rounded-control px-2 py-1 text-xs text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
               >
                 {t('ShortcutClear')}
               </button>
@@ -901,7 +922,7 @@ function ShortcutsSection() {
         type="button"
         data-testid="shortcut-restore-defaults"
         onClick={restoreDefaults}
-        className="mt-2 w-fit rounded-md bg-control-bg px-3 py-1.5 text-sm text-fg-primary transition-colors hover:bg-row-hover"
+        className="mt-2 w-fit rounded-control bg-control-bg px-3 py-1.5 text-sm text-fg-primary transition-colors hover:bg-row-hover"
       >
         {t('ShortcutRestoreDefaults')}
       </button>
@@ -1019,7 +1040,7 @@ function AboutSection() {
   return (
     <>
     <LanguageCard />
-    <div className="rounded-lg border border-card-border bg-card-bg px-10 py-12" data-testid="about-page">
+    <div className="rounded-surface border border-card-border bg-card-bg px-10 py-12" data-testid="about-page">
       <div className="flex flex-col items-center text-center">
         <img
           src={zincIcon}
@@ -1042,7 +1063,7 @@ function AboutSection() {
           data-testid="about-update-primary"
           disabled={primaryDisabled && !canInstall}
           onClick={onUpdatePrimary}
-          className="mt-4 rounded border border-card-border bg-control-bg px-3 py-1.5 text-[12px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
+          className="mt-4 rounded-control border border-card-border bg-control-bg px-3 py-1.5 text-[12px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
         >
           {primaryLabel}
         </button>
@@ -1053,7 +1074,7 @@ function AboutSection() {
           type="button"
           onClick={() => setIsChangelogOpen(true)}
           aria-haspopup="dialog"
-          className="rounded text-[12px] text-fg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-control text-[12px] text-fg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {t('AboutChangelogButton')}
         </button>
@@ -1074,7 +1095,7 @@ function AboutSection() {
               <button
                 type="button"
                 onClick={() => void window.zinc.shell.openExternal(url)}
-                className="rounded text-[11px] text-fg-tertiary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="rounded-control text-[11px] text-fg-tertiary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {t(labelKey)}
               </button>
@@ -1105,7 +1126,7 @@ function AboutSection() {
                 aria-label={t('AboutChangelogClose')}
                 title={t('AboutChangelogClose')}
                 onClick={closeChangelog}
-                className="icon-font flex h-8 w-8 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="icon-font flex h-8 w-8 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {SegoeIcon.Close}
               </button>

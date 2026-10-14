@@ -136,7 +136,7 @@ export const TabRow = memo(function TabRow({
       aria-selected={active}
       draggable={false}
       title={tooltip}
-      className={`group relative flex h-10 cursor-grab select-none items-center rounded pl-0.5 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`group relative flex h-10 cursor-grab select-none items-center rounded-control pl-0.5 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         groupName === undefined ? 'mx-3' : 'ml-7 mr-3'
       } ${active ? 'bg-row-selected' : 'hover:bg-row-hover'}`}
       onClick={() => handlers.onClick(id)}
@@ -175,7 +175,7 @@ export const TabRow = memo(function TabRow({
           autoFocus
           defaultValue={label}
           aria-label={t('RenameTab')}
-          className="min-w-0 flex-1 select-text rounded bg-transparent px-1 text-[13px] text-fg-primary outline-none ring-1 ring-accent"
+          className="min-w-0 flex-1 select-text rounded-control bg-transparent px-1 text-[13px] text-fg-primary outline-none ring-1 ring-accent"
           onFocus={(e) => e.currentTarget.select()}
           onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
@@ -200,7 +200,7 @@ export const TabRow = memo(function TabRow({
       <button
         type="button"
         aria-label={t('CloseTab')}
-        className="icon-font flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] text-fg-tertiary hover:bg-icon-hover-bg hover:text-icon-hover-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="icon-font flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-[10px] text-fg-tertiary hover:bg-icon-hover-bg hover:text-icon-hover-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         onClick={(e) => {
           e.stopPropagation()
           handlers.onClose(id)

@@ -84,12 +84,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   if (!settings && loadFailed) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#101116] px-6 text-white">
-        <div role="alert" className="w-full max-w-sm rounded-lg border border-white/15 bg-white/5 p-6 shadow-lg">
+        <div role="alert" className="w-full max-w-sm rounded-surface border border-white/15 bg-white/5 p-6 shadow-lg">
           <h1 className="text-lg font-semibold">Could not load settings</h1>
           <p className="mt-2 text-sm text-white/70">Zinc could not finish starting. Try loading your settings again.</p>
           <button
             type="button"
-            className="mt-5 rounded bg-white px-4 py-2 text-sm font-medium text-[#101116] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            className="mt-5 rounded-control bg-white px-4 py-2 text-sm font-medium text-[#101116] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             onClick={() => void retryLoadSettings()}
             disabled={retrying}
           >

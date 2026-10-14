@@ -67,7 +67,7 @@ export const GroupHeader = memo(function GroupHeader({
       aria-label={`${name}, ${count}`}
       data-count={count}
       title={name}
-      className={`tab-rail-group-header mx-3 flex h-8 cursor-pointer select-none items-center rounded pl-1 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`tab-rail-group-header mx-3 flex h-8 cursor-pointer select-none items-center rounded-control pl-1 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         activeInside ? 'bg-row-selected/60' : 'hover:bg-row-hover'
       }`}
       onClick={() => handlers.onToggle(groupId)}
@@ -91,7 +91,7 @@ export const GroupHeader = memo(function GroupHeader({
           autoFocus
           defaultValue={name}
           aria-label={t('RenameGroup')}
-          className="ml-1 min-w-0 flex-1 select-text rounded bg-transparent px-1 text-[12px] font-medium text-fg-primary outline-none ring-1 ring-accent"
+          className="ml-1 min-w-0 flex-1 select-text rounded-control bg-transparent px-1 text-[12px] font-medium text-fg-primary outline-none ring-1 ring-accent"
           onFocus={(e) => e.currentTarget.select()}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {

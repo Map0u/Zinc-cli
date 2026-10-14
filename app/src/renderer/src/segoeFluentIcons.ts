@@ -12,6 +12,8 @@ export const SegoeIcon = {
   Appearance: "",
   /** Settings category: Terminal (E756). */
   Terminal: "",
+  /** Settings category: Tabs & AI (E7C4, TaskView). */
+  Tabs: "\uE7C4",
   /** Settings category: Session (E81C). */
   Session: "",
   /** Settings category: Status bar (E9D9). */

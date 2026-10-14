@@ -52,6 +52,11 @@
   --color-icon-hover-fg: #ffffff;
   --color-scrollbar-thumb: rgba(255, 255, 255, 0.18);
   --color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+  /* Corner radii come in two steps so nothing invents its own: surfaces (the window card,
+     settings cards, menus, popups, dialogs, toasts) share the window's 8px, and the controls
+     and rows that sit inside a surface (fields, buttons, rail rows, menu items) are 4px. */
+  --radius-control: 4px;
+  --radius-surface: 8px;
 }
 
 /* Full-chrome light mode (§ appearance overhaul): driven by `data-theme` on

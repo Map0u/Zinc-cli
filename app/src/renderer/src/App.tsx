@@ -1126,7 +1126,7 @@ export default function App() {
                   type="button"
                   aria-label={t('NewTab')}
                   data-testid="new-tab"
-                  className="icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   onClick={() => addTab()}
                 >
                   {SegoeIcon.Add}
@@ -1139,7 +1139,7 @@ export default function App() {
                   aria-expanded={shellMenuOpen}
                   data-testid="choose-shell"
                   title={defaultShellLabel}
-                  className={`icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  className={`icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     shellMenuOpen ? 'bg-row-hover' : ''
                   }`}
                   onClick={() => setShellMenuOpen((open) => !open)}
@@ -1156,7 +1156,7 @@ export default function App() {
                   <div
                     role="menu"
                     aria-label={t('ChooseShell')}
-                    className="absolute left-0 top-full z-30 mt-1 min-w-44 origin-top-left overflow-hidden rounded-lg border border-popup-border bg-popup-bg py-1 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] animate-[dropdown-in_120ms_cubic-bezier(0.16,1,0.3,1)]"
+                    className="absolute left-0 top-full z-30 mt-1 min-w-44 origin-top-left overflow-hidden rounded-surface border border-popup-border bg-popup-bg py-1 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] animate-[dropdown-in_120ms_cubic-bezier(0.16,1,0.3,1)]"
                     onKeyDown={(event) => {
                       const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'))
                       if (items.length === 0) return
@@ -1177,7 +1177,7 @@ export default function App() {
                           key={profile.id}
                           type="button"
                           role="menuitem"
-                          className="mx-1 flex w-[calc(100%-0.5rem)] items-center rounded px-2 py-1.5 text-left text-sm text-fg-secondary transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          className="mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-control px-2 py-1.5 text-left text-sm text-fg-secondary transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                           onClick={() => {
                             addTab({ shellId: profile.id, shellLabel: profile.label })
                             setShellMenuOpen(false)
@@ -1201,7 +1201,7 @@ export default function App() {
                   type="button"
                   aria-label={t('SettingsTooltip')}
                   data-testid="open-settings"
-                  className="icon-font flex h-7 w-7 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="icon-font flex h-7 w-7 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   onClick={() => setView('settings')}
                 >
                   {SegoeIcon.Settings}
@@ -1220,7 +1220,7 @@ export default function App() {
                         ? `${t('UpdateBadgeLabel')} ${updateState.availableVersion}`
                         : t('UpdateBadgeLabel')
                     }
-                    className="icon-font relative flex h-7 w-7 items-center justify-center rounded text-[12px] text-accent hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="icon-font relative flex h-7 w-7 items-center justify-center rounded-control text-[12px] text-accent hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     onClick={openDialog}
                   >
                     {SegoeIcon.Update}
@@ -1261,7 +1261,7 @@ export default function App() {
         <div
           ref={tabContextMenuRef}
           role="menu"
-          className="fixed z-50 max-h-[calc(100vh-16px)] min-w-44 max-w-64 overflow-y-auto rounded border border-popup-border bg-popup-bg py-1 text-[13px] text-fg-primary shadow-lg"
+          className="fixed z-50 max-h-[calc(100vh-16px)] min-w-44 max-w-64 overflow-y-auto rounded-surface border border-popup-border bg-popup-bg py-1 text-[13px] text-fg-primary shadow-lg"
           style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
@@ -1420,7 +1420,7 @@ export default function App() {
           // xterm's stylesheet rather than this style object, and keys off the
           // same data attribute.
           transition: surfaceFading ? `background-color ${SURFACE_FADE_MS}ms ease` : undefined,
-          borderRadius: WINDOW_CORNER_RADIUS,
+          borderRadius: WINDOW_CORNER_RADIUS, // = --radius-surface in index.css: everything else that is a surface follows this number
           boxShadow: 'inset 1px 0 0 rgba(255, 255, 255, 0.06), -12px 0 28px -6px rgba(0, 0, 0, 0.55)'
         }}
       >
@@ -1435,7 +1435,7 @@ export default function App() {
                 onClick={() => {
                   void window.zinc.window.minimize()
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
+                className="flex h-8 w-8 items-center justify-center rounded-control text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5">
                   <path d="M3 11.5h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -1448,7 +1448,7 @@ export default function App() {
                 onClick={() => {
                   void window.zinc.window.close()
                 }}
-                className="icon-font flex h-8 w-8 items-center justify-center rounded text-[11px] text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
+                className="icon-font flex h-8 w-8 items-center justify-center rounded-control text-[11px] text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
               >
                 {SegoeIcon.Close}
               </button>
@@ -1562,7 +1562,7 @@ export default function App() {
     {(terminalNotice || shellFallbackVisible) && (
       <div
         role="status"
-        className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-card-border bg-card-bg px-3.5 py-2 text-[13px] text-fg-secondary shadow-lg"
+        className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-surface border border-card-border bg-card-bg px-3.5 py-2 text-[13px] text-fg-secondary shadow-lg"
       >
         {shellFallbackVisible
           ? t('DefaultShellFallback')

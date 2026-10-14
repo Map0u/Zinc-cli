@@ -100,7 +100,7 @@ export function UpdateDialog() {
             aria-label={t('UpdateDialogClose')}
             title={t('UpdateDialogClose')}
             onClick={closeDialog}
-            className="icon-font flex h-8 w-8 items-center justify-center rounded text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="icon-font flex h-8 w-8 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             {SegoeIcon.Close}
           </button>
@@ -146,7 +146,7 @@ export function UpdateDialog() {
           <button
             type="button"
             onClick={closeDialog}
-            className="rounded border border-card-border bg-control-bg px-3 py-1.5 text-[12px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded-control border border-card-border bg-control-bg px-3 py-1.5 text-[12px] text-fg-primary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             {t('UpdateDialogLater')}
           </button>
@@ -155,7 +155,7 @@ export function UpdateDialog() {
             data-testid="update-dialog-primary"
             disabled={primaryDisabled && !canInstall}
             onClick={onPrimary}
-            className="rounded border border-card-border bg-accent px-3 py-1.5 text-[12px] text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
+            className="rounded-control border border-card-border bg-accent px-3 py-1.5 text-[12px] text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
           >
             {primaryLabel}
           </button>
