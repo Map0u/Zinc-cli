@@ -6,6 +6,58 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-14
+
+### Added
+
+- Tab groups. Tabs can be gathered into groups in the rail: a group has a
+  header you can collapse and expand (with a short animation), rename or
+  dissolve from its menu. A collapsed group shows how many
+  tabs it holds and the most urgent status among them. Drag a tab into, out
+  of or within a group, or drag a whole group; the rows slide aside while you
+  drag and Esc puts everything back. Groups, their names and whether they
+  are collapsed are restored after a restart, and so are tab renames.
+- Automatic grouping by project. Tabs working in the same project folder (the
+  Git root, else the folder itself) are grouped for you, whether it is Claude
+  Code launched there or a shell that `cd`s into it, and the group is titled
+  after the folder. A tab you move, group or ungroup yourself is never moved
+  again; "Group automatically" in its menu hands it back. Setting "Group tabs
+  by project" (on by default) turns it off, which stops all automatic moves.
+- A status icon on every tab running an AI CLI: working (spinning), waiting for
+  you, done, or failed. With the new "Precise AI status" setting (on by
+  default, new tabs only) Claude Code reports these exactly, by running the tab
+  on the console host bundled with Zinc; with it off, only working and idle are
+  guessed from the title.
+- A tab whose title is only a spinner or a default AI name now shows its
+  project folder instead.
+
+### Changed
+
+- Ctrl+V with an image on the clipboard hands it straight to Claude Code,
+  Codex, Kimi or Grok, which read the clipboard themselves (`[Image #1]`), and
+  nothing is saved. A plain shell or WSL, or the new "Always save as a file"
+  choice of the Image paste setting, still pastes the path of a saved copy.
+- The default scrollback for a fresh install is 3000 lines instead of 10000 (a
+  full 10000-line buffer costs about 17 MB per tab). A value already stored in
+  your settings is kept.
+- All terminals now share one output-reading worker instead of one each: about
+  81 MB less memory with 12 tabs open and about 135 MB less with 20
+  (development-build measurement).
+- The spinning working icon turns in steps rather than continuously, so a
+  window full of working sessions no longer keeps the GPU busy (14 working tabs,
+  idle window: frames over 33 ms went from about 14% to none).
+
+### Removed
+
+- Wheel paging for Kimi's fullscreen mode. With Kimi's `tui_mode = "fullscreen"`
+  the mouse wheel now recalls Kimi's input history instead of scrolling.
+
+### Notes
+
+- The first launch after updating groups the tabs you reopen by project. If you
+  would rather arrange them yourself, turn "Group tabs by project" off in
+  Settings.
+
 ## [0.7.4] - 2026-10-12
 
 ### Changed

@@ -8,6 +8,26 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.8.0',
+    date: '2026-10-14',
+    zh: [
+      '标签分组：侧栏里可以把标签归成组，组头可折叠、展开（带短动画）、重命名、解散；折叠后显示组内标签数和最需要你注意的状态。可以把标签拖进、拖出或在组内拖动，也可以整组拖动，拖动时其他行让位，Esc 一键放回。分组、组名、折叠状态和标签重命名重启后都会恢复。',
+      '按项目自动分组：在同一个项目文件夹（Git 根目录，否则就是该文件夹）里工作的标签会自动归成一组，无论是在那里启动的 Claude Code，还是 cd 进去的 shell，组名取自文件夹名。你亲手拖过、分过组或移出组的标签不会再被自动挪动，标签菜单里的“自动分组”可以把它交还给自动分组。设置里的“按项目分组标签”（默认开启）可以整体关闭。',
+      'AI 会话标签有了状态图标：工作中（转动）、等你操作、已完成、出错。新的“精确的 AI 状态”设置（默认开启，仅对新标签生效）让 Claude Code 如实报告这些状态，做法是让标签运行在 Zinc 内置的控制台宿主上；关闭时只能凭标题猜“工作中”和“空闲”。标题只有转圈符号或默认 AI 名称的标签，现在显示所在项目文件夹。',
+      '粘贴图片：Ctrl+V 时剪贴板里的图片直接交给 Claude Code、Codex、Kimi 或 Grok，由它们自己读取剪贴板（显示为 [Image #1]），不再保存文件；普通 shell、WSL，或在设置里选“始终保存为文件”时，仍粘贴已保存图片的路径。',
+      '更省内存：所有终端共用一个输出读取线程，开 12 个标签约省 81 MB，开 20 个约省 135 MB（开发版实测）；新安装的默认滚动缓冲从 10000 行降到 3000 行（已保存的设置不变）；工作中图标改为分步转动，满屏工作中的会话不再让显卡持续忙碌。',
+      '移除：Kimi 全屏模式的滚轮翻页。若使用 Kimi 的 tui_mode = "fullscreen"，滚轮现在会回溯 Kimi 的输入历史，而不是滚动画面。'
+    ],
+    en: [
+      'Tab groups: gather tabs into groups in the rail. A group header collapses and expands (with a short animation), and can be renamed or dissolved; collapsed, it shows the tab count and the status that most needs you. Drag a tab into, out of or within a group, or drag a whole group; rows slide aside as you drag and Esc puts everything back. Groups, their names, collapsed state and tab renames are restored after a restart.',
+      'Automatic grouping by project: tabs working in the same project folder (the Git root, else the folder itself) are grouped for you, whether it is Claude Code launched there or a shell that cd-s into it, and the group is named after the folder. A tab you have dragged, grouped or taken out yourself is never moved again; "Group automatically" in its menu hands it back. The "Group tabs by project" setting (on by default) turns it all off.',
+      'Tabs running an AI CLI show a status icon: working (spinning), waiting for you, done, or failed. The new "Precise AI status" setting (on by default, new tabs only) lets Claude Code report these exactly by running the tab on the console host bundled with Zinc; off, only working and idle are guessed from the title. A tab whose title is only a spinner or a default AI name now shows its project folder.',
+      'Image paste: Ctrl+V with an image on the clipboard hands it straight to Claude Code, Codex, Kimi or Grok, which read the clipboard themselves (shown as [Image #1]); no file is saved. A plain shell or WSL, or the "Always save as a file" choice in Settings, still pastes the path of a saved copy.',
+      'Lighter on memory: all terminals share one output-reading worker, about 81 MB less with 12 tabs and about 135 MB less with 20 (development-build measurement); the default scrollback for a fresh install is 3000 lines instead of 10000 (a stored setting is kept); the working icon turns in steps, so a window full of working sessions no longer keeps the GPU busy.',
+      'Removed: wheel paging for Kimi\'s fullscreen mode. With Kimi\'s tui_mode = "fullscreen" the mouse wheel now recalls Kimi\'s input history instead of scrolling.'
+    ]
+  },
+  {
     version: '0.7.4',
     date: '2026-10-12',
     zh: [
