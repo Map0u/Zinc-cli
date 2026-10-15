@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode
 } from 'react'
@@ -15,7 +16,17 @@ import { DEFAULT_KEYBINDINGS, SHORTCUT_ACTIONS, type Keybindings, type ShortcutA
 import { isUnsafeAccelerator } from '../../../shared/shortcutAccelerator'
 import type { UpdateState } from '../../../shared/updateProtocol'
 import { acceleratorFromEvent, shortcutManager } from '../shortcuts/ShortcutManager'
-import { SegoeIcon } from '../segoeFluentIcons'
+import {
+  AboutIcon,
+  AppearanceIcon,
+  BackIcon,
+  ChevronDownIcon,
+  CloseIcon,
+  ShortcutsIcon,
+  StartupIcon,
+  TabsIcon,
+  TerminalIcon
+} from '../icons'
 import zincIcon from '../assets/zinc-icon.png'
 import { loadShellProfiles, type ShellProfile } from '../shells/shellProfiles'
 import { CHANGELOG_ENTRIES } from '../update/changelogEntries'
@@ -29,14 +40,14 @@ export type Category =
   | 'shortcuts'
   | 'about'
 
-/** Settings category glyphs use Segoe Fluent Icons codepoints supplied by Windows. */
-export const SETTINGS_CATEGORIES: Array<{ id: Category; labelKey: LocaleKey; icon: string }> = [
-  { id: 'appearance', labelKey: 'CatAppearance', icon: SegoeIcon.Appearance },
-  { id: 'terminal', labelKey: 'CatTerminal', icon: SegoeIcon.Terminal },
-  { id: 'tabs', labelKey: 'CatTabsAi', icon: SegoeIcon.Tabs },
-  { id: 'startup', labelKey: 'CatStartup', icon: SegoeIcon.Session },
-  { id: 'shortcuts', labelKey: 'CatShortcuts', icon: SegoeIcon.Shortcuts },
-  { id: 'about', labelKey: 'CatAbout', icon: SegoeIcon.About }
+/** Settings categories and their icons (icons.tsx). */
+export const SETTINGS_CATEGORIES: Array<{ id: Category; labelKey: LocaleKey; icon: ComponentType<{ size?: number }> }> = [
+  { id: 'appearance', labelKey: 'CatAppearance', icon: AppearanceIcon },
+  { id: 'terminal', labelKey: 'CatTerminal', icon: TerminalIcon },
+  { id: 'tabs', labelKey: 'CatTabsAi', icon: TabsIcon },
+  { id: 'startup', labelKey: 'CatStartup', icon: StartupIcon },
+  { id: 'shortcuts', labelKey: 'CatShortcuts', icon: ShortcutsIcon },
+  { id: 'about', labelKey: 'CatAbout', icon: AboutIcon }
 ]
 
 /** Fixed rail-item foreground for settings categories and tab labels, using the
@@ -86,8 +97,8 @@ function SettingsCategoryButton({
       <span className="flex w-2.5 shrink-0 items-center justify-center">
         {selected && <span className="h-4 w-[3px] rounded-full bg-accent" />}
       </span>
-      <span className="icon-font flex w-[22px] shrink-0 items-center justify-center text-sm" style={{ color: RAIL_TEXT }}>
-        {cat.icon}
+      <span className="mr-2 flex w-[22px] shrink-0 items-center justify-center" style={{ color: RAIL_TEXT }}>
+        <cat.icon size={15} />
       </span>
       <span className="flex-1 truncate text-[13px]" style={{ color: RAIL_TEXT }}>
         {t(cat.labelKey)}
@@ -122,9 +133,9 @@ export function SettingsRailBody({
           aria-label={t('BackToTerminal')}
           data-testid="settings-back"
           onClick={onBack}
-          className="icon-font flex h-9 w-10 items-center justify-center rounded-control text-sm text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex h-9 w-10 items-center justify-center rounded-control text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          {SegoeIcon.Back}
+          <BackIcon />
         </button>
       </div>
     </>
@@ -465,10 +476,8 @@ function Dropdown<T extends string>({
         }`}
       >
         <span className="truncate">{current?.label ?? value}</span>
-        <span
-          className={`icon-font shrink-0 text-[9px] text-fg-tertiary transition-transform duration-150 ${open ? '-rotate-180' : ''}`}
-        >
-          {SegoeIcon.ChevronDown}
+        <span className={`shrink-0 text-fg-tertiary transition-transform duration-150 ${open ? '-rotate-180' : ''}`}>
+          <ChevronDownIcon />
         </span>
       </button>
       {open && (
@@ -1126,9 +1135,9 @@ function AboutSection() {
                 aria-label={t('AboutChangelogClose')}
                 title={t('AboutChangelogClose')}
                 onClick={closeChangelog}
-                className="icon-font flex h-8 w-8 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="flex h-8 w-8 items-center justify-center rounded-control text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
-                {SegoeIcon.Close}
+                <CloseIcon />
               </button>
             </div>
             <div className="chrome-scroll overflow-y-auto px-5 py-4">

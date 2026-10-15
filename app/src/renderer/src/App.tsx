@@ -13,7 +13,7 @@ import { useSettings } from './settings/SettingsContext'
 import { useI18n } from './i18n/I18nContext'
 import { SettingsRailBody, SettingsContentBody, type Category } from './settings/SettingsPage'
 import { shortcutManager } from './shortcuts/ShortcutManager'
-import { SegoeIcon } from './segoeFluentIcons'
+import { AddIcon, CloseIcon, MinimizeIcon, SettingsIcon, TerminalIcon, UpdateIcon } from './icons'
 import { surfaceBackground } from './chromeBackground'
 import { surfaceBaseFor } from './terminal/grokFullscreenSurface'
 
@@ -1126,10 +1126,10 @@ export default function App() {
                   type="button"
                   aria-label={t('NewTab')}
                   data-testid="new-tab"
-                  className="icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   onClick={() => addTab()}
                 >
-                  {SegoeIcon.Add}
+                  <AddIcon />
                 </button>
                 <button
                   ref={shellMenuTriggerRef}
@@ -1139,7 +1139,7 @@ export default function App() {
                   aria-expanded={shellMenuOpen}
                   data-testid="choose-shell"
                   title={defaultShellLabel}
-                  className={`icon-font flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     shellMenuOpen ? 'bg-row-hover' : ''
                   }`}
                   onClick={() => setShellMenuOpen((open) => !open)}
@@ -1150,7 +1150,7 @@ export default function App() {
                     }
                   }}
                 >
-                  {SegoeIcon.Terminal}
+                  <TerminalIcon />
                 </button>
                 {shellMenuOpen && (
                   <div
@@ -1201,10 +1201,10 @@ export default function App() {
                   type="button"
                   aria-label={t('SettingsTooltip')}
                   data-testid="open-settings"
-                  className="icon-font flex h-7 w-7 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex h-7 w-7 items-center justify-center rounded-control text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   onClick={() => setView('settings')}
                 >
-                  {SegoeIcon.Settings}
+                  <SettingsIcon />
                 </button>
                 {showBadge ? (
                   <button
@@ -1220,10 +1220,10 @@ export default function App() {
                         ? `${t('UpdateBadgeLabel')} ${updateState.availableVersion}`
                         : t('UpdateBadgeLabel')
                     }
-                    className="icon-font relative flex h-7 w-7 items-center justify-center rounded-control text-[12px] text-accent hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="relative flex h-7 w-7 items-center justify-center rounded-control text-accent hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     onClick={openDialog}
                   >
-                    {SegoeIcon.Update}
+                    <UpdateIcon />
                     <span
                       className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent"
                       aria-hidden
@@ -1437,9 +1437,7 @@ export default function App() {
                 }}
                 className="flex h-8 w-8 items-center justify-center rounded-control text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
               >
-                <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5">
-                  <path d="M3 11.5h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
+                <MinimizeIcon />
               </button>
               <button
                 type="button"
@@ -1448,9 +1446,9 @@ export default function App() {
                 onClick={() => {
                   void window.zinc.window.close()
                 }}
-                className="icon-font flex h-8 w-8 items-center justify-center rounded-control text-[11px] text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
+                className="flex h-8 w-8 items-center justify-center rounded-control text-fg-tertiary transition-colors hover:bg-icon-hover-bg hover:text-icon-hover-fg"
               >
-                {SegoeIcon.Close}
+                <CloseIcon />
               </button>
             </div>
           )}

@@ -39,7 +39,7 @@ async function loadComponent(path, mocks = {}) {
     './i18n/I18nContext': `export const useI18n = () => ({ t: (key) => key, language: globalThis.__zincTest.language })`,
     './settings/SettingsPage': `export const SettingsRailBody = () => null; export const SettingsContentBody = () => null`,
     './shortcuts/ShortcutManager': `export const shortcutManager = { on() {}, setBindings() {} }`,
-    './segoeFluentIcons': `export const SegoeIcon = {}`,
+    './icons': `export const AddIcon = 'AddIcon'; export const CloseIcon = 'CloseIcon'; export const MinimizeIcon = 'MinimizeIcon'; export const SettingsIcon = 'SettingsIcon'; export const TerminalIcon = 'TerminalIcon'; export const UpdateIcon = 'UpdateIcon'`,
     './chromeBackground': `export const surfaceBackground = () => '#000000'`,
     './terminal/grokFullscreenSurface': `export const surfaceBaseFor = () => '#000000'`,
     './colorSchemes': `

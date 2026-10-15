@@ -1,7 +1,7 @@
 import { memo, useEffect, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import type { TabActivityState } from '../../../shared/tabActivity'
 import { useI18n, type LocaleKey } from '../i18n/I18nContext'
-import { SegoeIcon } from '../segoeFluentIcons'
+import { CloseIcon, DoneIcon, ErrorIcon, WaitingIcon, WorkingIcon } from '../icons'
 import { resolveTabLabel, showsPositionNumber, tabSecondaryText, withOrdinal } from './tabLabel'
 import { markActivitySeen, useTabActivity, useTabContext, useTabTitle } from './tabStores'
 
@@ -48,13 +48,13 @@ const STATE_LABEL_KEYS: Partial<Record<TabActivityState, LocaleKey>> = {
 export function ActivitySlot({ state }: { state: TabActivityState }) {
   switch (state) {
     case 'working':
-      return <span className="icon-font tab-rail-activity-working text-[12px] text-fg-secondary">{SegoeIcon.TabWorking}</span>
+      return <WorkingIcon />
     case 'waiting':
-      return <span className="icon-font text-[12px] text-accent">{SegoeIcon.TabWaiting}</span>
+      return <WaitingIcon />
     case 'done':
-      return <span className="icon-font text-[12px] text-fg-secondary">{SegoeIcon.TabDone}</span>
+      return <DoneIcon />
     case 'error':
-      return <span className="icon-font tab-rail-activity-error text-[12px]">{SegoeIcon.TabError}</span>
+      return <ErrorIcon />
     case 'exited':
       return <span className="h-1.5 w-1.5 rounded-full bg-fg-tertiary opacity-60" />
     default:
@@ -200,13 +200,13 @@ export const TabRow = memo(function TabRow({
       <button
         type="button"
         aria-label={t('CloseTab')}
-        className="icon-font flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-[10px] text-fg-tertiary hover:bg-icon-hover-bg hover:text-icon-hover-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-fg-tertiary hover:bg-icon-hover-bg hover:text-icon-hover-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         onClick={(e) => {
           e.stopPropagation()
           handlers.onClose(id)
         }}
       >
-        {SegoeIcon.Close}
+        <CloseIcon />
       </button>
     </div>
   )

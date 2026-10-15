@@ -227,6 +227,9 @@ export class TerminalHostRegistry {
       // background (App.tsx's `terminalSurfaceBg`, see chromeBackground.ts)
       // sitting behind the canvas.
       allowTransparency: true,
+      // AI CLIs paint their own true-colour backgrounds (Claude Code's diff rows) and pick their own text colours;
+      // where the pair is too close, xterm nudges the text lighter or darker until it reads (WCAG AA).
+      minimumContrastRatio: 4.5,
       theme: this.themeFor(false),
       linkHandler: {
         activate: openExternalLink

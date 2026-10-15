@@ -87,8 +87,8 @@ if (isDev) {
 // keyboard). No effect on normal user runs — this env var is never set then.
 const isTestSilent = isDev && process.env["ZINC_TEST_SILENT"] === "1";
 // Same dark base as renderer/src/colorSchemes.ts's monochrome surfaceBase
-// ([12, 12, 12]) and Campbell black fallback.
-const LINUX_WINDOW_BACKGROUND = "#0C0C0C";
+// ([18, 18, 18]).
+const LINUX_WINDOW_BACKGROUND = "#121212";
 
 // A second process must not register IPC, construct state services or run
 // whenReady initialization after losing the lock: it would share the primary

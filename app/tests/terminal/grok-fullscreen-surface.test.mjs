@@ -65,13 +65,13 @@ test('a partly transparent card still tints', () => {
 })
 
 test('surfaceBaseFor returns the scheme base when untinted and Grok when tinted', () => {
-  // Rosé Pine dark / Grok dark, from colorSchemes.ts.
-  assert.deepEqual([...surfaceBaseFor(false, 'rosePine', 'dark')], [30, 26, 36])
-  assert.deepEqual([...surfaceBaseFor(true, 'rosePine', 'dark')], [20, 20, 20])
+  // Sakura dark / Grok dark, from colorSchemes.ts.
+  assert.deepEqual([...surfaceBaseFor(false, 'sakura', 'dark')], [38, 18, 28])
+  assert.deepEqual([...surfaceBaseFor(true, 'sakura', 'dark')], [20, 20, 20])
 })
 
 test('surfaceBaseFor follows the app light/dark mode when tinted', () => {
-  assert.deepEqual([...surfaceBaseFor(true, 'rosePine', 'light')], [238, 238, 238])
+  assert.deepEqual([...surfaceBaseFor(true, 'sakura', 'light')], [238, 238, 238])
 })
 
 test('surfaceBaseFor falls back to the default scheme for an unknown id', () => {

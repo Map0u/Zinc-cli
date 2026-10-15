@@ -4,11 +4,10 @@ import type { ITheme } from '@xterm/xterm'
 export type ColorSchemeLabelKey =
   | 'ColorSchemeMonochrome'
   | 'ColorSchemeGrok'
-  | 'ColorSchemeRosePine'
-  | 'ColorSchemeTokyoNight'
-  | 'ColorSchemeVesper'
-  | 'ColorSchemeEverforest'
-  | 'ColorSchemeCampbell'
+  | 'ColorSchemeAbyss'
+  | 'ColorSchemeSakura'
+  | 'ColorSchemeMatcha'
+  | 'ColorSchemeAmber'
 
 export type ThemeMode = 'dark' | 'light'
 
@@ -16,9 +15,8 @@ export interface SchemeVariant {
   /** Base RGB for `surfaceBackground()` — the rail/terminal card's tint at RailOpacity/TerminalOpacity. */
   surfaceBase: readonly [number, number, number]
   /** Chrome accent (`--color-accent` when AccentSource is 'scheme') — Toggle/checkbox fill,
-   * rail selected-tab pill, opacity slider fill. A hand-picked hue per scheme, not derived
-   * from `ansi.cursor` (Campbell/Monochrome's cursor is white, which would make a white
-   * toggle) — reuses a hue already defined elsewhere in that same scheme's ansi set. */
+   * rail selected-tab pill, working ring, opacity slider fill. The scheme's own hue at a
+   * lightness solved for contrast against its surface; Monochrome's is a plain gray. */
   accent: string
   ansi: Omit<ITheme, 'background'>
 }
@@ -30,58 +28,58 @@ export interface ColorScheme {
   light: SchemeVariant
 }
 
-/** True black/white/gray — deliberately undyed (the one scheme the user asked to leave plain rather than stylized). */
+/** Black, white and gray; the hues are held to a whisper (OKLCH chroma ~0.05) so a diff still reads red/green. The default. */
 const MONOCHROME: ColorScheme = {
   id: 'monochrome',
   labelKey: 'ColorSchemeMonochrome',
   dark: {
-    surfaceBase: [16, 16, 16],
+    surfaceBase: [18, 18, 18],
     accent: '#C8C8C8',
     ansi: {
-      foreground: '#E8E8E8',
-      cursor: '#FFFFFF',
+      foreground: '#D7D7D7',
+      cursor: '#E6E6E6',
       selectionBackground: '#FFFFFF33',
-      black: '#141414',
-      red: '#9A9A9A',
-      green: '#9A9A9A',
-      yellow: '#9A9A9A',
-      blue: '#9A9A9A',
-      magenta: '#9A9A9A',
-      cyan: '#9A9A9A',
-      white: '#E8E8E8',
-      brightBlack: '#5A5A5A',
-      brightRed: '#C8C8C8',
-      brightGreen: '#C8C8C8',
-      brightYellow: '#C8C8C8',
-      brightBlue: '#C8C8C8',
-      brightMagenta: '#C8C8C8',
-      brightCyan: '#C8C8C8',
-      brightWhite: '#FFFFFF'
+      black: '#222222',
+      red: '#B18885',
+      green: '#7C9A80',
+      yellow: '#A19070',
+      blue: '#7F94B1',
+      magenta: '#A38AA6',
+      cyan: '#6C9A9F',
+      white: '#BEBEBE',
+      brightBlack: '#7D7D7D',
+      brightRed: '#CCA6A2',
+      brightGreen: '#9BB69D',
+      brightYellow: '#BCAE8F',
+      brightBlue: '#9EB0CC',
+      brightMagenta: '#BEA8C2',
+      brightCyan: '#8DB6BB',
+      brightWhite: '#F8F8F8'
     }
   },
   light: {
-    surfaceBase: [246, 246, 246],
-    accent: '#454545',
+    surfaceBase: [250, 250, 250],
+    accent: '#3D3D3D',
     ansi: {
-      foreground: '#1A1A1A',
-      cursor: '#000000',
-      selectionBackground: '#00000022',
-      black: '#2A2A2A',
-      red: '#6E6E6E',
-      green: '#6E6E6E',
-      yellow: '#6E6E6E',
-      blue: '#6E6E6E',
-      magenta: '#6E6E6E',
-      cyan: '#6E6E6E',
-      white: '#1A1A1A',
-      brightBlack: '#8C8C8C',
-      brightRed: '#454545',
-      brightGreen: '#454545',
-      brightYellow: '#454545',
-      brightBlue: '#454545',
-      brightMagenta: '#454545',
-      brightCyan: '#454545',
-      brightWhite: '#000000'
+      foreground: '#1D1D1D',
+      cursor: '#1A1A1A',
+      selectionBackground: '#00000024',
+      black: '#1D1D1D',
+      red: '#8A5F5B',
+      green: '#517155',
+      yellow: '#796743',
+      blue: '#556B8C',
+      magenta: '#7B6180',
+      cyan: '#3C7277',
+      white: '#666666',
+      brightBlack: '#737373',
+      brightRed: '#7D4F4B',
+      brightGreen: '#406345',
+      brightYellow: '#6C582F',
+      brightBlue: '#455C7F',
+      brightMagenta: '#6E5173',
+      brightCyan: '#26636A',
+      brightWhite: '#0B0D12'
     }
   }
 }
@@ -153,304 +151,244 @@ const GROK: ColorScheme = {
   }
 }
 
-// Restrained/low-saturation dark palettes, each inspired by
-// (not a literal reproduction of) a named community theme — hand-tuned for hue separation
-// and foreground contrast rather than copied hex-for-hex. Light variants likewise inspired
-// by that theme's own published light companion where one exists (Rosé Pine Dawn, Tokyo
-// Night Light, Everforest Light), re-tuned to this app's register.
-const ROSE_PINE: ColorScheme = {
-  id: 'rosePine',
-  labelKey: 'ColorSchemeRosePine',
+// Each palette is generated in OKLCH and every ANSI colour's lightness is solved against its own
+// surface: normal hues >= 6:1 (dark) / 5.2:1 (light), bright hues >= 8.5:1 / 6.5:1, brightBlack and the
+// rest >= 4.5:1, foreground >= 13:1 / 16:1. Hue and chroma give each scheme its character; contrast is
+// fixed, so no scheme has a colour that disappears against its own background.
+/** Deep navy surface, bright cyan accent, the most saturated hues. */
+const ABYSS: ColorScheme = {
+  id: 'abyss',
+  labelKey: 'ColorSchemeAbyss',
   dark: {
-    surfaceBase: [30, 26, 36],
-    accent: '#D48CEE',
+    surfaceBase: [7, 17, 46],
+    accent: '#02B7BE',
     ansi: {
-      foreground: '#E9E1F5',
-      cursor: '#D48CEE',
-      selectionBackground: '#D48CEE55',
-      black: '#241F33',
-      red: '#E0708C',
-      green: '#8FBCAE',
-      yellow: '#E0C088',
-      blue: '#8FAEDD',
-      magenta: '#D48CEE',
-      cyan: '#8FD1D1',
-      white: '#E9E1F5',
-      brightBlack: '#7A6F99',
-      brightRed: '#EC93A9',
-      brightGreen: '#A8CCC0',
-      brightYellow: '#EDD19F',
-      brightBlue: '#A9C3EA',
-      brightMagenta: '#E3AAF7',
-      brightCyan: '#A9E2E2',
-      brightWhite: '#F5EFFB'
+      foreground: '#CFD8ED',
+      cursor: '#00C3CA',
+      selectionBackground: '#02B7BE52',
+      black: '#0F204C',
+      red: '#E66E67',
+      green: '#02A869',
+      yellow: '#BA8B01',
+      blue: '#5593ED',
+      magenta: '#A97EE3',
+      cyan: '#06A2AF',
+      white: '#B5BFD2',
+      brightBlack: '#757D90',
+      brightRed: '#FF9088',
+      brightGreen: '#52C489',
+      brightYellow: '#D7A939',
+      brightBlue: '#7DB1FF',
+      brightMagenta: '#C39EFB',
+      brightCyan: '#10C2D1',
+      brightWhite: '#F9FAFD'
     }
   },
   light: {
-    surfaceBase: [250, 244, 237],
-    accent: '#9440BE',
+    surfaceBase: [240, 245, 255],
+    accent: '#04787E',
     ansi: {
-      foreground: '#4A3E63',
-      cursor: '#9440BE',
-      selectionBackground: '#9440BE2A',
-      black: '#5B4E75',
-      red: '#B4415E',
-      green: '#2C7A66',
-      yellow: '#B4770B',
-      blue: '#3C5FA8',
-      magenta: '#9440BE',
-      cyan: '#2C7E82',
-      white: '#4A3E63',
-      brightBlack: '#7C6E96',
-      brightRed: '#9A3450',
-      brightGreen: '#256657',
-      brightYellow: '#976409',
-      brightBlue: '#324F8A',
-      brightMagenta: '#7C359C',
-      brightCyan: '#25696D',
-      brightWhite: '#2E2540'
+      foreground: '#131928',
+      cursor: '#066A6F',
+      selectionBackground: '#04787E38',
+      black: '#131928',
+      red: '#BC3435',
+      green: '#027649',
+      yellow: '#836103',
+      blue: '#1963C8',
+      magenta: '#804CBD',
+      cyan: '#06717B',
+      white: '#5B6375',
+      brightBlack: '#687082',
+      brightRed: '#B10E1F',
+      brightGreen: '#03653E',
+      brightYellow: '#705302',
+      brightBlue: '#0254B7',
+      brightMagenta: '#7436B5',
+      brightCyan: '#05616A',
+      brightWhite: '#0B0D12'
     }
   }
 }
 
-const TOKYO_NIGHT: ColorScheme = {
-  id: 'tokyoNight',
-  labelKey: 'ColorSchemeTokyoNight',
+/** Rose-tinted warm gray, cherry-blossom pink accent, warm and soft hues. */
+const SAKURA: ColorScheme = {
+  id: 'sakura',
+  labelKey: 'ColorSchemeSakura',
   dark: {
-    surfaceBase: [19, 20, 32],
-    accent: '#7AA2F7',
+    surfaceBase: [38, 18, 28],
+    accent: '#F387B3',
     ansi: {
-      foreground: '#C0CAF5',
-      cursor: '#7AA2F7',
-      selectionBackground: '#7AA2F755',
-      black: '#1F2335',
-      red: '#D97C93',
-      green: '#8FBD88',
-      yellow: '#D9B471',
-      blue: '#7AA2F7',
-      magenta: '#B98FD1',
-      cyan: '#7DCFCB',
-      white: '#C0CAF5',
-      brightBlack: '#565F89',
-      brightRed: '#E89AAC',
-      brightGreen: '#A6D19E',
-      brightYellow: '#E6CC94',
-      brightBlue: '#9EBCF9',
-      brightMagenta: '#CBA8E0',
-      brightCyan: '#9BE0DC',
-      brightWhite: '#E8ECFB'
+      foreground: '#ECD8E0',
+      cursor: '#FF92BE',
+      selectionBackground: '#F387B352',
+      black: '#3C1F2D',
+      red: '#DB7B80',
+      green: '#67A470',
+      yellow: '#B39249',
+      blue: '#8992D5',
+      magenta: '#D279B2',
+      cyan: '#31A6A5',
+      white: '#D1BEC6',
+      brightBlack: '#8E7C83',
+      brightRed: '#F69B9F',
+      brightGreen: '#89C190',
+      brightYellow: '#CFB070',
+      brightBlue: '#A7B0EE',
+      brightMagenta: '#EC9ACE',
+      brightCyan: '#64C3C2',
+      brightWhite: '#FCF9FA'
     }
   },
   light: {
-    surfaceBase: [222, 224, 233],
-    accent: '#34548A',
+    surfaceBase: [254, 242, 247],
+    accent: '#AE4975',
     ansi: {
-      foreground: '#343B58',
-      cursor: '#34548A',
-      selectionBackground: '#34548A2A',
-      black: '#3F4562',
-      red: '#8C4351',
-      green: '#33635C',
-      yellow: '#8F5E15',
-      blue: '#34548A',
-      magenta: '#5A4A78',
-      cyan: '#0F4B6E',
-      white: '#343B58',
-      brightBlack: '#5A6089',
-      brightRed: '#7A303F',
-      brightGreen: '#275048',
-      brightYellow: '#764B0C',
-      brightBlue: '#294676',
-      brightMagenta: '#493A66',
-      brightCyan: '#0B3B57',
-      brightWhite: '#1E2136'
+      foreground: '#23161C',
+      cursor: '#9F3B69',
+      selectionBackground: '#AE497538',
+      black: '#23161C',
+      red: '#AD434E',
+      green: '#2B743B',
+      yellow: '#836101',
+      blue: '#5A60AA',
+      magenta: '#A44284',
+      cyan: '#037273',
+      white: '#705E66',
+      brightBlack: '#7D6C73',
+      brightRed: '#A12D3E',
+      brightGreen: '#076627',
+      brightYellow: '#715301',
+      brightBlue: '#4C50A0',
+      brightMagenta: '#972C78',
+      brightCyan: '#026263',
+      brightWhite: '#110C0E'
     }
   }
 }
 
-const VESPER: ColorScheme = {
-  id: 'vesper',
-  labelKey: 'ColorSchemeVesper',
+/** Gray-green surface, matcha accent, earthy hues. */
+const MATCHA: ColorScheme = {
+  id: 'matcha',
+  labelKey: 'ColorSchemeMatcha',
   dark: {
-    surfaceBase: [12, 11, 10],
-    accent: '#FFC247',
+    surfaceBase: [17, 29, 17],
+    accent: '#82B962',
     ansi: {
-      foreground: '#E8E1D3',
-      cursor: '#FFC247',
-      selectionBackground: '#FFC24755',
-      black: '#161412',
-      red: '#D97757',
-      green: '#A8B885',
-      yellow: '#FFC247',
-      blue: '#8DA3C0',
-      magenta: '#C08FB0',
-      cyan: '#8FC1BF',
-      white: '#E8E1D3',
-      brightBlack: '#6E6A63',
-      brightRed: '#EC9270',
-      brightGreen: '#C0CC9F',
-      brightYellow: '#FFD778',
-      brightBlue: '#A8BEDA',
-      brightMagenta: '#D8A6C8',
-      brightCyan: '#ACD6D3',
-      brightWhite: '#F7F1E4'
+      foreground: '#D6E2D6',
+      cursor: '#8DC56E',
+      selectionBackground: '#82B96252',
+      black: '#1D2F1E',
+      red: '#CE8670',
+      green: '#5AA967',
+      yellow: '#AC974F',
+      blue: '#5A9FCA',
+      magenta: '#AE8AC6',
+      cyan: '#3DA6B0',
+      white: '#BCC8BC',
+      brightBlack: '#7A857A',
+      brightRed: '#E9A692',
+      brightGreen: '#7FC689',
+      brightYellow: '#C8B575',
+      brightBlue: '#7FBDE5',
+      brightMagenta: '#CBA9E0',
+      brightCyan: '#6BC3CC',
+      brightWhite: '#F8FBF8'
     }
   },
   light: {
-    surfaceBase: [250, 246, 236],
-    accent: '#A66A00',
+    surfaceBase: [239, 249, 239],
+    accent: '#467923',
     ansi: {
-      foreground: '#2A2520',
-      cursor: '#A66A00',
-      selectionBackground: '#A66A0030',
-      black: '#3A332B',
-      red: '#B4482E',
-      green: '#5C7A3F',
-      yellow: '#A66A00',
-      blue: '#3F5E85',
-      magenta: '#8C5478',
-      cyan: '#3C7E7A',
-      white: '#2A2520',
-      brightBlack: '#6E6355',
-      brightRed: '#96381F',
-      brightGreen: '#4A6633',
-      brightYellow: '#8A5600',
-      brightBlue: '#33496B',
-      brightMagenta: '#734363',
-      brightCyan: '#2F6662',
-      brightWhite: '#14110D'
+      foreground: '#141D15',
+      cursor: '#3A6C12',
+      selectionBackground: '#46792338',
+      black: '#141D15',
+      red: '#9F513B',
+      green: '#09782F',
+      yellow: '#7D6501',
+      blue: '#0E6E9E',
+      magenta: '#805799',
+      cyan: '#05727C',
+      white: '#5C665C',
+      brightBlack: '#6A746A',
+      brightRed: '#933F26',
+      brightGreen: '#006726',
+      brightYellow: '#6B5702',
+      brightBlue: '#055E89',
+      brightMagenta: '#73468D',
+      brightCyan: '#06626B',
+      brightWhite: '#0B0E0B'
     }
   }
 }
 
-const EVERFOREST: ColorScheme = {
-  id: 'everforest',
-  labelKey: 'ColorSchemeEverforest',
+/** Warm brown surface, amber accent; blues are held back and the warm hues lead. */
+const AMBER: ColorScheme = {
+  id: 'amber',
+  labelKey: 'ColorSchemeAmber',
   dark: {
-    surfaceBase: [21, 26, 22],
-    accent: '#89C05F',
+    surfaceBase: [33, 22, 12],
+    accent: '#E89729',
     ansi: {
-      foreground: '#D3C9A1',
-      cursor: '#89C05F',
-      selectionBackground: '#89C05F55',
-      black: '#252E27',
-      red: '#E06C56',
-      green: '#89C05F',
-      yellow: '#DBB847',
-      blue: '#5C9DC6',
-      magenta: '#D678B0',
-      cyan: '#4FBF9F',
-      white: '#D3C9A1',
-      brightBlack: '#6B6D5F',
-      brightRed: '#E88B70',
-      brightGreen: '#A3D680',
-      brightYellow: '#E8CC6C',
-      brightBlue: '#7EB6DA',
-      brightMagenta: '#E093C4',
-      brightCyan: '#72D3B4',
-      brightWhite: '#E5DFC0'
+      foreground: '#EDDACA',
+      cursor: '#F4A239',
+      selectionBackground: '#E8972952',
+      black: '#362517',
+      red: '#D97E63',
+      green: '#66A470',
+      yellow: '#CA8A10',
+      blue: '#749ABF',
+      magenta: '#B785BE',
+      cyan: '#5FA299',
+      white: '#D3BFB0',
+      brightBlack: '#8F7D70',
+      brightRed: '#F39F86',
+      brightGreen: '#89C190',
+      brightYellow: '#E4A950',
+      brightBlue: '#94B8DA',
+      brightMagenta: '#D3A4D9',
+      brightCyan: '#83BFB6',
+      brightWhite: '#FCF9F7'
     }
   },
   light: {
-    surfaceBase: [253, 246, 227],
-    accent: '#5C8A1E',
+    surfaceBase: [254, 242, 233],
+    accent: '#995E05',
     ansi: {
-      foreground: '#3C4841',
-      cursor: '#5C8A1E',
-      selectionBackground: '#5C8A1E2A',
-      black: '#4A5850',
-      red: '#C4362A',
-      green: '#5C8A1E',
-      yellow: '#A87E00',
-      blue: '#286B92',
-      magenta: '#B5478C',
-      cyan: '#1E8A70',
-      white: '#3C4841',
-      brightBlack: '#6C7A70',
-      brightRed: '#A82A20',
-      brightGreen: '#4A7418',
-      brightYellow: '#8E6A00',
-      brightBlue: '#20597B',
-      brightMagenta: '#9C3C76',
-      brightCyan: '#19735F',
-      brightWhite: '#242C27'
+      foreground: '#23160B',
+      cursor: '#885300',
+      selectionBackground: '#995E0538',
+      black: '#23160B',
+      red: '#AB472A',
+      green: '#2B743B',
+      yellow: '#8B5D06',
+      blue: '#3E6992',
+      magenta: '#885291',
+      cyan: '#1B726A',
+      white: '#705F52',
+      brightBlack: '#7E6D5F',
+      brightRed: '#9F320C',
+      brightGreen: '#056627',
+      brightYellow: '#784F01',
+      brightBlue: '#2A5A86',
+      brightMagenta: '#7C4086',
+      brightCyan: '#02635A',
+      brightWhite: '#110C09'
     }
   }
 }
 
-// Compatibility palette for users who prefer familiar Windows terminal colors.
-// It remains selectable rather than becoming the default. The light variant is
-// Windows Terminal's own "Campbell" convention of pairing the same saturated ANSI hues
-// with a light backdrop, not a copied asset.
-const CAMPBELL: ColorScheme = {
-  id: 'campbell',
-  labelKey: 'ColorSchemeCampbell',
-  dark: {
-    surfaceBase: [12, 12, 12],
-    accent: '#3A96DD',
-    ansi: {
-      foreground: '#CCCCCC',
-      cursor: '#FFFFFF',
-      selectionBackground: '#3A96DD55',
-      black: '#0C0C0C',
-      red: '#C50F1F',
-      green: '#13A10E',
-      yellow: '#C19C00',
-      blue: '#0037DA',
-      magenta: '#881798',
-      cyan: '#3A96DD',
-      white: '#CCCCCC',
-      brightBlack: '#767676',
-      brightRed: '#E74856',
-      brightGreen: '#16C60C',
-      brightYellow: '#F9F1A5',
-      brightBlue: '#3B78FF',
-      brightMagenta: '#B4009E',
-      brightCyan: '#61D6D6',
-      brightWhite: '#F2F2F2'
-    }
-  },
-  light: {
-    surfaceBase: [245, 245, 245],
-    accent: '#2472A4',
-    ansi: {
-      foreground: '#0C0C0C',
-      cursor: '#000000',
-      selectionBackground: '#0037DA33',
-      black: '#0C0C0C',
-      red: '#C50F1F',
-      green: '#0A7B05',
-      yellow: '#996E00',
-      blue: '#0037DA',
-      magenta: '#881798',
-      cyan: '#2472A4',
-      white: '#CCCCCC',
-      brightBlack: '#767676',
-      brightRed: '#E74856',
-      brightGreen: '#16A80C',
-      brightYellow: '#C19C00',
-      brightBlue: '#3B78FF',
-      brightMagenta: '#B4009E',
-      brightCyan: '#3A96DD',
-      brightWhite: '#F2F2F2'
-    }
-  }
-}
+/** Selectable in Settings, in this order. */
+export const COLOR_SCHEMES: readonly ColorScheme[] = [MONOCHROME, ABYSS, SAKURA, MATCHA, AMBER]
 
-export const COLOR_SCHEMES: readonly ColorScheme[] = [
-  MONOCHROME,
-  GROK,
-  ROSE_PINE,
-  TOKYO_NIGHT,
-  VESPER,
-  EVERFOREST,
-  CAMPBELL
-]
+/** Not selectable: Grok's own palette, kept for the Grok full-screen surface tint (terminal/grokFullscreenSurface.ts). */
+const INTERNAL_SCHEMES: readonly ColorScheme[] = [GROK]
 
 export const DEFAULT_COLOR_SCHEME_ID = MONOCHROME.id
 
 export function getColorScheme(id: string | undefined): ColorScheme {
-  return COLOR_SCHEMES.find((s) => s.id === id) ?? MONOCHROME
+  return COLOR_SCHEMES.find((s) => s.id === id) ?? INTERNAL_SCHEMES.find((s) => s.id === id) ?? MONOCHROME
 }
 
 export function resolveVariant(scheme: ColorScheme, mode: ThemeMode): SchemeVariant {
@@ -523,13 +461,13 @@ function hslToHex(h: number, s: number, l: number): string {
 
 /**
  * Register (saturation/lightness) each hand-picked scheme accent in this file
- * roughly sits in per theme mode — averaged from the 5 non-Monochrome accents
+ * roughly sits in per theme mode — averaged from the 4 non-Monochrome accents
  * above — so a harmonized system accent reads like it belongs to this app's
  * palette family rather than Windows' own raw, more saturated/lighter accent tone.
  */
 const HARMONIZED_REGISTER: Record<ThemeMode, { s: number; l: number }> = {
-  dark: { s: 0.72, l: 0.68 },
-  light: { s: 0.6, l: 0.38 }
+  dark: { s: 0.75, l: 0.6 },
+  light: { s: 0.7, l: 0.34 }
 }
 
 /**

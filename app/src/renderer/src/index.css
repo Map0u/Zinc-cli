@@ -307,19 +307,14 @@
 }
 
 /*
-  Rail activity slot: a working tab's glyph turns; reduced motion leaves it still (its glyph already differs from every other state).
-  The turn is stepped, not continuous, on purpose: a smooth rotate keeps the compositor producing a frame every vsync for as long
-  as any AI session works (hours). Measured on the test seat with 14 working tabs and an idle window, per 20 s: smooth rotate cost
-  ~0.46 s renderer + ~0.39 s GPU process CPU and left ~13% of frames over 33 ms; 8 steps a second cost the same as no animation
-  (~0.06 s renderer, ~0 s GPU) with no long frames. A static glyph is the floor, but a terminal-spinner tick keeps the "alive" cue.
+  Rail activity slot: a working tab's ring (icons.tsx WorkingIcon) turns once a second; reduced motion leaves it still
+  (its shape already differs from every other state). An SVG drawn on its own centre turns continuously and cheaply:
+  on the test seat with 14 working tabs, per 15 s, ~0.3 s renderer CPU and no frame over 33 ms, idle or redrawing.
+  0.8.0 stepped a turning Segoe glyph 8 times a second because rotating the glyph itself pushed frames to 50-66 ms.
 */
-.tab-rail-activity-working {
-  display: inline-block;
-  animation: tab-rail-spin 1s steps(8) infinite;
-}
-
-.tab-rail-activity-error {
-  color: var(--color-danger);
+.tab-rail-ring {
+  display: block;
+  animation: tab-rail-spin 1s linear infinite;
 }
 
 @keyframes tab-rail-spin {
@@ -329,7 +324,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tab-rail-activity-working {
+  .tab-rail-ring {
     animation: none;
   }
 }
@@ -424,16 +419,6 @@
   .tab-rail-chevron {
     transition: none;
   }
-}
-
-/* Segoe Fluent Icons is supplied by Windows and is not bundled. Falls back to
-   Segoe MDL2 Assets, the pre-Win11 name for the same glyph set, for older
-   Windows installs that never got the Fluent Icons font update. */
-.icon-font {
-  font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
-  font-weight: 400;
-  font-style: normal;
-  line-height: 1;
 }
 
 /* M8: let the Acrylic backdrop (set on the BrowserWindow itself) show

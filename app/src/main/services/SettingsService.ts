@@ -67,15 +67,17 @@ const VALID_IMAGE_PASTE_MODES: ImagePasteMode[] = ['cli', 'file']
 
 // Kept in sync with renderer/src/colorSchemes.ts's registry ids — main never
 // touches palette data itself, just validates/persists the selected id.
-const VALID_COLOR_SCHEMES = [
-  'monochrome',
-  'grok',
-  'rosePine',
-  'tokyoNight',
-  'vesper',
-  'everforest',
-  'campbell'
-]
+const VALID_COLOR_SCHEMES = ['monochrome', 'abyss', 'sakura', 'matcha', 'amber']
+
+/** 0.8.2 replaced the palettes; a saved pre-0.8.2 id moves to its nearest new scheme instead of the default. */
+const LEGACY_COLOR_SCHEMES: Record<string, string> = {
+  grok: 'monochrome',
+  campbell: 'monochrome',
+  rosePine: 'sakura',
+  tokyoNight: 'abyss',
+  vesper: 'amber',
+  everforest: 'matcha'
+}
 
 /** UI-bound numeric ranges — must match the sliders/steppers in SettingsPage.tsx. */
 const NUMERIC_BOUNDS: Record<
@@ -136,7 +138,9 @@ function normalizeThemePreference(value: unknown, fallback: ThemePreference): Th
 }
 
 function normalizeColorScheme(value: unknown, fallback: string): string {
-  return typeof value === 'string' && VALID_COLOR_SCHEMES.includes(value) ? value : fallback
+  if (typeof value !== 'string') return fallback
+  if (VALID_COLOR_SCHEMES.includes(value)) return value
+  return Object.hasOwn(LEGACY_COLOR_SCHEMES, value) ? LEGACY_COLOR_SCHEMES[value] : fallback
 }
 
 function normalizeAccentSource(value: unknown, fallback: AccentSource): AccentSource {

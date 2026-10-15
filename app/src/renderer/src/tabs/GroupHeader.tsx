@@ -1,6 +1,6 @@
 import { memo, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { useI18n } from '../i18n/I18nContext'
-import { SegoeIcon } from '../segoeFluentIcons'
+import { ChevronRightIcon } from '../icons'
 import { ActivitySlot } from './TabRow'
 import { useGroupStatus } from './tabStores'
 
@@ -80,11 +80,11 @@ export const GroupHeader = memo(function GroupHeader({
       onLostPointerCapture={handlers.onLostPointerCapture}
     >
       <span
-        className="tab-rail-chevron icon-font flex h-5 w-4 shrink-0 items-center justify-center text-[9px] text-fg-tertiary"
+        className="tab-rail-chevron flex h-5 w-4 shrink-0 items-center justify-center text-fg-tertiary"
         data-open={!collapsed}
         aria-hidden
       >
-        {SegoeIcon.ChevronRight}
+        <ChevronRightIcon />
       </span>
       {renaming ? (
         <input

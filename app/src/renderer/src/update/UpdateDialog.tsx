@@ -1,6 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useI18n } from '../i18n/I18nContext'
-import { SegoeIcon } from '../segoeFluentIcons'
+import { CloseIcon } from '../icons'
 import { useUpdate } from './UpdateContext'
 import { resolveUpdateNotes } from './updateNotes'
 
@@ -100,9 +100,9 @@ export function UpdateDialog() {
             aria-label={t('UpdateDialogClose')}
             title={t('UpdateDialogClose')}
             onClick={closeDialog}
-            className="icon-font flex h-8 w-8 items-center justify-center rounded-control text-[12px] text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex h-8 w-8 items-center justify-center rounded-control text-fg-secondary hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            {SegoeIcon.Close}
+            <CloseIcon />
           </button>
         </div>
 
