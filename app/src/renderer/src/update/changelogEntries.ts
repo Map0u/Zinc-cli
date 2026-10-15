@@ -14,13 +14,15 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       '换了一套图标：标签状态、分组箭头、按钮和设置页的图标统一改为 2 px 圆角线条，不再用偏细的系统字形。',
       '“工作中”的圆环现在平滑转动，并绕自身中心转，不再在原地晃动或一格一格跳。',
       '配色方案换成五套新方案，每套都有亮色和暗色：墨白（默认，原“单色”）、深海、樱粉、抹茶、琥珀。所有文字颜色对各自底色的对比度都在 4.5:1 以上。旧版本保存的方案会自动换成最接近的新方案。',
-      '修复：AI CLI 在自己画的底色上写字（比如 Claude Code 的 diff 行）时，太淡看不清的文字会被自动调亮或调暗。'
+      '修复：AI CLI 在自己画的底色上写字（比如 Claude Code 的 diff 行）时，太淡看不清的文字会被自动调亮或调暗。',
+      '修复：标签 cd 到不属于任何项目的目录（主目录、盘符根目录、桌面等）后，仍留在打开时那个目录的自动分组里；现在会移出该组。'
     ],
     en: [
       'A new icon set: tab status, the group arrow, buttons and the settings pages are drawn in one 2 px rounded stroke instead of the thin Windows system glyphs.',
       'The "working" ring turns smoothly instead of stepping, and turns about its own centre, so it no longer wobbles in its slot.',
       'Colour schemes are replaced by five new ones, each with a light and a dark version: Ink (the default, formerly Monochrome), Abyss, Sakura, Matcha and Amber. Every text colour reads at 4.5:1 or more on its own background. A scheme saved by an earlier version switches to the nearest new one.',
-      'Fixed: text an AI CLI draws on its own background colour (for example Claude Code’s diff rows) is lightened or darkened when it would be too faint to read.'
+      'Fixed: text an AI CLI draws on its own background colour (for example Claude Code’s diff rows) is lightened or darkened when it would be too faint to read.',
+      'Fixed: a tab that changed to a folder that is not a project (home, a drive root, Desktop) stayed in the auto group of the folder it was opened in; it now leaves that group.'
     ]
   },
   {

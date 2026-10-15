@@ -527,6 +527,8 @@ export function moveGroupStep<T extends RailTabBase>(
 export interface AutoGroupContext {
   projectRoot: string | null
   projectName: string | null
+  /** Where the shell is now; a tab whose cwd is known but has no project root has left its project. */
+  cwd?: string | null
 }
 
 export interface AutoGroupOptions {
@@ -552,8 +554,9 @@ export function foldProjectKey(path: string): string {
  *
  * - Eligible: a tab that is not `manual` and is ungrouped or in an `auto` group.
  *   Eligible tabs whose context names a project root are bucketed by the folded
- *   root. A tab with no context yet, or with no project root (home, a drive root),
- *   is never touched - it stays wherever it is.
+ *   root. A tab with no context yet, or whose cwd is not known, is never touched.
+ *   A tab whose cwd is known but is no project (home, a drive root) has left its
+ *   project: it leaves its `auto` group and stays ungrouped.
  * - A bucket joins the group that already carries its key (an `auto` group, or a
  *   user-named one - see below) and so keeps that group's id, collapsed state and
  *   name. With no such group, two or more tabs make exactly one new `auto` group.
@@ -593,19 +596,24 @@ export function autoGroupRail<T extends RailTabBase>(
   }
 
   const buckets = new Map<string, { members: T[]; name: string | null }>()
+  const leaving: T[] = []
   for (const tab of tabs) {
     if (tab.manual) continue
     const own = tab.groupId === undefined ? undefined : byId.get(tab.groupId)
     if (own && !own.auto) continue
     const context = contexts.get(tab.id)
-    if (!context || !context.projectRoot) continue
+    if (!context) continue
+    if (!context.projectRoot) {
+      if (context.cwd && own) leaving.push(tab)
+      continue
+    }
     const key = foldProjectKey(context.projectRoot)
     let bucket = buckets.get(key)
     if (!bucket) buckets.set(key, (bucket = { members: [], name: null }))
     bucket.members.push(tab)
     if (bucket.name === null && context.projectName) bucket.name = context.projectName
   }
-  if (buckets.size === 0) return done()
+  if (buckets.size === 0 && leaving.length === 0) return done()
 
   const assigned = new Map<T, string | undefined>()
   const titles = new Map<string, string>()
@@ -624,6 +632,8 @@ export function autoGroupRail<T extends RailTabBase>(
     }
     for (const tab of bucket.members) assigned.set(tab, target?.id)
   }
+
+  for (const tab of leaving) assigned.set(tab, undefined)
 
   let nextTabs = tabs
   assigned.forEach((groupId, tab) => {

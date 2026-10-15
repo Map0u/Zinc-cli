@@ -24,6 +24,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Text an AI CLI draws on its own background colour (for example Claude Code's
   diff rows) is lightened or darkened when it would be too faint to read.
+- Automatic project grouping now follows a tab when it changes to a folder that
+  is not a project (home, a drive root, Desktop). Before, the tab stayed in the
+  group of the folder it was opened in.
 
 ## [0.8.1] - 2026-10-14
 

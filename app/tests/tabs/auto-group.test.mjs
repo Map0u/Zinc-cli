@@ -398,3 +398,26 @@ test('toggleCollapsed on an auto group does not make it permanent or lose its ti
   assert.equal(out.groups[0].auto, true)
   assert.equal(out.groups[0].title, 'Alpha')
 })
+
+test('a tab that cd-ed to a non-project folder leaves its auto group; one with no known cwd stays', () => {
+  const state = { tabs: [tab('a', 'g'), tab('b', 'g'), tab('c', 'g')], groups: [auto('g', A)] }
+  const here = { projectRoot: A, projectName: 'Alpha', cwd: A }
+  const contexts = new Map([
+    ['a', here],
+    ['b', { projectRoot: null, projectName: null, cwd: 'C:\Scratch' }],
+    ['c', { projectRoot: null, projectName: null, cwd: null }]
+  ])
+  const out = autoGroupRail(state, contexts, counter())
+  assert.equal(shape(out), '[g: a c] b')
+  assert.equal(out.tabs.find((t) => t.id === 'b').groupId, undefined)
+  assert.equal(out.tabs.find((t) => t.id === 'c').groupId, 'g')
+  assert.equal(autoGroupRail(out, contexts, counter()), out)
+})
+
+test('a manual tab, or one in a user-named group, is not pulled out by a non-project cwd', () => {
+  const away = { projectRoot: null, projectName: null, cwd: 'C:\Scratch' }
+  const manual = { tabs: [tab('a', 'g', { manual: true }), tab('b', 'g')], groups: [auto('g', A)] }
+  assert.equal(autoGroupRail(manual, new Map([['a', away]]), counter()).tabs[0].groupId, 'g')
+  const named = { tabs: [tab('a', 'g'), tab('b', 'g')], groups: [grp('g', { name: 'Mine' })] }
+  assert.equal(autoGroupRail(named, new Map([['a', away]]), counter()), named)
+})
