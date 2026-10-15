@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
 
 /**
- * Zinc's icon set: one 16 x 16 grid, a 2 px round-capped stroke in currentColor.
+ * Zinc's icon set: one 16 x 16 grid, a 1.5 unit round-capped stroke in currentColor
+ * (1.1 px at 12 px, 1.3 at 14, 1.5 at 16: the same share of the glyph at every size).
+ * 2 units, the first cut, read as heavy next to the 13 px text beside it.
  *
  * Drawn here instead of taken from Segoe Fluent Icons: the system glyphs are
  * hairline (about 0.75 px at 12 px), and a glyph's ink is not centred in its
@@ -17,7 +19,7 @@ function Icon({ size, className, children }: { size: number; className?: string;
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
@@ -125,10 +127,10 @@ export const AboutIcon = ({ size = 16, className }: IconProps) => (
 
 /* Tab activity, 14 px in the rail's 20 px slot. */
 
-/** Working: a faint track and a 150 degree accent arc, turned by `.tab-rail-ring` about the centre of its own box. */
+/** Working: a faint track and a 150 degree arc, both the accent, turned by `.tab-rail-ring` about the centre of its own box. */
 export const WorkingIcon = ({ size = 14 }: IconProps) => (
   <Icon size={size} className="tab-rail-ring">
-    <circle cx="8" cy="8" r="5.5" opacity="0.18" />
+    <circle cx="8" cy="8" r="5.5" stroke="var(--color-accent)" opacity="0.25" />
     <path d="M8 2.5a5.5 5.5 0 0 1 2.75 10.263" stroke="var(--color-accent)" />
   </Icon>
 )
@@ -141,7 +143,7 @@ export const WaitingIcon = ({ size = 14 }: IconProps) => (
 )
 
 export const DoneIcon = ({ size = 14 }: IconProps) => (
-  <Icon size={size}>
+  <Icon size={size} className="text-fg-secondary">
     <path d="M3.5 8.5l2.75 2.75L12.5 5" />
   </Icon>
 )

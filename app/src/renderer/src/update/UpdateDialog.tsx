@@ -155,7 +155,7 @@ export function UpdateDialog() {
             data-testid="update-dialog-primary"
             disabled={primaryDisabled && !canInstall}
             onClick={onPrimary}
-            className="rounded-control border border-card-border bg-accent px-3 py-1.5 text-[12px] text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
+            className="rounded-control border border-card-border bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-45"
           >
             {primaryLabel}
           </button>

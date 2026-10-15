@@ -15,7 +15,7 @@ for (const [entry, name] of [
   buildSync({ entryPoints: [join(root, entry)], bundle: true, format: 'esm', platform: 'node', outfile: join(outDir, name), logLevel: 'silent' })
 }
 const { SettingsService } = await import(pathToFileURL(join(outDir, 'SettingsService.mjs')).href)
-const { COLOR_SCHEMES, getColorScheme } = await import(pathToFileURL(join(outDir, 'colorSchemes.mjs')).href)
+const { COLOR_SCHEMES, getColorScheme, onAccent, harmonizeAccent } = await import(pathToFileURL(join(outDir, 'colorSchemes.mjs')).href)
 
 test.after(() => rmSync(outDir, { recursive: true, force: true }))
 
@@ -73,4 +73,32 @@ test('every text colour of every selectable scheme reads at 4.5:1 on its own sur
 test('the terminal asks xterm for a 4.5:1 minimum contrast', () => {
   const src = readFileSync(join(root, 'src/renderer/src/terminal/TerminalHostRegistry.ts'), 'utf8')
   assert.match(src, /minimumContrastRatio: 4\.5/)
+})
+
+test('what sits on the accent (a switch knob, button text) reads at 4.5:1 in every scheme, mode and system accent', () => {
+  const accents = []
+  for (const s of COLOR_SCHEMES) for (const mode of ['dark', 'light']) accents.push([`${s.id} ${mode}`, s[mode].accent])
+  for (const hue of ['#0078D4', '#E81123', '#107C10', '#FFB900', '#767676', '#8E8CD8']) {
+    for (const mode of ['dark', 'light']) accents.push([`system ${hue} ${mode}`, harmonizeAccent(hue, mode)])
+  }
+  for (const [label, accent] of accents) {
+    const on = onAccent(accent)
+    assert.ok(on === '#000000' || on === '#ffffff', label)
+    const r = ratio(rgb(on), rgb(accent))
+    assert.ok(r >= 4.5, `${label}: ${on} on ${accent} is ${r.toFixed(2)}:1`)
+  }
+})
+
+test('the working ring and every accent-filled control take their colour from the scheme accent, not a fixed one', () => {
+  const icons = readFileSync(join(root, 'src/renderer/src/icons.tsx'), 'utf8')
+  const ring = icons.slice(icons.indexOf('export const WorkingIcon'), icons.indexOf('export const WaitingIcon'))
+  assert.equal((ring.match(/stroke="var\(--color-accent\)"/g) ?? []).length, 2, 'track and arc')
+  assert.doesNotMatch(icons, /#[0-9a-fA-F]{3,8}|rgba?\(/, 'no fixed colour in the icon set')
+  const settings = readFileSync(join(root, 'src/renderer/src/settings/SettingsPage.tsx'), 'utf8')
+  assert.match(settings, /bg-on-accent/)
+  assert.doesNotMatch(settings, /bg-black/)
+  const dialog = readFileSync(join(root, 'src/renderer/src/update/UpdateDialog.tsx'), 'utf8')
+  assert.match(dialog, /bg-accent[^"]*text-on-accent/)
+  const css = readFileSync(join(root, 'src/renderer/src/index.css'), 'utf8')
+  assert.doesNotMatch(css, /#3a424c|#4a5568/i, 'the terminal scrollbar follows the theme tokens')
 })

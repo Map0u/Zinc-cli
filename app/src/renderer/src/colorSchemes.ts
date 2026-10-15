@@ -486,3 +486,18 @@ export function harmonizeAccent(osAccentHex: string, mode: ThemeMode): string {
   if (rawS < 0.05) return hslToHex(0, 0, l)
   return hslToHex(h, s, l)
 }
+
+/**
+ * Black or white, whichever reads better on `hex` (a switch knob, the text of an
+ * accent-filled button). Dark themes have light accents and light themes dark
+ * ones, so neither colour can be fixed.
+ */
+export function onAccent(hex: string): string {
+  const channel = (i: number): number => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
+  // Contrast with black is (L + .05) / .05, with white 1.05 / (L + .05).
+  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? '#000000' : '#ffffff'
+}

@@ -21,7 +21,7 @@ import { surfaceBaseFor } from './terminal/grokFullscreenSurface'
 const SURFACE_FADE_MS = 220
 /** How often batched tab-title changes are applied (see the onTitleChange effect). */
 const TITLE_FLUSH_MS = 250
-import { getColorScheme, harmonizeAccent, resolveVariant } from './colorSchemes'
+import { getColorScheme, harmonizeAccent, onAccent, resolveVariant } from './colorSchemes'
 import { useResolvedThemeMode } from './themeMode'
 import zincIcon from './assets/zinc-icon.png'
 import {
@@ -256,10 +256,12 @@ export default function App() {
         if (cancelled) return
         const harmonized = harmonizeAccent(hex, themeMode)
         document.documentElement.style.setProperty('--color-accent', harmonized)
+        document.documentElement.style.setProperty('--color-on-accent', onAccent(harmonized))
       })
     } else {
       const variant = resolveVariant(getColorScheme(settings.ColorScheme), themeMode)
       document.documentElement.style.setProperty('--color-accent', variant.accent)
+      document.documentElement.style.setProperty('--color-on-accent', onAccent(variant.accent))
     }
     return () => {
       cancelled = true

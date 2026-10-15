@@ -225,7 +225,7 @@ function Toggle({ checked, onChange, testId }: { checked: boolean; onChange: (v:
     >
       <span
         className={`block h-5 w-5 translate-x-0.5 rounded-full transition-transform ${
-          checked ? 'translate-x-[22px] bg-black' : 'translate-x-0.5 bg-text-secondary'
+          checked ? 'translate-x-[22px] bg-on-accent' : 'translate-x-0.5 bg-text-secondary'
         }`}
       />
     </button>

@@ -46,6 +46,7 @@ async function loadComponent(path, mocks = {}) {
       export const getColorScheme = (id) => ({ id })
       export const resolveVariant = (scheme, mode) => ({ accent: scheme.id + '-' + mode, surfaceBase: '#000000' })
       export const harmonizeAccent = (hex, mode) => hex + '-' + mode
+      export const onAccent = () => '#000000'
     `,
     './themeMode': `export const useResolvedThemeMode = () => globalThis.__zincTest.mode`,
     './assets/zinc-icon.png': `export default 'zinc.png'`,
@@ -263,10 +264,12 @@ test('old system accent reply cannot overwrite the newer selected scheme', async
   app.settings.AccentSource = 'scheme'
   app.settings.ColorScheme = 'new'
   app.render()
-  assert.deepEqual(app.accentWrites.at(-1), ['--color-accent', 'new-dark'])
+  const accent = () => app.accentWrites.filter(([name]) => name === '--color-accent').at(-1)
+  assert.deepEqual(accent(), ['--color-accent', 'new-dark'])
+  assert.deepEqual(app.accentWrites.at(-1), ['--color-on-accent', '#000000'], 'what sits on the accent is set with it')
   app.accentRequests[0].resolve('#ff0000')
   await Promise.resolve()
-  assert.deepEqual(app.accentWrites.at(-1), ['--color-accent', 'new-dark'])
+  assert.deepEqual(accent(), ['--color-accent', 'new-dark'])
 })
 
 test('terminal titles are batched into the per-tab store and never touch App state', async () => {
