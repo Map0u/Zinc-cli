@@ -202,7 +202,9 @@ async function assertPreFixThemeStillReproducesTheBar(page, tabId, label) {
     // Undo both halves of the fix: the theme background xterm derives inverse
     // text from, and the stylesheet variable that overrides the result. A
     // non-colour token makes `color: var(...)` invalid at computed-value time,
-    // so the override stops applying — as if the rule were not there.
+    // so the override stops applying — as if the rule were not there. xterm's
+    // minimum-contrast protection would also rescue the bar, so it goes too.
+    entry.term.options.minimumContrastRatio = 1
     entry.term.options.theme = { ...previous, background: 'rgba(0, 0, 0, 0)' }
     entry.container.style.setProperty('--zinc-terminal-inverse-fg', 'notacolor')
     return previous?.background ?? null
@@ -225,6 +227,7 @@ async function assertPreFixThemeStillReproducesTheBar(page, tabId, label) {
 
   await page.evaluate(({ id, background }) => {
     const entry = window.__zincRegistry.hosts?.get(id)
+    entry.term.options.minimumContrastRatio = 4.5
     entry.term.options.theme = { ...entry.term.options.theme, background }
     entry.container.style.removeProperty('--zinc-terminal-inverse-fg')
   }, { id: tabId, background: restored })
