@@ -6,6 +6,25 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-15
+
+### Changed
+
+- A new icon set: every icon in the window (tab status, group arrow, buttons,
+  settings pages) is drawn in one 2 px rounded stroke instead of the thin
+  Windows system glyphs.
+- The "working" ring turns smoothly instead of stepping, and turns about its own
+  centre, so it no longer wobbles in its slot.
+- Colour schemes are replaced by five new ones, each with a light and a dark
+  version: Ink (the default, formerly Monochrome), Abyss, Sakura, Matcha and
+  Amber. Every text colour reads at 4.5:1 or more on its own background. A
+  scheme saved by an earlier version switches to the nearest new one.
+
+### Fixed
+
+- Text an AI CLI draws on its own background colour (for example Claude Code's
+  diff rows) is lightened or darkened when it would be too faint to read.
+
 ## [0.8.1] - 2026-10-14
 
 ### Changed
