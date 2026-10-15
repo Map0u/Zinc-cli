@@ -682,6 +682,10 @@ export class RailDrag {
       return
     }
     if (session.pointerId !== event.pointerId) return
+    // Drop where the button came up: a release can land past the last move event, and a row
+    // that was marked for grouping must not be committed from a position the pointer has left.
+    session.clientX = event.clientX
+    session.clientY = event.clientY
     // Mark the drop as settled before release can emit lostpointercapture.
     this.end(event.pointerId)
     try {

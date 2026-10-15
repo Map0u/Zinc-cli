@@ -286,7 +286,7 @@ test('tab into a group: the header and rows below slide, the group gets the acce
   assert.equal(wrappers.G.attrs['data-droptarget'], 'true')
   assert.equal(dropLine.dataset.nested, 'true')
   assert.equal(dropLine.dataset.active, 'true')
-  drag.pointerUp(event(a, 40, 160))
+  drag.pointerUp(event(a, 40, 100 + 42 + 34 + 5 + 4)) // where the last move left it
   const [drop] = moves(log, 'tab')
   assert.equal(drop[1], 'a')
   assert.deepEqual(drop[2], { into: 'G', index: 0 })
@@ -505,4 +505,16 @@ test('drifting while resting restarts the pause; a member of a group and a group
   const beforeGroup = groupDrag.timers.length
   groupDrag.drag.pointerMove(groupDrag.event(groupDrag.byId.G, 40, 200))
   assert.equal(groupDrag.timers.length, beforeGroup)
+})
+
+test('a release past the last move drops where the button came up: a marked row is not grouped from outside it', () => {
+  const { drag, byId, log, event, timers } = setup(['a', 'b', 'c'])
+  drag.pointerDown(event(byId.a, 20, 120), 'a')
+  drag.pointerMove(event(byId.a, 40, 125))
+  drag.pointerMove(event(byId.a, 40, 204))
+  timers.at(-1)()
+  assert.equal(byId.c.attrs['data-droptarget'], 'true')
+  drag.pointerUp(event(byId.a, 40, 245)) // no move event in between: the pointer is already below c
+  assert.deepEqual(moves(log, 'onto'), [])
+  assert.deepEqual(moves(log, 'tab').map((e) => e[2]), [{ top: 2 }])
 })
