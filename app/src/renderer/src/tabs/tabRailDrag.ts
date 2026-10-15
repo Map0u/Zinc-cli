@@ -17,6 +17,8 @@ const TAB_MOTION_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)'
 const TAB_SETTLE_MS = 160
 /** Lift scale on the ghost (skipped under prefers-reduced-motion). */
 const TAB_DRAG_SCALE = 1.02
+/** Over a row it will group with, the ghost shrinks (centred) so that row's outline shows all around it. */
+const ONTO_GHOST_SCALE = 0.92
 /** The selected-row tint over the popup surface: the ghost stays readable over the rows it passes (a row or header has no paint of its own when it is not selected). */
 /** Resting this long over the middle of a loose row (see `ontoRowAt`) turns the drop into "group with that row". */
 const ONTO_DWELL_MS = 450
@@ -272,9 +274,10 @@ export class RailDrag {
   private paintGhost(session: DragSession): void {
     const ghost = session.ghost
     if (!ghost) return
-    const x = session.clientX - session.grabOffsetX
-    const y = session.clientY - session.grabOffsetY
-    const scale = prefersReducedMotion() ? 1 : TAB_DRAG_SCALE
+    const onto = session.onto !== null
+    const scale = onto ? ONTO_GHOST_SCALE : prefersReducedMotion() ? 1 : TAB_DRAG_SCALE
+    const x = session.clientX - session.grabOffsetX + (onto ? (session.width * (1 - scale)) / 2 : 0)
+    const y = session.clientY - session.grabOffsetY + (onto ? (session.height * (1 - scale)) / 2 : 0)
     ghost.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`
     // Accent ring when the drop slot is no longer the origin - pairs with the line.
     const plan = session.plan
