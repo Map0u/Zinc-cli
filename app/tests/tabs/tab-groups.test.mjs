@@ -32,6 +32,7 @@ const {
   aggregateStatus,
   neighborAfterClose,
   createGroup,
+  groupOnto,
   moveTabs,
   moveGroup,
   ungroupTab,
@@ -526,4 +527,26 @@ test('random op sequences keep every invariant and never lose a tab', () => {
       assert.equal(state.tabs.length, 10)
     }
   }
+})
+
+test('groupOnto makes a user-made group of the target and the dropped tab, at the target place, dropped tab last', () => {
+  const state = { tabs: [tab('a'), tab('b'), tab('c')], groups: [] }
+  const down = groupOnto(state.tabs, state.groups, 'a', 'c', 'g1')
+  assert.equal(shape(down), 'b [g1: c a]')
+  assert.equal(down.groups[0].auto, false)
+  assert.ok(down.tabs.every((t) => t.id === 'b' || t.manual === true), 'both are the users now')
+  const up = groupOnto(state.tabs, state.groups, 'c', 'a', 'g1')
+  assert.equal(shape(up), '[g1: a c] b')
+  assert.equal(shape(normalizeRail(up.tabs, up.groups)), shape(up), 'already normal')
+})
+
+test('groupOnto takes a tab out of its old group, and refuses a grouped target, itself and unknown ids', () => {
+  const state = { tabs: [tab('m1', 'g'), tab('m2', 'g'), tab('x')], groups: [grp('g', { name: 'Old' })] }
+  const out = groupOnto(state.tabs, state.groups, 'm1', 'x', 'n')
+  assert.equal(shape(out), '[g: m2] [n: x m1]')
+  const same = normalizeRail(state.tabs, state.groups)
+  assert.deepEqual(groupOnto(state.tabs, state.groups, 'x', 'm1', 'n'), same)
+  assert.deepEqual(groupOnto(state.tabs, state.groups, 'x', 'x', 'n'), same)
+  assert.deepEqual(groupOnto(state.tabs, state.groups, 'x', 'nope', 'n'), same)
+  assert.deepEqual(groupOnto(state.tabs, state.groups, 'nope', 'x', 'n'), same)
 })

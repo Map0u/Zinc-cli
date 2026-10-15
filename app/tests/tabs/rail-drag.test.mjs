@@ -120,6 +120,7 @@ function setup(spec, { reduced = true } = {}) {
       // Order commits only after every slide, the accent and the list's drag state are gone.
       log.push(['tab', id, target, nodes.map((r) => r.style.transform ?? ''), list.dataset.dragging, Object.values(wrappers).map((w) => w.attrs['data-droptarget'])])
     },
+    dropOnto: (id, targetId) => log.push(['onto', id, targetId, nodes.map((r) => r.style.transform ?? ''), Object.values(byId).map((r) => r.attrs['data-droptarget'])]),
     dropGroup: (id, before) => log.push(['group', id, before, nodes.map((r) => r.style.transform ?? ''), Object.values(wrappers).map((w) => w.style.transform ?? '')])
   }
   const frames = []
@@ -128,7 +129,8 @@ function setup(spec, { reduced = true } = {}) {
     matchMedia: () => ({ matches: reduced }),
     requestAnimationFrame: (fn) => { frames.push(fn); return frames.length },
     cancelAnimationFrame() {},
-    setTimeout: (fn) => { timers.push(fn); return timers.length }
+    setTimeout: (fn) => { timers.push(fn); return timers.length },
+    clearTimeout: (id) => { timers[id - 1] = () => {} }
   }
   globalThis.requestAnimationFrame = window.requestAnimationFrame
   globalThis.getComputedStyle = () => ({ backgroundColor: '#111' })
@@ -433,4 +435,74 @@ test('a structure change under a lifted drag puts it back; one under a settling 
   settling.drag.structureChanged()
   assert.equal(settling.drag.busy, true)
   assert.equal(settling.bodyChildren.at(-1).removed, undefined)
+})
+
+// The pause over a loose row's middle (a row is 40px; the middle is 10px either side of its centre).
+test('resting over the middle of a loose row marks it, opens no gap, and the drop groups the two', () => {
+  const { drag, byId, nodes, log, event, timers } = setup(['a', 'b', 'c'])
+  drag.pointerDown(event(byId.a, 20, 120), 'a')
+  drag.pointerMove(event(byId.a, 40, 125))
+  drag.pointerMove(event(byId.a, 40, 204)) // c's centre: an ordinary reorder would put a after c
+  assert.equal(byId.c.attrs['data-droptarget'], undefined, 'not yet: the pause has not run')
+  assert.equal(byId.c.style.transform, 'translate3d(0, -42px, 0)')
+  timers.at(-1)()
+  assert.equal(byId.c.attrs['data-droptarget'], 'true')
+  assert.deepEqual(nodes.map((r) => r.style.transform).slice(1), ['translate3d(0, 0px, 0)', 'translate3d(0, 0px, 0)'], 'every row is back where it was')
+  drag.pointerUp(event(byId.a, 40, 204))
+  assert.deepEqual(moves(log, 'tab'), [])
+  const [onto] = moves(log, 'onto')
+  assert.deepEqual(onto.slice(0, 3), ['onto', 'a', 'c'])
+  assert.deepEqual(onto[3], ['', '', ''], 'the slides are gone before the order commits')
+  assert.equal(byId.c.attrs['data-droptarget'], undefined)
+})
+
+test('releasing before the pause is an ordinary reorder, and leaving the middle drops the mark', () => {
+  const { drag, byId, log, event, timers } = setup(['a', 'b', 'c'])
+  drag.pointerDown(event(byId.a, 20, 120), 'a')
+  drag.pointerMove(event(byId.a, 40, 125))
+  drag.pointerMove(event(byId.a, 40, 204))
+  drag.pointerUp(event(byId.a, 40, 204))
+  assert.deepEqual(moves(log, 'tab').map((e) => e[2]), [{ top: 2 }])
+  assert.deepEqual(moves(log, 'onto'), [])
+
+  const second = setup(['a', 'b', 'c'])
+  second.drag.pointerDown(second.event(second.byId.a, 20, 120), 'a')
+  second.drag.pointerMove(second.event(second.byId.a, 40, 125))
+  second.drag.pointerMove(second.event(second.byId.a, 40, 204))
+  second.timers.at(-1)()
+  assert.equal(second.byId.c.attrs['data-droptarget'], 'true')
+  second.drag.pointerMove(second.event(second.byId.a, 40, 224)) // below c's middle band
+  assert.equal(second.byId.c.attrs['data-droptarget'], undefined)
+  second.drag.pointerUp(second.event(second.byId.a, 40, 224))
+  assert.deepEqual(moves(second.log, 'tab').map((e) => e[2]), [{ top: 2 }])
+  assert.deepEqual(moves(second.log, 'onto'), [])
+  void timers
+})
+
+test('drifting while resting restarts the pause; a member of a group and a group drag never group', () => {
+  const { drag, byId, event, timers } = setup(['a', 'b', 'c'])
+  drag.pointerDown(event(byId.a, 20, 120), 'a')
+  drag.pointerMove(event(byId.a, 40, 125))
+  drag.pointerMove(event(byId.a, 40, 203))
+  const first = timers.length
+  drag.pointerMove(event(byId.a, 40, 206)) // a 3px drift: same pause
+  assert.equal(timers.length, first)
+  drag.pointerMove(event(byId.a, 120, 205)) // 80px sideways: the pause starts over
+  assert.equal(timers.length, first + 1)
+  timers.at(-1)()
+  assert.equal(byId.c.attrs['data-droptarget'], 'true')
+
+  const grouped = setup(['a', { g: 'G', m: ['m1', 'm2'] }])
+  grouped.drag.pointerDown(grouped.event(grouped.byId.a, 20, 120), 'a')
+  grouped.drag.pointerMove(grouped.event(grouped.byId.a, 40, 125))
+  const before = grouped.timers.length
+  grouped.drag.pointerMove(grouped.event(grouped.byId.a, 40, 142 + 16 + 20)) // over m1's middle: a member, not a loose row
+  assert.equal(grouped.timers.length, before)
+
+  const groupDrag = setup([{ g: 'G', m: ['m1'] }, 'x', 'y'])
+  groupDrag.drag.pointerDown(groupDrag.event(groupDrag.byId.G, 20, 116), 'G', 'group')
+  groupDrag.drag.pointerMove(groupDrag.event(groupDrag.byId.G, 40, 121))
+  const beforeGroup = groupDrag.timers.length
+  groupDrag.drag.pointerMove(groupDrag.event(groupDrag.byId.G, 40, 200))
+  assert.equal(groupDrag.timers.length, beforeGroup)
 })

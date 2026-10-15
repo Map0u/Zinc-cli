@@ -35,6 +35,7 @@ import { moveItem } from './tabs/tabDragOrder'
 import {
   autoGroupRail,
   createGroup,
+  groupOnto,
   dissolveGroup,
   moveGroup,
   moveGroupStep,
@@ -383,6 +384,13 @@ export default function App() {
   /** A drag dropped a tab into a group or at a top-level position. */
   function moveTab(id: string, target: MoveTarget): void {
     setRail((prev) => moveTabs(prev.tabs, prev.groups, id, target))
+  }
+
+  /** A drag dropped a tab on the middle of a loose tab: the two become a new group, whose name field opens. */
+  function groupTabOnto(id: string, targetId: string): void {
+    const groupId = `grp-${nextGroupIdRef.current++}`
+    setRail((prev) => groupOnto(prev.tabs, prev.groups, id, targetId, groupId))
+    setRenamingGroupId(groupId)
   }
 
   /** A drag dropped a whole group before a top-level tab / group (null = at the end). */
@@ -952,6 +960,7 @@ export default function App() {
     onClose: closeTab,
     onClone: (id: string) => void cloneTab(id),
     onMoveTab: moveTab,
+    onGroupOnto: groupTabOnto,
     onMoveGroup: moveGroupTo,
     onMoveStep: moveStep,
     onContextMenu: showTabContextMenu,
@@ -971,6 +980,7 @@ export default function App() {
       onClose: (id) => railActionsRef.current.onClose(id),
       onClone: (id) => railActionsRef.current.onClone(id),
       onMoveTab: (id, target) => railActionsRef.current.onMoveTab(id, target),
+      onGroupOnto: (id, targetId) => railActionsRef.current.onGroupOnto(id, targetId),
       onMoveGroup: (id, before) => railActionsRef.current.onMoveGroup(id, before),
       onMoveStep: (id, direction, isGroup) => railActionsRef.current.onMoveStep(id, direction, isGroup),
       onContextMenu: (id, x, y) => railActionsRef.current.onContextMenu(id, x, y),

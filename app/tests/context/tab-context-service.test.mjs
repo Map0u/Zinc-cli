@@ -136,3 +136,35 @@ test('resend replays the last context of live tabs only; dropped tabs go quiet',
   assert.equal(state.sent.length, 1)
   finish(service)
 })
+
+test('while an AI CLI runs, its own folder is the tab folder; without it, or when unreadable, the shell answers', () => {
+  test.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 })
+  const state = { shell: '/work/a', tool: null, toolCwd: '/work/b', failRead: false }
+  const service = new TabContextService({
+    getCwd: () => state.shell,
+    getTool: () => state.tool,
+    getToolCwd: () => { if (state.failRead) throw new Error('gone'); return state.toolCwd },
+    resolveRoot: (cwd) => cwd,
+    send: (id, context) => { state.last = context },
+  })
+  service.track('t1')
+  assert.equal(state.last.cwd, '/work/a')
+  state.tool = 'claude'
+  test.mock.timers.tick(500)
+  service.noteOutput('t1')
+  test.mock.timers.tick(0)
+  assert.equal(state.last.cwd, '/work/b', 'the shell never reported the cd; the tool knows')
+  state.failRead = true
+  test.mock.timers.tick(5000)
+  service.noteOutput('t1')
+  test.mock.timers.tick(300)
+  assert.equal(state.last.cwd, '/work/a', 'unreadable tool process: back to the shell')
+  state.failRead = false
+  state.tool = null
+  test.mock.timers.tick(5000)
+  service.noteOutput('t1')
+  test.mock.timers.tick(300)
+  assert.equal(state.last.cwd, '/work/a', 'no tool: the shell')
+  service.dispose()
+  test.mock.timers.reset()
+})

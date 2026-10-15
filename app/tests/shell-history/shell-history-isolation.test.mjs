@@ -74,6 +74,13 @@ test('PowerShell prompt reports its current filesystem location without changing
   assert.match(args[args.indexOf('-Command') + 1], /ZincOriginalPrompt/)
 })
 
+test('PowerShell also reports the location on every Set-Location, chaining the action a profile installed', () => {
+  const prelude = powerShellCwdPrelude()
+  assert.match(prelude, /LocationChangedAction/)
+  assert.match(prelude, /& \$zincOldAction/)
+  assert.match(prelude, /Provider\.Name -ne 'FileSystem'/)
+})
+
 test('PowerShell prelude forces SaveNothing and an isolated HistorySavePath', () => {
   const prelude = powerShellHistoryIsolationPrelude('C:\\tmp\\hist')
   assert.match(prelude, /HistorySaveStyle SaveNothing/)

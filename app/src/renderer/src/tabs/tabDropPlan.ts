@@ -22,7 +22,11 @@
  *   - on a group header the upper quarter is "before the group" (top level) and
  *     the rest is "join the group" at its end (a collapsed group is joined the
  *     same way, without opening). The tab's own group's header gives "first
- *     position in the group" instead, so grazing it never reorders the group.
+ *     position in the group" instead, so grazing it never reorders the group;
+ * Grouping two loose tabs is not a slot: it is `ontoRowAt` plus a dwell. A
+ * ghost centre that rests over the middle of a loose row is also exactly where
+ * an ordinary reorder wants to land, so only a pause there (the rail times it)
+ * means "group with this row".
  * A group drag moves the whole block among the top-level units only, by where
  * the block would land.
  */
@@ -53,6 +57,8 @@ export interface DragEntry {
  */
 export type DropTarget =
   | { into: string; index: number | null }
+  /** A new group of the dragged tab and the loose row `onto`. */
+  | { onto: string }
   | { top: number; /** Group drag: the top-level unit it lands before (`null` = the end). */ before?: string | null }
 
 export interface DropSlot {
@@ -82,8 +88,11 @@ export interface DropPlan {
 }
 
 const DEFAULT_GAP_PX = 2
+/** The middle of a loose row, as a fraction of its height either side of the centre, where a pause means "group with this row". */
+const ONTO_HALF = 0.25
 
 function sameTarget(a: DropTarget, b: DropTarget): boolean {
+  if ('onto' in a || 'onto' in b) return 'onto' in a && 'onto' in b && a.onto === b.onto
   if ('into' in a || 'into' in b) return 'into' in a && 'into' in b && a.into === b.into && a.index === b.index
   return a.top === b.top && (a.before ?? null) === (b.before ?? null)
 }
@@ -346,9 +355,25 @@ export function resolveSlot(plan: DropPlan, current: number, y: number, hysteres
 }
 
 /** What the drop does, or null when the slot puts everything where it already is. */
-export function dropOutcome(plan: DropPlan, slot: number): DropTarget | null {
+export function dropOutcome(plan: DropPlan, slot: number, onto: string | null = null): DropTarget | null {
+  if (onto !== null) return { onto }
   const chosen = plan.slots[slot]
   return !chosen || chosen.origin ? null : chosen.target
+}
+
+/**
+ * The loose row (not a group member, not the dragged one) whose middle band holds
+ * the ghost centre `y`, or null. Only a tab drag has one; a group drag never does.
+ */
+export function ontoRowAt(plan: DropPlan, y: number): string | null {
+  for (let index = 0; index < plan.entries.length; index++) {
+    if (index >= plan.first && index <= plan.last) continue
+    const entry = plan.entries[index]
+    if (entry.kind !== 'row' || entry.groupId !== undefined) continue
+    const mid = entry.top + entry.height / 2
+    if (Math.abs(y - mid) <= entry.height * ONTO_HALF) return entry.id
+  }
+  return null
 }
 
 export interface DropLayout {
@@ -360,13 +385,17 @@ export interface DropLayout {
   nested: boolean
   /** The group the tab joins (the target group's wrapper gets the accent), or null. */
   accent: string | null
+  /** The loose row the tab would be grouped with (that row is outlined), or null. */
+  onto: string | null
 }
 
 /** Closes the gap the dragged thing leaves, opens one at the slot, and says where the line goes. */
-export function dropLayout(plan: DropPlan, slot: number, draggedGroup?: string): DropLayout {
+export function dropLayout(plan: DropPlan, slot: number, draggedGroup?: string, onto: string | null = null): DropLayout {
   const chosen = plan.slots[slot]
   const { entries, kept, stride, gap } = plan
   const shifts = new Array<number>(entries.length).fill(0)
+  // Grouping with a row opens no gap and closes none: everything stays where it is, the row outlined under the ghost.
+  if (onto !== null) return { shifts, lineTop: null, nested: false, accent: null, onto }
   const p = chosen?.p ?? null
   kept.forEach((index, pos) => {
     let shift = 0
@@ -377,7 +406,7 @@ export function dropLayout(plan: DropPlan, slot: number, draggedGroup?: string):
   const target = chosen?.target
   const into = target && 'into' in target ? target.into : null
   if (!chosen || chosen.origin || p === null || kept.length === 0) {
-    return { shifts, lineTop: null, nested: false, accent: into !== null && into !== draggedGroup ? into : null }
+    return { shifts, lineTop: null, nested: false, accent: into !== null && into !== draggedGroup ? into : null, onto: null }
   }
   const boxTop =
     p < kept.length
@@ -387,6 +416,7 @@ export function dropLayout(plan: DropPlan, slot: number, draggedGroup?: string):
     shifts,
     lineTop: boxTop - gap / 2,
     nested: into !== null,
-    accent: into !== null && into !== draggedGroup ? into : null
+    accent: into !== null && into !== draggedGroup ? into : null,
+    onto: null
   }
 }

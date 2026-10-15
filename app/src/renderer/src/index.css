@@ -395,6 +395,12 @@
   touch-action: auto;
 }
 
+/* The loose row a dragged tab would form a new group with. */
+[data-tabid][data-droptarget='true'] {
+  background: var(--color-row-selected);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+
 /* The group a dragged tab would join: one attribute on its wrapper lights the header outline and the guide line (existing accent, no new colour). */
 .tab-rail-group[data-droptarget='true'] > .tab-rail-group-header {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);

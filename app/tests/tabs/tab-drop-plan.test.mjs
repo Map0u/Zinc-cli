@@ -20,7 +20,7 @@ const require = createRequire(import.meta.url)
 const module = { exports: {} }
 // eslint-disable-next-line no-new-func
 new Function('exports', 'require', 'module', code)(module.exports, require, module)
-const { planTabDrag, planGroupDrag, resolveSlot, dropOutcome, dropLayout, DROP_HYSTERESIS_PX } = module.exports
+const { planTabDrag, planGroupDrag, resolveSlot, dropOutcome, dropLayout, ontoRowAt, DROP_HYSTERESIS_PX } = module.exports
 
 /**
  * Frozen entries for a rail spec: a string is a loose row; { g, m: [...], collapsed } is a group
@@ -317,4 +317,30 @@ test('a collapsed group drags as its header alone', () => {
   assert.equal(plan.stride, 32 + 2)
   assert.deepEqual(dropAt(plan, 0), { top: 0, before: 'a' })
   assert.deepEqual(dropAt(plan, 1000), { top: 2, before: null })
+})
+
+test('ontoRowAt: only the middle of a loose row that is not the dragged one; a pause there outranks the slot', () => {
+  const entries = layout(['A', { g: 'G', m: ['m1', 'm2'] }, 'B', 'C'])
+  const plan = planTabDrag(entries, 'A')
+  const b = find(entries, 'B')
+  assert.equal(ontoRowAt(plan, centre(b)), 'B')
+  assert.equal(ontoRowAt(plan, centre(b) + 9), 'B')
+  assert.equal(ontoRowAt(plan, centre(b) + 11), null, 'outside the middle band')
+  assert.equal(ontoRowAt(plan, centre(find(entries, 'A'))), null, 'the dragged row itself')
+  assert.equal(ontoRowAt(plan, centre(find(entries, 'm1'))), null, 'a group member')
+  assert.equal(ontoRowAt(plan, centre(find(entries, 'G'))), null, 'a header')
+  // The same y, resolved as a slot, is the ordinary "after B": grouping is the rail's timed addition.
+  assert.deepEqual(dropOutcome(plan, resolveSlot(plan, -1, centre(b))), { top: 2 })
+  assert.deepEqual(dropOutcome(plan, 0, 'B'), { onto: 'B' })
+})
+
+test('dropLayout onto: nothing slides, no line, no accent, only the row is named', () => {
+  const entries = layout(['A', 'B', 'C'])
+  const plan = planTabDrag(entries, 'A')
+  const layoutOnto = dropLayout(plan, resolveSlot(plan, -1, centre(find(entries, 'C'))), undefined, 'C')
+  assert.deepEqual(layoutOnto.shifts, [0, 0, 0])
+  assert.equal(layoutOnto.lineTop, null)
+  assert.equal(layoutOnto.accent, null)
+  assert.equal(layoutOnto.onto, 'C')
+  assert.equal(dropLayout(plan, 0).onto, null)
 })

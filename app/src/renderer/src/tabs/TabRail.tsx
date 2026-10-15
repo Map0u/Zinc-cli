@@ -36,6 +36,8 @@ export interface TabRailProps {
   onClone(id: string): void
   /** A drag dropped tab `id` into a group at an index, or at a top-level position. */
   onMoveTab(id: string, target: MoveTarget): void
+  /** A tab was dropped on the middle of a loose tab: they become a new group. */
+  onGroupOnto(id: string, targetId: string): void
   /** A drag dropped group `id` before the top-level unit `before` (a tab id or group id), or at the end when null. */
   onMoveGroup(id: string, before: string | null): void
   /** Alt+Up / Alt+Down on a tab or on a group header (`isGroup`). */
@@ -194,6 +196,7 @@ export const TabRail = memo(forwardRef<TabRailHandle, TabRailProps>(function Tab
           id,
           'into' in target ? { intoGroup: target.into, index: target.index ?? undefined } : { ungrouped: true, at: target.top }
         ),
+      dropOnto: (id, targetId) => latest.current.onGroupOnto(id, targetId),
       dropGroup: (id, before) => latest.current.onMoveGroup(id, before)
     })
     const rowHandlers: TabRowHandlers = {

@@ -354,6 +354,26 @@ export function moveTabs<T extends RailTabBase>(
 }
 
 /**
+ * A tab dropped on the middle of another tab: both become one new, user-made
+ * group that sits where `targetId` was, the dropped tab last. Does nothing when
+ * `targetId` is in a group already, or either tab is missing.
+ */
+export function groupOnto<T extends RailTabBase>(
+  tabs: T[],
+  groups: TabGroup[],
+  id: string,
+  targetId: string,
+  groupId: string
+): RailState<T> {
+  const state = normalizeRail(tabs, groups)
+  const target = state.tabs.find((tab) => tab.id === targetId)
+  if (id === targetId || !target || target.groupId !== undefined || !state.tabs.some((tab) => tab.id === id)) return state
+  const created = createGroup(state.tabs, state.groups, [targetId], groupId)
+  if (created === state) return state
+  return moveTabs(created.tabs, created.groups, id, { intoGroup: groupId })
+}
+
+/**
  * Moves a whole group before the top-level item `beforeItemId` (an ungrouped
  * tab's id or another group's id), or to the end when that is `null`. Members
  * become `manual`.

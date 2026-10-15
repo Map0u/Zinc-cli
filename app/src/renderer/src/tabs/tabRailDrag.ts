@@ -3,6 +3,7 @@ import { TAB_DRAG_THRESHOLD_PX, ghostProbeY as ghostProbeYFrom, tabDragDistance 
 import {
   dropLayout,
   dropOutcome,
+  ontoRowAt,
   planGroupDrag,
   planTabDrag,
   resolveSlot,
@@ -17,6 +18,10 @@ const TAB_SETTLE_MS = 160
 /** Lift scale on the ghost (skipped under prefers-reduced-motion). */
 const TAB_DRAG_SCALE = 1.02
 /** The selected-row tint over the popup surface: the ghost stays readable over the rows it passes (a row or header has no paint of its own when it is not selected). */
+/** Resting this long over the middle of a loose row (see `ontoRowAt`) turns the drop into "group with that row". */
+const ONTO_DWELL_MS = 450
+/** The pointer may drift this far while it rests before the wait starts over. */
+const ONTO_STILL_PX = 8
 const GHOST_BACKGROUND = 'linear-gradient(var(--color-row-selected), var(--color-row-selected)), var(--color-popup-bg)'
 
 function prefersReducedMotion(): boolean {
@@ -79,6 +84,16 @@ interface DragSession {
   listBottom: number
   /** The group wrapper that carries the "joins this group" accent right now. */
   accentEl: HTMLElement | null
+  /** The loose row that carries the "group with this row" outline right now. */
+  ontoEl: HTMLElement | null
+  /** The loose row the drop will form a group with: set once the ghost has rested over its middle, cleared when it leaves. */
+  onto: string | null
+  /** The loose row whose middle the ghost centre is over now (the pause before `onto` is timed from when this changed). */
+  ontoCandidate: string | null
+  ontoTimer: number | null
+  /** Where the pointer was when the pause began. */
+  ontoAnchorX: number
+  ontoAnchorY: number
   /** Group wrappers by id, for the accent. */
   wrappers: Map<string, HTMLElement>
   /** The list and the listener that re-resolves the slot when the wheel scrolls it under a still pointer. */
@@ -94,7 +109,9 @@ export interface RailDragHost {
   isRenaming(kind: RailDragKind, id: string): boolean
   select(id: string): void
   /** A tab dropped on `target` (a different place than it came from). */
-  dropTab(id: string, target: DropTarget): void
+  dropTab(id: string, target: Exclude<DropTarget, { onto: string }>): void
+  /** A tab dropped on the middle of the loose row `targetId`: the two become a new group. */
+  dropOnto(id: string, targetId: string): void
   /** A group dropped before the top-level unit `before` (a tab id or group id), or at the end when null. */
   dropGroup(id: string, before: string | null): void
 }
@@ -139,10 +156,52 @@ export class RailDrag {
     const scrolled = (this.host.list()?.scrollTop ?? session.baseScrollTop) - session.baseScrollTop
     // The frozen coordinates are the viewport's at drag start: bring the ghost into them.
     const probe = ghostProbeYFrom(session.clientY, session.grabOffsetY, session.probeHeight) + scrolled
+    const ontoCleared = this.trackOnto(session, plan, probe)
     const next = resolveSlot(plan, session.slot, probe)
-    if (next === session.slot) return
+    if (next === session.slot && !ontoCleared) return
     session.slot = next
     this.paintSlot(session, plan)
+  }
+
+  /**
+   * Times the pause over the middle of a loose row. Returns true when a row that
+   * was marked is no longer (the caller repaints). The mark itself is painted by
+   * the timer.
+   */
+  private trackOnto(session: DragSession, plan: DropPlan, probe: number): boolean {
+    const candidate = session.kind === 'tab' ? ontoRowAt(plan, probe) : null
+    let cleared = false
+    if (candidate !== session.ontoCandidate) {
+      this.clearOntoTimer(session)
+      session.ontoCandidate = candidate
+      if (session.onto !== null) {
+        session.onto = null
+        cleared = true
+      }
+    } else if (
+      candidate !== null &&
+      session.onto === null &&
+      Math.hypot(session.clientX - session.ontoAnchorX, session.clientY - session.ontoAnchorY) > ONTO_STILL_PX
+    ) {
+      this.clearOntoTimer(session)
+    }
+    if (candidate !== null && session.onto === null && session.ontoTimer === null) {
+      session.ontoAnchorX = session.clientX
+      session.ontoAnchorY = session.clientY
+      session.ontoTimer = window.setTimeout(() => {
+        session.ontoTimer = null
+        if (this.session !== session || session.settling || !session.plan || session.ontoCandidate === null) return
+        session.onto = session.ontoCandidate
+        this.paintSlot(session, session.plan)
+      }, ONTO_DWELL_MS)
+    }
+    return cleared
+  }
+
+  private clearOntoTimer(session: DragSession): void {
+    if (session.ontoTimer === null) return
+    window.clearTimeout(session.ontoTimer)
+    session.ontoTimer = null
   }
 
   /**
@@ -152,7 +211,7 @@ export class RailDrag {
    */
   private paintSlot(session: DragSession, plan: DropPlan): void {
     const draggedGroup = session.kind === 'group' ? session.id : plan.entries[plan.first].groupId
-    const layout = dropLayout(plan, session.slot, draggedGroup)
+    const layout = dropLayout(plan, session.slot, draggedGroup, session.onto)
     session.els.forEach((el, index) => {
       if (!el || session.applied[index] === layout.shifts[index]) return
       session.applied[index] = layout.shifts[index]
@@ -175,6 +234,12 @@ export class RailDrag {
       accentEl?.setAttribute('data-droptarget', 'true')
       session.accentEl = accentEl
     }
+    const ontoEl = layout.onto === null ? null : this.rowElement(layout.onto)
+    if (ontoEl !== session.ontoEl) {
+      session.ontoEl?.removeAttribute('data-droptarget')
+      ontoEl?.setAttribute('data-droptarget', 'true')
+      session.ontoEl = ontoEl
+    }
     this.paintGhost(session)
   }
 
@@ -191,6 +256,11 @@ export class RailDrag {
     }
     session.accentEl?.removeAttribute('data-droptarget')
     session.accentEl = null
+    session.ontoEl?.removeAttribute('data-droptarget')
+    session.ontoEl = null
+    this.clearOntoTimer(session)
+    session.onto = null
+    session.ontoCandidate = null
     const line = this.host.dropLine()
     if (line) {
       line.removeAttribute('data-active')
@@ -208,7 +278,7 @@ export class RailDrag {
     ghost.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`
     // Accent ring when the drop slot is no longer the origin - pairs with the line.
     const plan = session.plan
-    ghost.dataset.docked = plan && dropOutcome(plan, session.slot) !== null ? 'true' : 'false'
+    ghost.dataset.docked = plan && dropOutcome(plan, session.slot, session.onto) !== null ? 'true' : 'false'
   }
 
   private mountGhost(session: DragSession, clone: HTMLElement, hide: HTMLElement): void {
@@ -338,13 +408,14 @@ export class RailDrag {
    */
   private settleAndCommit(session: DragSession): void {
     session.settling = true
-    const outcome = session.plan ? dropOutcome(session.plan, session.slot) : null
+    const outcome = session.plan ? dropOutcome(session.plan, session.slot, session.onto) : null
     // Drop the slides and the list's drag state before the order commits so
     // transforms don't fight the new order for a frame (that fight is the
     // between-row flash). Both land in the same task, before paint.
     this.clearSiblings(session)
     if (outcome) {
       if (session.kind === 'group') this.host.dropGroup(session.id, 'top' in outcome ? (outcome.before ?? null) : null)
+      else if ('onto' in outcome) this.host.dropOnto(session.id, outcome.onto)
       else this.host.dropTab(session.id, outcome)
     }
 
@@ -478,6 +549,12 @@ export class RailDrag {
       listTop: 0,
       listBottom: 0,
       accentEl: null,
+      ontoEl: null,
+      onto: null,
+      ontoCandidate: null,
+      ontoTimer: null,
+      ontoAnchorX: 0,
+      ontoAnchorY: 0,
       wrappers: new Map(),
       scrollList: null,
       onScroll: null

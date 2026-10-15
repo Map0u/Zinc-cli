@@ -515,6 +515,10 @@ const projectRoots = createProjectRootResolver({ home: homedir(), folders: userF
 const tabContexts = new TabContextService({
   getCwd: (id) => ptyManager.getCwdInternal(id),
   getTool: (id) => detectForegroundTool(id, ptyManager.getPidInternal(id)),
+  getToolCwd: (id) => {
+    const toolPid = foregroundToolCache.get(id)?.pid ?? null;
+    return toolPid === null ? null : getProcessCwd(toolPid);
+  },
   resolveRoot: (cwd) => projectRoots.resolve(cwd),
   send: (id, context) => {
     if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(TAB_CONTEXT_CHANNEL, id, context);
@@ -604,7 +608,7 @@ ipcMain.handle("pty:getCwd", (event: IpcMainInvokeEvent, id: string) =>
 const FOREGROUND_TOOL_TTL_MS = 1000;
 const foregroundToolCache = new Map<
   string,
-  { at: number; tool: AiCliTool | null }
+  { at: number; tool: AiCliTool | null; pid: number | null }
 >();
 let interactiveProcessSnapshot: { at: number; rows: ReturnType<typeof snapshotProcesses> } | null = null;
 
@@ -626,14 +630,17 @@ function detectForegroundTool(id: string, pid: number | null): AiCliTool | null 
   if (cached && Date.now() - cached.at < FOREGROUND_TOOL_TTL_MS)
     return cached.tool;
   let tool: AiCliTool | null = null;
+  let toolPid: number | null = null;
   try {
     // No preferredTool: a tab's last-known tool must not colour the answer.
-    if (pid !== null) tool = detectActiveToolMatch(pid, recentProcessSnapshot())?.tool ?? null;
+    const match = pid !== null ? detectActiveToolMatch(pid, recentProcessSnapshot()) : null;
+    tool = match?.tool ?? null;
+    toolPid = match?.pid ?? null;
   } catch (err) {
     console.warn("[pty:getForegroundTool] detection failed", err);
     throw err;
   }
-  foregroundToolCache.set(id, { at: Date.now(), tool });
+  foregroundToolCache.set(id, { at: Date.now(), tool, pid: toolPid });
   return tool;
 }
 

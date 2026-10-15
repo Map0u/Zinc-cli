@@ -7,6 +7,12 @@ export interface TabContextDeps {
   getCwd(id: string): string | null
   /** Foreground AI CLI; expected to ride the existing 1s foreground-tool cache and process snapshot. */
   getTool(id: string): AiCliTool | null
+  /**
+   * Where that AI CLI process itself is running. The tool is launched into the shell's current
+   * folder, so this is the project even when the shell never reported a `cd` (PowerShell keeps its
+   * own process folder, and a prompt does not run between `cd proj; claude`).
+   */
+  getToolCwd?(id: string): string | null
   resolveRoot(cwd: string | null): string | null
   send(id: string, context: TabContext): void
 }
@@ -102,7 +108,15 @@ export class TabContextService {
       }
     }
 
-    const cwd = this.deps.getCwd(id) ?? state.last?.cwd ?? null
+    let toolCwd: string | null = null
+    if (state.tool) {
+      try {
+        toolCwd = this.deps.getToolCwd?.(id) ?? null
+      } catch {
+        // An unreadable process keeps the shell's own answer.
+      }
+    }
+    const cwd = toolCwd ?? this.deps.getCwd(id) ?? state.last?.cwd ?? null
     const projectRoot = this.deps.resolveRoot(cwd)
     const next: TabContext = { cwd, projectRoot, projectName: projectNameOf(projectRoot), tool: state.tool }
     const prev = state.last
