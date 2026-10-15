@@ -26,14 +26,14 @@ import {
   waitFor
 } from './tests/cdp/smoke-helpers.mjs'
 
-/** colorSchemes.ts: GROK dark/light surfaceBase, and Rosé Pine dark's. */
+/** colorSchemes.ts: GROK dark/light surfaceBase, and Sakura dark's. */
 const GROK_DARK = 'rgb(20, 20, 20)'
-const SCHEME_DARK = 'rgb(30, 26, 36)'
+const SCHEME_DARK = 'rgb(38, 18, 28)'
 // The CSS variable is read back as the raw inline value surfaceBackground()
 // writes (always rgba with an explicit alpha), not a computed colour.
 const GROK_DARK_VAR = 'rgba(20, 20, 20, 1)'
-const SCHEME_DARK_VAR = 'rgba(30, 26, 36, 1)'
-const SCHEME_ID = 'rosePine'
+const SCHEME_DARK_VAR = 'rgba(38, 18, 28, 1)'
+const SCHEME_ID = 'sakura'
 
 const ENTER_ALTERNATE = '\u001b[?1049h'
 const LEAVE_ALTERNATE = '\u001b[?1049l'

@@ -14,7 +14,7 @@
  * regardless of opacity. xterm derives inverse text colour from it via
  * `.xterm-fg-257 { color: opaque(theme.background) }`, and its `opaque()`
  * composites onto black — so the glyphs became #000000 while the same cell took
- * theme.foreground (#2A2520 on Vesper light) as its background. Unreadable:
+ * theme.foreground (#2A2520 on 0.8.1's Vesper light) as its background. Unreadable:
  * a solid dark bar. Dark schemes hid it because their surface is near-black
  * anyway. Earlier fixes in this area all targeted the SGR-rewrite path that
  * only runs at TerminalOpacity 0, which is why they never touched this.
@@ -34,7 +34,7 @@ import {
 /** Inverse text must clear WCAG AA for large text; the bug scored ~1.1. */
 const MIN_CONTRAST_RATIO = 3
 
-const LIGHT_SCHEME = 'vesper'
+const LIGHT_SCHEME = 'amber'
 
 function parseCssRgb(value) {
   const match = /rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+))?\s*\)/i.exec(value ?? '')
