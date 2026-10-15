@@ -71,13 +71,14 @@ export function powerShellCwdPrelude(): string {
     `& $global:ZincOriginalPrompt }; ` +
     // The prompt only runs between commands, so `cd proj; claude` on one line never reports `proj`.
     // PowerShell 7 raises LocationChangedAction on every Set-Location: report there too, behind any
-    // action a profile already installed. Windows PowerShell 5.1 has no such property; the try skips it.
+    // action a profile already installed (the property reads back as a delegate, so it is Invoke()d,
+    // not called with &). Windows PowerShell 5.1 has no such property; the try skips it.
     `function global:ZincReportCwd($zincNew) { try { if ($zincNew.Provider.Name -ne 'FileSystem') { return }; ` +
     `$zincUri = [uri]::EscapeDataString($zincNew.ProviderPath.Replace('\\', '/')).Replace('%2F', '/').Replace('%3A', ':'); ` +
     `[Console]::Out.Write([char]27 + ']7;file:///' + $zincUri + [char]7) } catch {} }; ` +
     `try { $zincOldAction = $ExecutionContext.InvokeCommand.LocationChangedAction; ` +
     `$ExecutionContext.InvokeCommand.LocationChangedAction = { param($zincSender, $zincArgs) ` +
-    `if ($zincOldAction) { & $zincOldAction $zincSender $zincArgs }; ZincReportCwd $zincArgs.NewPath }.GetNewClosure() } catch {}`
+    `if ($zincOldAction) { $zincOldAction.Invoke($zincSender, $zincArgs) }; ZincReportCwd $zincArgs.NewPath }.GetNewClosure() } catch {}`
   )
 }
 

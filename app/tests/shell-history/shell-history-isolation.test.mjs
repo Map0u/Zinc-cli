@@ -77,7 +77,7 @@ test('PowerShell prompt reports its current filesystem location without changing
 test('PowerShell also reports the location on every Set-Location, chaining the action a profile installed', () => {
   const prelude = powerShellCwdPrelude()
   assert.match(prelude, /LocationChangedAction/)
-  assert.match(prelude, /& \$zincOldAction/)
+  assert.match(prelude, /\$zincOldAction\.Invoke\(/)
   assert.match(prelude, /Provider\.Name -ne 'FileSystem'/)
 })
 
