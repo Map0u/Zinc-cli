@@ -6,6 +6,32 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-15
+
+### Added
+
+- Group two tabs by dragging one onto the other: rest the dragged tab over the
+  middle of a tab that is not in a group and that tab is outlined; let go and the
+  two become a new group whose name field opens. Letting go without the pause
+  still just moves the tab.
+
+### Changed
+
+- The icons are drawn with a thinner line (1.5 instead of 2 units), so they sit
+  closer to the text beside them.
+
+### Fixed
+
+- Automatic project grouping now follows the folder a tab really works in. A tab
+  started as `cd project; claude` on one line used to stay in the group of the
+  folder it was opened in, because PowerShell only reported its folder at the
+  next prompt. PowerShell now reports on every `cd`, and while an AI CLI runs its
+  own folder is used.
+- The turning ring's track and the colour-filled controls follow the colour
+  scheme: the ring track was a grey, the switch knob was always black (nearly
+  invisible on a dark accent) and the update button text always white (faint on a
+  light accent). The terminal scrollbar follows the light / dark theme too.
+
 ## [0.8.2] - 2026-10-15
 
 ### Changed

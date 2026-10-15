@@ -8,6 +8,22 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.8.3',
+    date: '2026-10-15',
+    zh: [
+      '新增：把一个标签拖到另一个没有分组的标签中部，停留片刻，目标标签会出现轮廓，松手即两者成为新分组并直接进入命名；不停留直接松手仍是换位。',
+      '图标线条改细（1.5，原来是 2），和旁边的文字更协调。',
+      '修复：自动分组现在按标签实际所在的目录归类。以前一行写 cd 项目; claude 启动的标签会留在打开时那个目录的组里（PowerShell 只在下一个提示符才上报目录）；现在每次 cd 都会上报，AI CLI 运行时则直接用它自己的目录。',
+      '修复：转圈图标的底圈、开关旋钮和更新按钮文字改为跟随配色方案（以前底圈是灰色、旋钮恒为黑色、按钮文字恒为白色，在深或浅的强调色上看不清）；终端滚动条也随亮暗主题变化。'
+    ],
+    en: [
+      'New: drag a tab onto the middle of a tab that is not in a group and rest there; the target is outlined, and letting go makes the two a new group with its name field open. Letting go without the pause still just moves the tab.',
+      'Icons are drawn with a thinner line (1.5 instead of 2), closer to the text beside them.',
+      'Fixed: automatic grouping follows the folder a tab really works in. A tab started as `cd project; claude` on one line used to stay in the group of the folder it was opened in, because PowerShell only reported its folder at the next prompt. It now reports on every cd, and while an AI CLI runs its own folder is used.',
+      'Fixed: the turning ring’s track, the switch knob and the update button text follow the colour scheme (they were a grey, always black and always white, hard to see on a dark or light accent). The terminal scrollbar follows the light / dark theme too.'
+    ]
+  },
+  {
     version: '0.8.2',
     date: '2026-10-15',
     zh: [
