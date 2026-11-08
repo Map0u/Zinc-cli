@@ -7,6 +7,8 @@ export interface TabContextDeps {
   getCwd(id: string): string | null
   /** Foreground AI CLI; expected to ride the existing 1s foreground-tool cache and process snapshot. */
   getTool(id: string): AiCliTool | null
+  /** When available, hidden tabs use a longer tool-detection interval. */
+  isActive?(id: string): boolean
   /**
    * Where that AI CLI process itself is running. The tool is launched into the shell's current
    * folder, so this is the project even when the shell never reported a `cd` (PowerShell keeps its
@@ -21,6 +23,7 @@ export interface TabContextDeps {
 const COALESCE_MS = 250
 /** Tool lookups walk the process table, so they are rate-limited harder than the cheap cwd read. */
 const TOOL_RECHECK_MS = 3_000
+const BACKGROUND_TOOL_RECHECK_MS = 15_000
 
 interface TabState {
   last: TabContext | null
@@ -70,6 +73,14 @@ export class TabContextService {
     this.arm(id, state, cwdReported ? 0 : state.evaluatedAt + COALESCE_MS)
   }
 
+  /** A previously hidden tab must not wait out its background tool timer. */
+  setActiveTab(id: string | null): void {
+    if (!id) return
+    const state = this.tabs.get(id)
+    if (!state || !state.toolDirty) return
+    this.arm(id, state, Math.max(Date.now(), state.toolAt + TOOL_RECHECK_MS))
+  }
+
   /** Re-pushes every known context, for a renderer that just subscribed and missed the earlier ones. */
   resend(): void {
     for (const [id, state] of this.tabs) if (state.last) this.deps.send(id, state.last)
@@ -95,7 +106,8 @@ export class TabContextService {
 
     // The first evaluation (track) skips the lookup: the shell has not started its command yet.
     if (state.toolDirty && state.last) {
-      if (now - state.toolAt >= TOOL_RECHECK_MS) {
+      const interval = this.deps.isActive?.(id) === false ? BACKGROUND_TOOL_RECHECK_MS : TOOL_RECHECK_MS
+      if (now - state.toolAt >= interval) {
         try {
           state.tool = this.deps.getTool(id)
         } catch {
@@ -104,7 +116,7 @@ export class TabContextService {
         state.toolAt = now
         state.toolDirty = false
       } else {
-        this.arm(id, state, state.toolAt + TOOL_RECHECK_MS)
+        this.arm(id, state, state.toolAt + interval)
       }
     }
 

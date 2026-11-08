@@ -6,6 +6,13 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-11-08
+
+### Changed
+
+- Keep interactive terminal output responsive while background tabs are busy by scheduling their output parsing.
+- Reduce repeated session-binding reads and background tool checks, and move session snapshot file writes off the main event loop.
+
 ## [0.8.3] - 2026-10-15
 
 ### Added

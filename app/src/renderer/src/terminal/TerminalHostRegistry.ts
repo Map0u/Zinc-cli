@@ -37,6 +37,14 @@ const WEBGL_FONT_WEIGHT = '500'
 
 /** How long handleExit waits for the port's own exit message before printing the notice itself. */
 const EXIT_NOTICE_FALLBACK_MS = 1000
+/** Background xterm parsing is deliberately bounded per scheduler frame. */
+const BACKGROUND_FRAME_BUDGET_BYTES = 24 * 1024
+/** Drain unusually large backlogs faster without pausing the PTY. */
+const BACKGROUND_BACKLOG_BUDGET_BYTES = 256 * 1024
+const BACKGROUND_FRAME_INTERVAL_MS = 16
+const BACKGROUND_BACKLOG_INTERVAL_MS = 4
+/** Warn when a sustained producer outruns background parsing; never pause ConPTY. */
+const BACKGROUND_QUEUE_HIGH_WATER_BYTES = 8 * 1024 * 1024
 
 const DEFAULT_OPTIONS: Required<TerminalOptionsPush> = {
   fontFamily: 'JetBrains Mono',
@@ -102,6 +110,17 @@ interface HostEntry {
   exitNoticeShown: boolean
   /** Pending IPC-side fallback for the exit notice; cleared when a new session port arrives. */
   exitNoticeTimer: number | null
+  /** Rewritten PTY bytes waiting for the global background parser scheduler. */
+  pendingChunks: Uint8Array[]
+  pendingBytes: number
+  /** True while xterm is parsing one queued background chunk for this host. */
+  writeInFlight: boolean
+  /** Invalidates delayed callbacks belonging to a replaced PTY session. */
+  outputGeneration: number
+  /** Exit waits until this host's queued ANSI bytes have been parsed. */
+  pendingExitCode: number | null
+  /** Avoid repeating a warning for the same high-water event. */
+  queueHighWaterLogged: boolean
 }
 
 /**
@@ -139,6 +158,11 @@ export class TerminalHostRegistry {
    * hidden scrollback at once.
    */
   private activeId: string | null = null
+  /** One xterm.write callback at a time keeps background parsing bounded and ordered. */
+  private backgroundWriteOwner: { entry: HostEntry; token: object } | null = null
+  private backgroundPumpTimer: number | null = null
+  private backgroundPumpFast = false
+  private backgroundCursor = 0
   /**
    * Set once WebGL failed to load or lost its context for good; every host
    * then stays on the DOM renderer for the rest of the session instead of
@@ -307,7 +331,13 @@ export class TerminalHostRegistry {
       geometryDirty: false,
       webgl: null,
       exitNoticeShown: false,
-      exitNoticeTimer: null
+      exitNoticeTimer: null,
+      pendingChunks: [],
+      pendingBytes: 0,
+      writeInFlight: false,
+      outputGeneration: 0,
+      pendingExitCode: null,
+      queueHighWaterLogged: false
     }
     this.syncTransparentBackgroundHandlers(entry)
 
@@ -519,6 +549,11 @@ export class TerminalHostRegistry {
     for (const entry of this.hosts.values()) {
       if (entry.id !== id) this.detachWebgl(entry)
     }
+    // A tab can become active with a backlog accumulated while hidden. The
+    // scheduler sees the new active id and drains that backlog before any
+    // subsequent bytes are written directly.
+    if (id && this.hosts.get(id)?.pendingBytes) this.scheduleBackgroundPump()
+    else if (this.hasPendingBackgroundOutput()) this.scheduleBackgroundPump()
   }
 
   /**
@@ -649,11 +684,13 @@ export class TerminalHostRegistry {
     if (entry.contextMenuListener) entry.container.removeEventListener('contextmenu', entry.contextMenuListener)
     this.clearTransparentBackgroundHandlers(entry)
     this.closePort(entry)
+    this.resetBufferedOutput(entry)
     if (entry.exitNoticeTimer !== null) window.clearTimeout(entry.exitNoticeTimer)
     this.detachWebgl(entry)
     entry.term.dispose()
     window.zinc.pty.kill(id)
     this.hosts.delete(id)
+    if (this.hasPendingBackgroundOutput()) this.scheduleBackgroundPump()
   }
 
   /**
@@ -698,7 +735,7 @@ export class TerminalHostRegistry {
       // Hand xterm any partial sequence still held back, unmodified.
       const pending = entry.sgrStream.reset()
       entry.sgrStream = null
-      if (pending.length > 0) entry.term.write(pending)
+      if (pending.length > 0) this.writePtyOutput(entry, pending)
     }
   }
 
@@ -859,6 +896,7 @@ export class TerminalHostRegistry {
     // id that already has one open — close the stale port and its listener
     // before wiring up the new one, otherwise both stay live until teardown.
     this.closePort(entry)
+    this.resetBufferedOutput(entry)
     entry.port = port
     // A new port is a new pty session for this host: forget the previous
     // session's exit notice and its pending fallback.
@@ -875,12 +913,25 @@ export class TerminalHostRegistry {
         return
       }
       if (data?.type === 'exit') {
-        // Everything the process printed arrived before this on the same
-        // port, so the notice now lands after its final output.
+        // The port preserves producer order, but background xterm parsing may
+        // still be draining queued chunks. Keep the exit notice behind that
+        // queue so no final ANSI bytes are overtaken or discarded.
         this.closePort(entry)
-        this.showExitNotice(entry, data.exitCode)
+        this.finishExitAfterPendingOutput(entry, data.exitCode)
       }
     }
+  }
+
+  private resetBufferedOutput(entry: HostEntry): void {
+    entry.outputGeneration += 1
+    entry.pendingChunks = []
+    entry.pendingBytes = 0
+    entry.pendingExitCode = null
+    entry.writeInFlight = false
+    entry.queueHighWaterLogged = false
+    entry.sgrStream?.reset()
+    if (this.backgroundWriteOwner?.entry === entry) this.backgroundWriteOwner = null
+    if (this.hasPendingBackgroundOutput()) this.scheduleBackgroundPump()
   }
 
   private closePort(entry: HostEntry): void {
@@ -903,7 +954,7 @@ export class TerminalHostRegistry {
     if (entry.exitNoticeTimer !== null) window.clearTimeout(entry.exitNoticeTimer)
     entry.exitNoticeTimer = window.setTimeout(() => {
       entry.exitNoticeTimer = null
-      if (this.hosts.get(id) === entry) this.showExitNotice(entry, exitCode)
+      if (this.hosts.get(id) === entry) this.finishExitAfterPendingOutput(entry, exitCode)
     }, EXIT_NOTICE_FALLBACK_MS)
   }
 
@@ -984,11 +1035,128 @@ export class TerminalHostRegistry {
   private writePtyOutput(entry: HostEntry, raw: Uint8Array): void {
     const data = entry.sgrStream ? entry.sgrStream.push(raw) : raw
     if (data.length === 0) return
-    // No per-chunk scroll restore: xterm already follows output while at the
-    // bottom and holds a scrolled-up reader in place (anchoring through
-    // scrollback trimming). Re-applying a snapshot taken before the write
-    // fought the user's own scrolling and cost a callback + RAF per chunk.
-    entry.term.write(data)
+    // An active host with no history takes the zero-extra-delay path. Once a
+    // host has queued bytes, every later chunk joins that queue so xterm sees a
+    // single ordered byte stream when a tab is switched back into view.
+    if (entry.id === this.activeId && entry.pendingChunks.length === 0 && !entry.writeInFlight) {
+      entry.term.write(data)
+      return
+    }
+    entry.pendingChunks.push(data)
+    entry.pendingBytes += data.byteLength
+    if (entry.pendingBytes >= BACKGROUND_QUEUE_HIGH_WATER_BYTES && !entry.queueHighWaterLogged) {
+      entry.queueHighWaterLogged = true
+      console.warn(`[terminal] output queue for ${entry.id} exceeded ${BACKGROUND_QUEUE_HIGH_WATER_BYTES} bytes`)
+    }
+    this.scheduleBackgroundPump()
+  }
+
+  private hasPendingBackgroundOutput(): boolean {
+    for (const entry of this.hosts.values()) if (entry.pendingBytes > 0) return true
+    return false
+  }
+
+  private scheduleBackgroundPump(): void {
+    if (this.backgroundWriteOwner) return
+    const fast = [...this.hosts.values()].some((entry) =>
+      entry.id !== this.activeId && entry.pendingBytes >= BACKGROUND_QUEUE_HIGH_WATER_BYTES
+    )
+    if (this.backgroundPumpTimer !== null) {
+      if (!fast || this.backgroundPumpFast) return
+      // A queue crossed the high watermark after a normal timer was armed.
+      window.clearTimeout(this.backgroundPumpTimer)
+    }
+    this.backgroundPumpFast = fast
+    // Timers continue when a minimized window stops receiving animation frames.
+    this.backgroundPumpTimer = window.setTimeout(() => {
+      this.backgroundPumpTimer = null
+      this.pumpBackgroundOutput()
+    }, fast ? BACKGROUND_BACKLOG_INTERVAL_MS : BACKGROUND_FRAME_INTERVAL_MS)
+  }
+
+  /**
+   * One queued xterm.write per frame keeps the parser cooperative. Active
+   * output is selected first; otherwise hosts rotate so one busy background
+   * tab cannot monopolize the renderer.
+   */
+  private pumpBackgroundOutput(): void {
+    if (this.backgroundWriteOwner) return
+    const entries = [...this.hosts.values()]
+    if (entries.length === 0) return
+
+    const active = this.activeId ? this.hosts.get(this.activeId) : undefined
+    const candidate = active?.pendingBytes
+      ? active
+      : this.nextBackgroundEntry(entries)
+    if (!candidate || candidate.pendingBytes === 0) {
+      this.finishPendingExitNotices()
+      return
+    }
+
+    const budget = candidate.id !== this.activeId && candidate.pendingBytes >= BACKGROUND_QUEUE_HIGH_WATER_BYTES
+      ? BACKGROUND_BACKLOG_BUDGET_BYTES : BACKGROUND_FRAME_BUDGET_BYTES
+    const size = Math.min(budget, candidate.pendingBytes)
+    const first = candidate.pendingChunks.shift()
+    if (!first) return
+    const chunk = first.byteLength <= size ? first : this.slicePendingChunk(first, size)
+    if (chunk.byteLength < first.byteLength) candidate.pendingChunks.unshift(first.subarray(chunk.byteLength))
+    candidate.pendingBytes -= chunk.byteLength
+    if (candidate.pendingBytes < BACKGROUND_QUEUE_HIGH_WATER_BYTES / 2) candidate.queueHighWaterLogged = false
+    candidate.writeInFlight = true
+    const generation = candidate.outputGeneration
+    const token = {}
+    this.backgroundWriteOwner = { entry: candidate, token }
+    candidate.term.write(chunk, () => {
+      // Old callbacks must neither clear a new generation's in-flight write
+      // nor release a newer pump that happens to use the same HostEntry.
+      if (this.backgroundWriteOwner?.token === token) this.backgroundWriteOwner = null
+      if (candidate.outputGeneration === generation) candidate.writeInFlight = false
+      this.finishPendingExitNotices()
+      if (this.hasPendingBackgroundOutput()) this.scheduleBackgroundPump()
+    })
+  }
+
+  /** Prefer a nearby newline; otherwise cut before a UTF-8 continuation and not after ESC. */
+  private slicePendingChunk(chunk: Uint8Array, limit: number): Uint8Array {
+    let cut = limit
+    for (let i = limit - 1; i >= Math.max(0, limit - 1024); i -= 1) {
+      if (chunk[i] === 0x0a) return chunk.subarray(0, i + 1)
+    }
+    while (cut > 0 && (chunk[cut] & 0xc0) === 0x80) cut -= 1
+    while (cut > 1 && chunk[cut - 1] === 0x1b) cut -= 1
+    return chunk.subarray(0, cut || limit)
+  }
+
+  private nextBackgroundEntry(entries: HostEntry[]): HostEntry | undefined {
+    const count = entries.length
+    for (let offset = 0; offset < count; offset += 1) {
+      const index = (this.backgroundCursor + offset) % count
+      const entry = entries[index]
+      if (entry.id === this.activeId || entry.pendingBytes === 0) continue
+      this.backgroundCursor = (index + 1) % count
+      return entry
+    }
+    return undefined
+  }
+
+  private finishExitAfterPendingOutput(entry: HostEntry, exitCode: number): void {
+    entry.pendingExitCode = exitCode
+    if (entry.pendingBytes > 0 || entry.writeInFlight) {
+      this.scheduleBackgroundPump()
+      return
+    }
+    entry.pendingExitCode = null
+    this.showExitNotice(entry, exitCode)
+  }
+
+  private finishPendingExitNotices(): void {
+    for (const entry of this.hosts.values()) {
+      if (entry.pendingExitCode !== null && entry.pendingBytes === 0 && !entry.writeInFlight) {
+        const exitCode = entry.pendingExitCode
+        entry.pendingExitCode = null
+        this.showExitNotice(entry, exitCode)
+      }
+    }
   }
 
   private preserveScrollPosition(entry: HostEntry, action: () => void): void {

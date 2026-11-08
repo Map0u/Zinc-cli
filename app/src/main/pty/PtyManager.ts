@@ -1,5 +1,6 @@
 import * as pty from "node-pty";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { MessageChannelMain } from "electron";
@@ -34,6 +35,8 @@ interface Session {
   pendingBytes: number;
   /** Handle of the pending flush timer, or `null` when no flush is scheduled. Cleared on flush, exit, and kill. */
   flushTimer: ReturnType<typeof setTimeout> | null;
+  /** Most recent non-empty renderer input, used for the short interactive echo fast path. */
+  lastInputAt: number;
   /** AI-CLI turn state for the tab rail, derived from the output stream, the exit code and `sweepActivity`. */
   activity: ActivityTracker;
   /** Coalesces `activity` changes into at most one `pty:activity` push per tab per ~100ms. */
@@ -52,6 +55,10 @@ const FLUSH_INTERVAL_MS = 16;
  * file) grow an unbounded main-process buffer between frames.
  */
 const FLUSH_WATERMARK_BYTES = 256 * 1024;
+/** Interactive input echoes are delivered without waiting for the next frame tick. */
+const INTERACTIVE_ECHO_WINDOW_MS = 50;
+/** Large output remains frame-batched even when it follows a keystroke. */
+const INTERACTIVE_ECHO_MAX_BYTES = 16 * 1024;
 
 /**
  * Owns every live node-pty child process plus its dedicated output channel.
@@ -181,6 +188,7 @@ export class PtyManager {
         pending: [],
         pendingBytes: 0,
         flushTimer: null,
+        lastInputAt: Number.NEGATIVE_INFINITY,
         activity,
         activityEmitter,
       };
@@ -210,7 +218,6 @@ export class PtyManager {
           // Port already closed/destroyed racing this flush — nothing to deliver to.
         }
       };
-
       const recordCwd = shellProfile.kind === "powershell"
         ? createShellCwdReader((reported) => { session.reportedCwd = reported; })
         : () => {};
@@ -229,6 +236,17 @@ export class PtyManager {
         // High-water mark: flush right now rather than let a firehose grow an
         // unbounded buffer between frames.
         if (session.pendingBytes >= FLUSH_WATERMARK_BYTES) {
+          flush();
+          return;
+        }
+        // A small response immediately following user input is typically the
+        // shell echo or prompt update. Deliver it now rather than adding the
+        // normal 16ms frame-batching delay; sustained/background output keeps
+        // the existing coalescing behavior.
+        if (
+          buf.byteLength <= INTERACTIVE_ECHO_MAX_BYTES &&
+          performance.now() - session.lastInputAt <= INTERACTIVE_ECHO_WINDOW_MS
+        ) {
           flush();
           return;
         }
@@ -338,6 +356,7 @@ export class PtyManager {
   write(id: string, data: Uint8Array, senderId: number): void {
     const session = this.ownedSession(id, senderId);
     if (!session) return;
+    if (data.byteLength > 0) session.lastInputAt = performance.now();
     try {
       session.proc.write(
         Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString(

@@ -25,7 +25,7 @@ import {
   type ClaudeRestoreTarget,
   type LastKnownTab
 } from '../../shared/sessionPersist'
-import { atomicWriteFileSync } from './atomicWrite'
+import { AtomicWriteQueue, atomicWriteFileSync } from './atomicWrite'
 
 export type PersistToolMatch = { tool: SessionTool; pid: number; sessionId?: string }
 
@@ -57,6 +57,8 @@ export interface PersistOptions {
   scanTools?: boolean
   /** Empty tab lists may overwrite the file only on the unified quit path. */
   quitting?: boolean
+  /** Queue running-app disk writes off the main event loop. */
+  asyncWrite?: boolean
   /** The rail's tab groups; tabs name theirs through `groupId`. Omitted = no groups. */
   groups?: readonly RendererGroupSnapshot[]
 }
@@ -127,6 +129,7 @@ function readGroups(raw: unknown): RestoreGroup[] {
 export class SessionStateService {
   private readonly lastKnown = new Map<string, LastKnownTab>()
   private pendingRestoreRows: SessionTabState[] | null = null
+  private readonly writeQueue: AtomicWriteQueue
 
   constructor(
     private readonly filePath: string,
@@ -136,7 +139,10 @@ export class SessionStateService {
      * without touching userData; returns null when hooks are unavailable.
      */
     private readonly claudeSettingsProvider: () => string | null = () => null
-  ) {}
+  ) { this.writeQueue = new AtomicWriteQueue(filePath) }
+
+  /** Wait for running-app snapshots, primarily for controlled shutdown/tests. */
+  async flushPendingWrites(): Promise<void> { await this.writeQueue.flush() }
 
   /** Cheap pre-check so restore only asks Claude about jobs when a tab needs it. */
   hasClaudeSessionIds(): boolean {
@@ -395,6 +401,7 @@ export class SessionStateService {
    * shutdown.
    */
   clear(): void {
+    this.writeQueue.invalidate()
     this.lastKnown.clear()
     this.pendingRestoreRows = null
     try {
@@ -506,7 +513,13 @@ export class SessionStateService {
       ...(groups.length > 0 ? { Groups: groups.map(toGroupState) } : {})
     }
     try {
-      atomicWriteFileSync(this.filePath, JSON.stringify(state, null, 2))
+      const contents = JSON.stringify(state, null, 2)
+      if (options.asyncWrite && !quitting) {
+        this.writeQueue.write(contents)
+      } else {
+        this.writeQueue.invalidate()
+        atomicWriteFileSync(this.filePath, contents)
+      }
       return true
     } catch (err) {
       // Best-effort write — a failed save must not block quitting or the timer.

@@ -21,7 +21,7 @@ const fsSpy = {
       contents: `
         import * as real from 'node:fs'
         export * from 'node:fs'
-        export const existsSync = (p) => { globalThis.__fsCalls.exists.push(String(p)); return real.existsSync(p) }
+        export const statSync = (p) => { globalThis.__fsCalls.exists.push(String(p)); return real.statSync(p) }
         export const readFileSync = (p, ...rest) => { globalThis.__fsCalls.reads.push(String(p)); return real.readFileSync(p, ...rest) }`
     }))
   }
@@ -89,12 +89,12 @@ test('one snapshot reads the bindings file once for any number of tabs', () => {
   }
   assert.equal(snapshot.sessionIdFor('tab-0', 'run-0', 999, 5000), undefined)
   assert.equal(calls.reads.length, 1)
-  assert.equal(calls.exists.length, 1)
+  assert.equal(calls.exists.length, 2)
 
-  // The one-off per-call path still reads once per call.
+  // Unchanged metadata reuses the cached file and parsed records.
   const perCall = resetCalls()
   for (let tab = 0; tab < 10; tab += 1) bindings.sessionIdFor(`tab-${tab}`, `run-${tab}`, 100 + tab, 5000 + tab)
-  assert.equal(perCall.reads.length, 10)
+  assert.equal(perCall.reads.length, 0)
 })
 
 test('lookups that cannot match never touch the file, and a missing file is checked once', () => {

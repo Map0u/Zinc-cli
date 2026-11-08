@@ -1,4 +1,4 @@
-import { mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, renameSync, unlinkSync, writeFileSync, promises as fs } from 'node:fs'
 import { dirname } from 'node:path'
 
 /**
@@ -11,6 +11,39 @@ import { dirname } from 'node:path'
  * SettingsService and SessionStateService (the two user-profile-scoped
  * persisted-state files).
  */
+/** Serializes asynchronous file creation and invalidates stale work on synchronous quit/clear. */
+export class AtomicWriteQueue {
+  private generation = 0
+  private tail: Promise<void> = Promise.resolve()
+  constructor(private readonly filePath: string) {}
+
+  write(contents: string): void {
+    const generation = this.generation
+    this.tail = this.tail.then(async () => {
+      if (generation !== this.generation) return
+      const tmpPath = `${this.filePath}.tmp-async-${process.pid}`
+      try {
+        await fs.mkdir(dirname(this.filePath), { recursive: true })
+        if (generation !== this.generation) return
+        await fs.writeFile(tmpPath, contents, 'utf8')
+        if (generation !== this.generation) {
+          await fs.unlink(tmpPath).catch(() => {})
+          return
+        }
+        // No await between the generation check and rename: a before-quit
+        // synchronous snapshot cannot be overtaken by a stale in-flight rename.
+        renameSync(tmpPath, this.filePath)
+      } catch (err) {
+        await fs.unlink(tmpPath).catch(() => {})
+        console.error(`[AtomicWriteQueue] failed to persist ${this.filePath}`, err)
+      }
+    })
+  }
+
+  invalidate(): void { this.generation += 1 }
+  async flush(): Promise<void> { await this.tail }
+}
+
 export function atomicWriteFileSync(filePath: string, contents: string): void {
   mkdirSync(dirname(filePath), { recursive: true })
   const tmpPath = `${filePath}.tmp-${process.pid}`

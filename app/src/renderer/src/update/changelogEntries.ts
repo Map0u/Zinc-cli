@@ -8,6 +8,12 @@ export interface ChangelogEntry {
 /** Local release notes used by About and the update dialog fallback. */
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '0.8.4',
+    date: '2026-11-08',
+    zh: ['改善多个后台标签同时输出时的输入响应；后台输出分片解析，减少会话保存和进程检查对主线程的影响。'],
+    en: ['Improved responsiveness while multiple background tabs produce output, with sliced parsing; reduced main-thread work for session saves and process checks.']
+  },
+  {
     version: '0.8.3',
     date: '2026-10-15',
     zh: [

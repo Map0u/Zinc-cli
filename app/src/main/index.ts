@@ -331,7 +331,7 @@ function createWindow(): BrowserWindow {
     // the old generation while its PTYs are still alive, then drop its cached
     // identity and processes before the new renderer can reuse those ids.
     try {
-      persistSessionState({ scanTools: true });
+      persistSessionState({ scanTools: true, syncWrite: true });
     } catch (err) {
       console.error("[renderer reload] session persist failed", err);
     }
@@ -515,6 +515,7 @@ const projectRoots = createProjectRootResolver({ home: homedir(), folders: userF
 const tabContexts = new TabContextService({
   getCwd: (id) => ptyManager.getCwdInternal(id),
   getTool: (id) => detectForegroundTool(id, ptyManager.getPidInternal(id)),
+  isActive: (id) => resolveActiveTabId() === id,
   getToolCwd: (id) => {
     const toolPid = foregroundToolCache.get(id)?.pid ?? null;
     return toolPid === null ? null : getProcessCwd(toolPid);
@@ -898,7 +899,10 @@ ipcMain.on(
     if (!isTrustedIpcSender(event) || !isValidRendererSnapshot(value)) return;
     const snapshot = value;
     if (!sessionSnapshotReady) sessionStateService.bindRestoredTabs(snapshot.tabs);
+    const previousActiveId = resolveActiveTabId();
     latestSessionSnapshot = snapshot;
+    const activeId = resolveActiveTabId();
+    if (activeId !== previousActiveId) tabContexts.setActiveTab(activeId);
     sessionSnapshotReady = true;
     sessionStateService.pruneLastKnown(snapshot.tabs.map((tab) => tab.id));
     ensurePeriodicSessionPersist();
@@ -1029,7 +1033,7 @@ function toAiCliTool(tool: SessionTool): AiCliTool | null {
  * variable's doc comment for why.
  */
 function persistSessionState(
-  options: { scanTools?: boolean; quitting?: boolean } = {},
+  options: { scanTools?: boolean; quitting?: boolean; syncWrite?: boolean } = {},
 ): void {
   const scanTools = options.scanTools !== false;
   const quitting = options.quitting === true;
@@ -1115,6 +1119,7 @@ function persistSessionState(
       budgetMs: Math.max(0, deadline - Date.now()),
       scanTools: scanTools && snapshotSucceeded,
       quitting,
+      asyncWrite: !quitting && !options.syncWrite,
       groups: latestSessionSnapshot.groups,
     },
   );

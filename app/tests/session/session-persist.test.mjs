@@ -39,6 +39,47 @@ test.after(() => {
   rmSync(outDir, { recursive: true, force: true })
 })
 
+test('queued session writes are ordered and cannot overwrite synchronous quit or clear', async () => {
+  const { dir, filePath } = tempSessionFile()
+  try {
+    const service = new SessionStateService(filePath)
+    const persist = (title, options) => service.persist(
+      [{ id: 'tab', customTitle: title }], 0, () => dir, () => null, () => null,
+      { scanTools: false, ...options }
+    )
+    persist('old', { asyncWrite: true })
+    persist('new', { asyncWrite: true })
+    await service.flushPendingWrites()
+    assert.equal(JSON.parse(readFileSync(filePath, 'utf8')).Tabs[0].CustomTitle, 'new')
+    persist('stale', { asyncWrite: true })
+    persist('quit', { quitting: true })
+    await service.flushPendingWrites()
+    assert.equal(JSON.parse(readFileSync(filePath, 'utf8')).Tabs[0].CustomTitle, 'quit')
+    persist('stale-again', { asyncWrite: true })
+    service.clear()
+    await service.flushPendingWrites()
+    assert.throws(() => readFileSync(filePath))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('reload synchronous save is visible to restore before stale queued writes finish', async () => {
+  const { dir, filePath } = tempSessionFile()
+  try {
+    const service = new SessionStateService(filePath)
+    const save = (title, asyncWrite) => service.persist(
+      [{ id: 'tab', customTitle: title }], 0, () => dir, () => null, () => null,
+      { scanTools: false, asyncWrite }
+    )
+    save('stale', true)
+    save('reload-latest', false)
+    assert.equal(service.loadRestorePayload(true, false).tabs[0].customTitle, 'reload-latest')
+    await service.flushPendingWrites()
+    assert.equal(service.loadRestorePayload(true, false).tabs[0].customTitle, 'reload-latest')
+    const main = readFileSync(join(root, 'src/main/index.ts'), 'utf8')
+    assert.match(main, /persistSessionState\(\{ scanTools: true, syncWrite: true \}\)/)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('extractCodexSessionId reads resume ids and ignores --last', () => {
   assert.equal(extractCodexSessionId('codex resume --last'), undefined)
   assert.equal(extractCodexSessionId('codex resume sess-abcd-1234'), 'sess-abcd-1234')

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 /**
@@ -48,6 +48,7 @@ export class ClaudeSessionBindings {
   private readonly settingsPath: string
   private readonly reportScriptPath: string
   private readonly reportCmdPath: string
+  private readonly bindingFileCache: ClaudeBindingsFileCache
   private settingsMaterialized = false
 
   /**
@@ -58,6 +59,7 @@ export class ClaudeSessionBindings {
   constructor(userDataDir: string, electronExe: string = process.execPath) {
     const dir = join(userDataDir, 'session-hooks')
     this.bindingsPath = join(dir, 'session-bindings.jsonl')
+    this.bindingFileCache = new ClaudeBindingsFileCache(this.bindingsPath)
     this.settingsPath = join(dir, 'settings.json')
     this.reportScriptPath = join(dir, 'report.js')
     this.reportCmdPath = join(dir, 'report.cmd')
@@ -82,8 +84,8 @@ export class ClaudeSessionBindings {
    * PTY run, PID AND creation time must all match. PID alone may be recycled;
    * the tab/run pair alone persists across sequential CLI launches.
    *
-   * Reads the bindings file on every call; a caller resolving several tabs in
-   * one pass should use `snapshot()` instead.
+   * Unchanged files reuse the parsed cache; a caller resolving several tabs in
+   * one pass should use `snapshot()` to share a consistent view.
    */
   sessionIdFor(
     tabId: string,
@@ -95,12 +97,11 @@ export class ClaudeSessionBindings {
   }
 
   /**
-   * A view of session-bindings.jsonl that reads and parses the file at most
-   * once, on its first lookup. Use one per persist pass and drop it afterwards:
-   * the file is append-only and a later pass must see what hooks wrote since.
+   * A lazy, consistent view for one persist pass. A fresh snapshot checks the
+   * file metadata and shares the existing parsed view when it has not changed.
    */
   snapshot(): ClaudeBindingsSnapshot {
-    return new ClaudeBindingsSnapshot(this.bindingsPath)
+    return new ClaudeBindingsSnapshot(() => this.bindingFileCache.snapshot())
   }
 
   /** Ensure the hook settings + report script exist on disk. Idempotent. */
@@ -171,19 +172,51 @@ export class ClaudeSessionBindings {
   }
 }
 
-/** See `ClaudeSessionBindings.snapshot()`. Matching rules live here, unchanged. */
-export class ClaudeBindingsSnapshot {
-  /** Raw lines; `undefined` until first lookup, `null` when the file is missing or unreadable. */
-  private lines: string[] | null | undefined
-  /**
-   * Lines parsed so far, by index (`null` = blank or not JSON). Lookups scan
-   * from the newest line and stop at the first match, as the per-tab reads
-   * did, so a long history is parsed only as far back as some lookup needs —
-   * and at most once per pass however many tabs ask.
-   */
-  private readonly parsed = new Map<number, ClaudeBinding | null>()
+interface CachedBindingFile {
+  lines: string[]
+  parsed: Map<number, ClaudeBinding | null>
+}
+
+/** Cache a complete immutable file view. Reporter processes append independently. */
+class ClaudeBindingsFileCache {
+  private metadata: { size: number; mtimeMs: number; ctimeMs: number } | null = null
+  private cached: CachedBindingFile | null = null
 
   constructor(private readonly bindingsPath: string) {}
+
+  snapshot(): CachedBindingFile | null {
+    try {
+      const stat = statSync(this.bindingsPath)
+      if (this.cached && this.metadata && stat.size === this.metadata.size &&
+          stat.mtimeMs === this.metadata.mtimeMs && stat.ctimeMs === this.metadata.ctimeMs) return this.cached
+      const lines = readFileSync(this.bindingsPath, 'utf8').split(/\r?\n/)
+      // If a reporter appended while reading, don't cache this view under stale
+      // metadata. The current pass still sees its coherent read; the next pass
+      // re-reads rather than accidentally treating a partial line as complete.
+      const after = statSync(this.bindingsPath)
+      const view = { lines, parsed: new Map<number, ClaudeBinding | null>() }
+      if (stat.size === after.size && stat.mtimeMs === after.mtimeMs && stat.ctimeMs === after.ctimeMs) {
+        this.metadata = { size: after.size, mtimeMs: after.mtimeMs, ctimeMs: after.ctimeMs }
+        this.cached = view
+      } else {
+        this.metadata = null
+        this.cached = null
+      }
+      return view
+    } catch {
+      this.metadata = null
+      this.cached = null
+      return null
+    }
+  }
+}
+
+/** See `ClaudeSessionBindings.snapshot()`. Matching rules live here, unchanged. */
+export class ClaudeBindingsSnapshot {
+  /** View is frozen on first lookup, even if the hook appends during a pass. */
+  private view: CachedBindingFile | null | undefined
+
+  constructor(private readonly loadView: () => CachedBindingFile | null) {}
 
   sessionIdFor(
     tabId: string,
@@ -192,10 +225,11 @@ export class ClaudeBindingsSnapshot {
     matchStartedMs: number | null,
   ): string | undefined {
     if (!Number.isSafeInteger(matchPid) || matchPid <= 0 || matchStartedMs === null) return undefined
-    const lines = this.load()
-    if (!lines) return undefined
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const b = this.bindingAt(lines, i)
+    if (this.view === undefined) this.view = this.loadView()
+    const view = this.view
+    if (!view) return undefined
+    for (let i = view.lines.length - 1; i >= 0; i--) {
+      const b = this.bindingAt(view, i)
       if (!b) continue
       // Strict: a binding only counts when BOTH the tab and the exact PTY run
       // match — a stale record from an earlier spawn of this tab must never be
@@ -212,23 +246,11 @@ export class ClaudeBindingsSnapshot {
     return undefined
   }
 
-  private load(): string[] | null {
-    if (this.lines !== undefined) return this.lines
-    this.lines = null
-    if (!existsSync(this.bindingsPath)) return null
-    try {
-      this.lines = readFileSync(this.bindingsPath, 'utf8').split(/\r?\n/)
-    } catch {
-      return null
-    }
-    return this.lines
-  }
-
-  private bindingAt(lines: string[], index: number): ClaudeBinding | null {
-    const cached = this.parsed.get(index)
+  private bindingAt(view: CachedBindingFile, index: number): ClaudeBinding | null {
+    const cached = view.parsed.get(index)
     if (cached !== undefined) return cached
     let binding: ClaudeBinding | null = null
-    const line = lines[index].trim()
+    const line = view.lines[index].trim()
     if (line) {
       try {
         binding = JSON.parse(line)
@@ -236,7 +258,7 @@ export class ClaudeBindingsSnapshot {
         binding = null
       }
     }
-    this.parsed.set(index, binding)
+    view.parsed.set(index, binding)
     return binding
   }
 }

@@ -102,6 +102,48 @@ test('the tool is looked up at most every 3s, and a trailing lookup catches a la
   finish(service)
 })
 
+test('background output uses a longer tool lookup interval', () => {
+  test.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 })
+  let calls = 0
+  const service = new TabContextService({
+    getCwd: () => '/work/a', getTool: () => { calls++; return null },
+    isActive: () => false, resolveRoot: (cwd) => cwd, send() {}
+  })
+  service.track('background')
+  service.noteOutput('background')
+  test.mock.timers.tick(250)
+  assert.equal(calls, 1)
+  test.mock.timers.tick(3000)
+  service.noteOutput('background')
+  test.mock.timers.tick(0)
+  assert.equal(calls, 1)
+  test.mock.timers.tick(12_000)
+  assert.equal(calls, 2)
+  finish(service)
+})
+
+test('switching to a dirty background tab advances its delayed tool lookup', () => {
+  test.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 })
+  let active = false
+  let calls = 0
+  const service = new TabContextService({
+    getCwd: () => '/work/a', getTool: () => { calls++; return null },
+    isActive: () => active, resolveRoot: (cwd) => cwd, send() {}
+  })
+  service.track('t')
+  service.noteOutput('t')
+  test.mock.timers.tick(250)
+  assert.equal(calls, 1)
+  service.noteOutput('t')
+  test.mock.timers.tick(4000)
+  assert.equal(calls, 1)
+  active = true
+  service.setActiveTab('t')
+  test.mock.timers.tick(0)
+  assert.equal(calls, 2)
+  finish(service)
+})
+
 test('a failing tool lookup keeps the previous tool', () => {
   const { state, service } = setup()
   state.tool = 'codex'
