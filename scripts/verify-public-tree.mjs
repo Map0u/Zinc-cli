@@ -250,6 +250,12 @@ function verifyVersions() {
       add('app/package.json', 1, 'release-version-invalid')
       return
     }
+    const publish = Array.isArray(authority.build?.publish) ? authority.build.publish : []
+    for (const entry of publish) {
+      if (entry?.provider === 'github' && (entry?.owner !== 'Map0u' || entry?.repo !== 'Zinc-cli')) {
+        add('app/package.json', 1, 'release-owner-mismatch')
+      }
+    }
   } catch {
     add('app/package.json', 1, 'json-parse-error')
     return
